@@ -129,3 +129,7 @@ npm run build:prod
 - 官网：[www.pickpen.net](https://www.pickpen.net)
 - 邮箱：[pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com)
 - 许可证：[MIT](LICENSE)
+
+如需人工支持，可扫描下方二维码添加客服微信：
+
+<img src="https://rrecurengine.com/images/pickpen-contact.jpg" alt="Pickpen 客服微信二维码" width="260">
