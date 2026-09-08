@@ -1,10 +1,10 @@
 {
 	"name": "pickpen-plugin",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "node esbuild.config.mjs production",
+		"build": "PICKPEN_ENV=prod node esbuild.config.mjs production",
 		"build:local": "PICKPEN_ENV=local node esbuild.config.mjs production",
 		"build:test": "PICKPEN_ENV=test node esbuild.config.mjs production",
 		"build:prod": "PICKPEN_ENV=prod node esbuild.config.mjs production",

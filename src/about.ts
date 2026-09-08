@@ -1,7 +1,7 @@
 // 设置页「关于与反馈」区块：产品简介、支持邮箱、微信群二维码、邮件反馈（自动带诊断上下文）。
 // 联系方式为常量（不随 data.json / 会话）；二维码为远程图，展示时自适应小尺寸（见 styles.css）。
 
-import { ButtonComponent, Notice, Setting } from "obsidian";
+import { ButtonComponent, Notice, Platform, Setting } from "obsidian";
 
 import { debugLog } from "./debug-log";
 import { openExternal } from "./external-link";
@@ -16,7 +16,7 @@ const FEEDBACK_TOPIC = "Pickpen Sync 反馈";
 
 // buildContext 收集诊断上下文，拼进反馈邮件正文（帮用户省去手抄排查信息）
 function buildContext(plugin: PickpenPlugin): string {
-	const isDesktop = navigator.userAgent.includes("Electron");
+	const isDesktop = Platform.isDesktopApp;
 	const buildLabel = BUILD_TAG ? `本地构建 ${BUILD_TAG}` : "正式版";
 	const lines: string[] = [];
 	lines.push(`插件版本：${plugin.manifest.version}（${buildLabel}）`);

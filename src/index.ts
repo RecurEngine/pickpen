@@ -170,7 +170,7 @@ export default class PickpenPlugin extends Plugin {
 			localBuilder: this.localBuilder,
 			remote: this.remote,
 			pluginDir: this.manifest.dir ?? "",
-			caseInsensitive: !navigator.userAgent.includes("Electron"), // 移动端 WKWebView 大小写不敏感
+			caseInsensitive: Platform.isMobileApp, // 移动端文件系统按大小写不敏感处理
 			initialStorageLimitExceeded: this.sessionStore.storageLimitAlertActive,
 			onStatus: (s) => {
 				syncState.update({
