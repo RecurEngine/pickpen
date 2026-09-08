@@ -1,0 +1,19 @@
+{
+  "cases": [
+    "empty",
+    "single-file",
+    "basic-tree",
+    "nfc-equivalence",
+    "case-sensitive",
+    "tombstone-with-children",
+    "utf8-byte-order",
+    "long-path",
+    "deep-nesting",
+    "317-entries",
+    "empty-dir",
+    "dir-only-tree",
+    "dir-with-files",
+    "tombstoned-dir",
+    "dir-file-siblings"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "tombstone-with-children",
+  "schema_version": 2,
+  "entries": {
+    "foo": {
+      "state": "deleted"
+    },
+    "foo/bar.md": {
+      "state": "active",
+      "content_hash": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+      "size": "5"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "foo": "e5fe415e56fe49610170df6fa9e0f3be9aeb882bf9a4a0931d870eb4b2c9d417",
+      "foo/bar.md": "f0fb9951b77dff2be8828b75d16f76e021cb90cfff7b4e174f421c50e75958d4"
+    },
+    "root_hash": "ff5f3466a6f3dc032bbbcfbe3f9d5f95458d42ea2012846b08a827a0e2719107"
+  }
+}

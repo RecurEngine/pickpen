@@ -1,0 +1,17 @@
+{
+  "name": "long-path",
+  "schema_version": 2,
+  "entries": {
+    "segment-00-abcdefghijklmnop/segment-01-abcdefghijklmnop/segment-02-abcdefghijklmnop/segment-03-abcdefghijklmnop/segment-04-abcdefghijklmnop/segment-05-abcdefghijklmnop/segment-06-abcdefghijklmnop/segment-07-abcdefghijklmnop/segment-08-abcdefghijklmnop": {
+      "state": "active",
+      "content_hash": "fc66f021c67d064c1490a12b5a4d4d2f5167ca692a16ca12f1f3a4cda29a6fa9",
+      "size": "7"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "segment-00-abcdefghijklmnop/segment-01-abcdefghijklmnop/segment-02-abcdefghijklmnop/segment-03-abcdefghijklmnop/segment-04-abcdefghijklmnop/segment-05-abcdefghijklmnop/segment-06-abcdefghijklmnop/segment-07-abcdefghijklmnop/segment-08-abcdefghijklmnop": "092da5f1966c6348c9c066a0bbbe286d53675c65ea7007d8f5be3b543c254b7e"
+    },
+    "root_hash": "3ed09ac4a6ca4aa8ca32a97eaaf2268e8d40b7fbc68bdc6c249de4b595f139e2"
+  }
+}

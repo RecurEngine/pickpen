@@ -1,0 +1,16 @@
+{
+  "name": "empty-dir",
+  "schema_version": 2,
+  "entries": {
+    "notes": {
+      "state": "active",
+      "kind": 2
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "notes": "8cf4ff35d2ecb0b78c040f68903b734a0174b53f96c00d0ac34f8a8bf9572784"
+    },
+    "root_hash": "8a4e3c6567b300e04b7f0b7e39c9346f93dbcdc14aa5882e1749c7597b3031d1"
+  }
+}

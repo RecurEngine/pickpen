@@ -1,0 +1,9 @@
+{
+  "name": "empty",
+  "schema_version": 2,
+  "entries": {},
+  "expected": {
+    "leaf_hashes": {},
+    "root_hash": "072d78fbe0f2f95c19a7ec8d5c56c12274787f20b7d99782946462324cfcd82e"
+  }
+}

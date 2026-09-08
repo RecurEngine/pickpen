@@ -1,0 +1,9 @@
+# IDE
+.idea/
+.DS_Store
+
+# 依赖
+node_modules/
+
+# 生成物
+main.js

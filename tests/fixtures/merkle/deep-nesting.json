@@ -1,0 +1,17 @@
+{
+  "name": "deep-nesting",
+  "schema_version": 2,
+  "entries": {
+    "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/leaf.md": {
+      "state": "active",
+      "content_hash": "74611c1d6455b534323a21f8133a6f43dc3a8188e7b946f96dcc28dde932fcb2",
+      "size": "9"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/leaf.md": "f1be6f7e1088320cea60f907ecfe7570deea91188534566126cdbbf7dbd44d5b"
+    },
+    "root_hash": "39f4465b4b1e7f1713bcaff1ccfa64ede0e9c293eb0ce547f30169ea8d0a984b"
+  }
+}

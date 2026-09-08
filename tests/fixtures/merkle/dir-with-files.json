@@ -1,0 +1,34 @@
+{
+  "name": "dir-with-files",
+  "schema_version": 2,
+  "entries": {
+    "notes": {
+      "state": "active",
+      "kind": 2
+    },
+    "notes/2026/plan.md": {
+      "state": "active",
+      "content_hash": "a9dc602f9d82bc6720b2b4bb016edcacf7da4b2b453a466b742da743f3cba15d",
+      "size": "2"
+    },
+    "notes/a.md": {
+      "state": "active",
+      "content_hash": "aa58b21b01d6b8a99c1a5856962dbac36c758a79dc0a77c2e013ce2c39ecdc8a",
+      "size": "1"
+    },
+    "photos/b.jpg": {
+      "state": "active",
+      "content_hash": "3315f44da4a7aaaf8d84382c7583233f697787f5871294ed49cd41207f7375a0",
+      "size": "3"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "notes": "8cf4ff35d2ecb0b78c040f68903b734a0174b53f96c00d0ac34f8a8bf9572784",
+      "notes/2026/plan.md": "0b966b1d050a260440b2fc7df398c2ef037fe447efbe38faea255cf7f0315a0a",
+      "notes/a.md": "f1a5253a3630224346d1bc6ce9e718fb6f7ecc2a3db4667335a8bff518649a37",
+      "photos/b.jpg": "4b0e1f586fe1449cfc0edefef407dcd4f44b78f46ccbc452248d87cd7de383b4"
+    },
+    "root_hash": "dcfa549bff04e297d0c13bec264d8422377a5706f9fc00ef9139d54a6409ba95"
+  }
+}

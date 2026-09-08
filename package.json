@@ -1,0 +1,32 @@
+{
+	"name": "pickpen-plugin",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "node esbuild.config.mjs production",
+		"build:local": "PICKPEN_ENV=local node esbuild.config.mjs production",
+		"build:test": "PICKPEN_ENV=test node esbuild.config.mjs production",
+		"build:prod": "PICKPEN_ENV=prod node esbuild.config.mjs production",
+		"dev": "node esbuild.config.mjs",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"dependencies": {
+		"@bufbuild/protobuf": "2.13.0",
+		"@connectrpc/connect": "2.1.1",
+		"@connectrpc/connect-web": "2.1.1",
+		"diff": "^9.0.0",
+		"qrcode": "^1.5.4"
+	},
+	"devDependencies": {
+		"@types/node": "^26.2.0",
+		"@types/qrcode": "^1.5.6",
+		"builtin-modules": "^5.0.0",
+		"esbuild": "^0.25.0",
+		"obsidian": "^1.8.7",
+		"typescript": "6.0.3",
+		"vitest": "^3.2.4"
+	}
+}

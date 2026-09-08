@@ -1,0 +1,35 @@
+{
+  "name": "utf8-byte-order",
+  "schema_version": 2,
+  "entries": {
+    "A/y.md": {
+      "state": "active",
+      "content_hash": "844ecc08164e2eab27634a9adee1afa6599e589570e719784e080ce747fc0e45",
+      "size": "1"
+    },
+    "a/x.md": {
+      "state": "active",
+      "content_hash": "ec31682fde561917952ff78a7a8adeffd0febc372dd26871916c46c630381b45",
+      "size": "1"
+    },
+    "á/w.md": {
+      "state": "active",
+      "content_hash": "7985b0c8b858e77f57c6d403b315ade04d2485d6ec2d09694256eadd20db6f27",
+      "size": "1"
+    },
+    "中文/z.md": {
+      "state": "active",
+      "content_hash": "844b69c4d54cc264bc2dadb6bb70f53bc123beafc0f58d81ed8cd4a07c24a5a7",
+      "size": "1"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "A/y.md": "5bf2262c0a75f0416fd248d7549212ef8741a3eab3dd44779cd7ad14713828a6",
+      "a/x.md": "474324f4ce43f24871567113a48ae87a8596e9ea487b0cd7a625418da8654f5a",
+      "á/w.md": "1765363f8541f4dadbf6cfcb9cd02c02c7f69eeee01e8b152fecf511560b18e8",
+      "中文/z.md": "e257b32d9b1ea3239d7ff850920333ddcf7f7c97f1a3266142ea110bd0f7906b"
+    },
+    "root_hash": "3c0c29c5315728c923b37721c9ced02e801dc6ca1e307b85ace40ae5f91da13e"
+  }
+}

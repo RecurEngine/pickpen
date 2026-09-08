@@ -1,0 +1,23 @@
+{
+  "name": "case-sensitive",
+  "schema_version": 2,
+  "entries": {
+    "A.md": {
+      "state": "active",
+      "content_hash": "aee610558292023758a4229ddcf75f167c9904313a83cf795232ed7f7e2131c9",
+      "size": "11"
+    },
+    "a.md": {
+      "state": "active",
+      "content_hash": "8c6fb1e9e37a1aea1d308c785192e1a17d71cef08c7f50a68d2e0ab292b2e7f4",
+      "size": "12"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "A.md": "adb8c2204b80f73649191272b22ed5b6a55d26600c98dc545b5ab70c9e6c8603",
+      "a.md": "4510209b969ced35317843c2afb87fa0dae9c1645b13868db2ad3397d99c4a38"
+    },
+    "root_hash": "80103b6d81b01c38fe10747397396673416c4d98144da9372fc3083dc8f0598e"
+  }
+}

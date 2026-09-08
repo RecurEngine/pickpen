@@ -1,0 +1,17 @@
+{
+  "name": "single-file",
+  "schema_version": 2,
+  "entries": {
+    "a.md": {
+      "state": "active",
+      "content_hash": "fecccc97532467adbf93017b357c8b17e0c75527df76a143de5cfecc2613f615",
+      "size": "42"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "a.md": "6c2ff257f39e1294477d95c7a23ea85c1d73b9e192d6947df7cec92d74aa45ef"
+    },
+    "root_hash": "01c14cff278c0116ac332dca4d375adbad12b9161e188ba017a7cc08b12315fc"
+  }
+}

@@ -1,0 +1,1051 @@
+/* Pickpen Sync 设置与仓库管理：状态卡片、仓库卡片与诊断信息样式（跟随 Obsidian 主题变量） */
+
+.pickpen-clipboard-fallback {
+	position: fixed;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.pickpen-status-card {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	/* 状态是「账号和仓库」卡片内的第一行，不再单独嵌套卡片。 */
+	padding: var(--setting-items-padding-y, var(--size-4-4)) 0;
+	margin: 0;
+	background: transparent;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.pickpen-status-dot {
+	flex: none;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--text-muted);
+}
+
+.pickpen-status-card.is-green .pickpen-status-dot {
+	background: var(--color-green, #4caf50);
+}
+
+.pickpen-status-card.is-red .pickpen-status-dot {
+	background: var(--color-red, #e05252);
+}
+
+.pickpen-status-card.is-yellow .pickpen-status-dot {
+	background: var(--color-yellow, #d29922);
+}
+
+.pickpen-status-card.is-syncing .pickpen-status-dot {
+	animation: pickpen-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pickpen-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+
+/* 单行状态文案：超长（如错误详情）省略号截断 */
+.pickpen-status-text {
+	flex: 1;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: var(--font-ui-medium);
+	color: var(--text-normal);
+}
+
+/* 容量已满期间 Ribbon 始终保留真实 DOM 红点；点击图标可重新打开处理弹窗。 */
+.pickpen-ribbon-storage-full {
+	position: relative;
+	color: var(--color-red, #e05252);
+}
+
+.pickpen-mobile-ribbon-storage-full .menu-item-icon {
+	position: relative;
+	color: var(--color-red, #e05252);
+}
+
+.pickpen-ribbon-badge {
+	display: block;
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 8px;
+	height: 8px;
+	border: 2px solid var(--background-primary);
+	border-radius: 50%;
+	background: var(--color-red, #e05252);
+	pointer-events: none;
+	z-index: 2;
+}
+
+.pickpen-storage-limit-modal {
+	width: min(480px, 92vw);
+}
+
+.pickpen-storage-limit-message {
+	margin-bottom: var(--size-4-4);
+	line-height: var(--line-height-normal);
+}
+
+/* ===== 桌面订阅与支付宝付款 ===== */
+
+/* 一级标题下的内容统一放进一个背景框，并继续使用 Obsidian 主题变量。 */
+.pickpen-settings-section,
+.pickpen-subscription {
+	/* 左右边界由 Obsidian 的设置内容区统一提供。 */
+	margin: 0 0 var(--size-4-6);
+	padding: 0 var(--size-4-4);
+	background: var(--background-secondary);
+	border-radius: var(--radius-l, var(--radius-m));
+}
+
+/*
+ * 主题可能会给 setting-item 单独加底色或圆角；分组内统一清除，确保只有
+ * 外层分组是一张卡片。按钮、输入框、下拉框等控件仍保留 Obsidian 原生样式。
+ */
+.pickpen-settings-section > .setting-item,
+.pickpen-subscription > .setting-item {
+	padding: var(--setting-items-padding-y, var(--size-4-4)) 0;
+	margin-bottom: 0;
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+/*
+ * 显式补齐系统设置同款分隔线，不依赖主题是否覆盖 Obsidian 默认规则。
+ * 账号区的第一条 Setting 位于自定义状态行之后，因此也需要显示顶部分隔线。
+ */
+.pickpen-settings-section > .setting-item:not(:first-child),
+.pickpen-subscription > :not(:first-child) {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+/* 每组第一项不显示顶部边线。 */
+.pickpen-settings-section > .setting-item:first-child,
+.pickpen-subscription > .setting-item:first-child {
+	border-top: 0;
+}
+
+.pickpen-subscription-loading {
+	padding: var(--size-4-3) 0;
+	color: var(--text-muted);
+}
+
+.pickpen-subscription.is-focused {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+
+.pickpen-subscription-card {
+	padding: var(--setting-items-padding-y, var(--size-4-4)) 0;
+	margin: 0;
+	background: transparent;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+.pickpen-subscription-current {
+	font-weight: 600;
+	font-size: var(--font-ui-medium);
+}
+
+.pickpen-subscription-meta,
+.pickpen-subscription-schedule-item {
+	margin-top: var(--size-4-1);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.pickpen-subscription-quotas {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--size-4-2) var(--size-4-6);
+	padding-top: var(--size-4-3);
+	margin-top: var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.pickpen-subscription-quota {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.pickpen-subscription-quota-label {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.pickpen-subscription-quota-value {
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+	text-align: right;
+}
+
+@media (max-width: 480px) {
+	.pickpen-subscription-quotas {
+		grid-template-columns: 1fr;
+	}
+}
+
+.pickpen-subscription-schedule {
+	padding-top: var(--size-4-2);
+	margin-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.pickpen-subscription-schedule-title {
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+}
+
+.pickpen-subscription-price {
+	padding: var(--setting-items-padding-y, var(--size-4-4)) 0;
+	background: transparent;
+	border-radius: 0;
+	box-shadow: none;
+	text-align: right;
+	font-weight: 600;
+	color: var(--text-accent);
+}
+
+.pickpen-subscription-quantity {
+	width: 72px;
+	text-align: center;
+}
+
+.pickpen-subscription-payment-modal {
+	width: min(420px, 90vw);
+}
+
+.pickpen-payment-summary {
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.pickpen-payment-amount {
+	margin-top: var(--size-4-1);
+	font-size: 28px;
+	font-weight: 700;
+	color: var(--text-normal);
+}
+
+.pickpen-payment-qr {
+	display: block;
+	width: 260px;
+	height: 260px;
+	max-width: 100%;
+	margin: var(--size-4-4) auto;
+	padding: 8px;
+	background: #fff;
+	border-radius: var(--radius-m);
+}
+
+.pickpen-payment-status,
+.pickpen-payment-countdown {
+	text-align: center;
+	font-size: var(--font-ui-small);
+}
+
+.pickpen-payment-status.is-success {
+	font-weight: 600;
+	color: var(--color-green, #4caf50);
+}
+
+.pickpen-payment-countdown {
+	margin-top: var(--size-4-1);
+	color: var(--text-muted);
+}
+
+.pickpen-payment-actions {
+	display: flex;
+	justify-content: center;
+	margin-top: var(--size-4-4);
+}
+
+/* 诊断信息等宽展示 */
+.pickpen-mono {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+
+/* ===== 仓库管理弹窗：卡片化布局（跟随 Obsidian 主题变量） ===== */
+
+/* 弹窗加宽：默认 ~520px 下名称+徽标+三按钮偏挤；小窗口自动回落 90vw */
+.pickpen-vault-manager-modal {
+	width: min(620px, 90vw);
+}
+
+/* 标题行：h3 与「刷新列表」同行 */
+.pickpen-vault-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-3);
+	margin-bottom: var(--size-4-2);
+}
+
+.pickpen-vault-header h3 {
+	margin: 0; /* flex 容器内 h3 默认 margin 会造成垂直错位 */
+}
+
+/* 顶部绑定状态提示（muted 文字色继承自 .setting-item-description） */
+.pickpen-vault-desc {
+	margin: 0 0 var(--size-4-1);
+}
+
+.pickpen-vault-quota {
+	margin: 0 0 var(--size-4-3);
+	font-weight: 600;
+}
+
+/* 卡片列表容器：仓库较多时列表区内滚动 */
+.pickpen-vault-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	max-height: 55vh;
+	overflow-y: auto;
+}
+
+/* 仓库卡片（新建表单卡片复用此样式） */
+.pickpen-vault-card {
+	padding: var(--size-4-3) var(--size-4-4);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+/* 当前绑定卡片：绿色描边 + 浅绿 tint（不支持 color-mix 时退回基础底色） */
+.pickpen-vault-card.is-current {
+	border-color: var(--color-green, #4caf50);
+	background: color-mix(in srgb, var(--color-green, #4caf50) 8%, var(--background-secondary));
+}
+
+/* 头部行：名称 + 徽标组 */
+.pickpen-vault-card-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.pickpen-vault-card-name {
+	flex: 1;
+	min-width: 0;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pickpen-vault-badges {
+	flex: none;
+	display: flex;
+	gap: var(--size-4-2);
+}
+
+/* 状态徽标（胶囊） */
+.pickpen-vault-badge {
+	flex: none;
+	padding: 1px 8px;
+	border-radius: 999px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.6;
+	white-space: nowrap;
+}
+
+.pickpen-vault-badge.is-empty {
+	background: var(--background-modifier-hover);
+	color: var(--text-muted);
+}
+
+.pickpen-vault-badge.is-bound {
+	background: var(--background-modifier-hover); /* 降级底色（不支持 color-mix 时） */
+	color: var(--color-green, #4caf50);
+	background: color-mix(in srgb, var(--color-green, #4caf50) 18%, transparent);
+}
+
+/* 底部行：revision 信息（左）+ 操作按钮组（右） */
+.pickpen-vault-card-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-2);
+}
+
+.pickpen-vault-meta {
+	flex: 1;
+	min-width: 0;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pickpen-vault-actions {
+	flex: none;
+	display: flex;
+	gap: var(--size-4-2);
+}
+
+/* 行内编辑/删除确认态：替换卡片内容区（卡片壳保留，布局稳定） */
+.pickpen-vault-edit {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.pickpen-vault-edit input {
+	flex: 1;
+	min-width: 0;
+}
+
+.pickpen-vault-confirm-text {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-error);
+}
+
+/* 新建仓库表单卡片 */
+.pickpen-vault-create {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+}
+
+.pickpen-vault-create input {
+	flex: 1;
+	min-width: 0;
+}
+
+/* 加载中 / 空列表 / 错误提示 */
+.pickpen-vault-message {
+	padding: var(--size-4-4) 0;
+	text-align: center;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.pickpen-vault-message.is-error {
+	color: var(--text-error);
+}
+
+/* ===== 版本历史弹窗 ===== */
+.pickpen-history-modal {
+	width: min(880px, 92vw);
+	height: min(72vh, 680px);
+}
+
+/* 内容使用 flex 纵向布局。 */
+.pickpen-history-modal .modal-content {
+	display: flex;
+	flex-direction: column;
+}
+
+/* 固定高度：头部固定、双栏占剩余空间各自内部滚动。 */
+.pickpen-history-modal .modal-content {
+	height: 100%;
+	overflow: hidden;
+}
+
+.pickpen-history-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-3);
+	margin-bottom: var(--size-4-2);
+	flex: none;
+}
+
+.pickpen-history-header h3 {
+	margin: 0;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pickpen-history-path {
+	margin: 0 0 var(--size-4-3);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex: none;
+}
+
+.pickpen-history-split {
+	display: flex;
+	gap: var(--size-4-3);
+	flex: 1;
+	min-height: 0;
+}
+
+/* 左列表（窄而紧凑：时间靠左、大小靠右，中间空隙小） */
+.pickpen-history-list-pane {
+	flex: none;
+	width: 200px;
+	overflow-y: auto;
+	border-right: 1px solid var(--background-modifier-border);
+	padding-right: var(--size-4-2);
+}
+
+.pickpen-history-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.pickpen-history-item {
+	padding: var(--size-4-1) var(--size-4-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	cursor: pointer;
+}
+
+.pickpen-history-item:hover {
+	background: var(--background-modifier-hover);
+}
+
+.pickpen-history-item.is-selected {
+	border-color: var(--interactive-accent);
+}
+
+.pickpen-history-item-meta {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+}
+
+/* 时间靠左（自然宽度，过长省略）；大小 margin-left:auto 推到最右，徽标紧跟其后 */
+.pickpen-history-item-time {
+	flex: 0 1 auto;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pickpen-history-item-size {
+	flex: none;
+	margin-left: auto;
+}
+
+.pickpen-history-badge {
+	flex: none;
+	padding: 1px 8px;
+	border-radius: 999px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.6;
+	white-space: nowrap;
+}
+
+.pickpen-history-badge.is-deleted {
+	background: color-mix(in srgb, var(--color-red, #e05252) 18%, transparent);
+	color: var(--color-red, #e05252);
+}
+
+.pickpen-history-item-path {
+	margin-top: 1px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* 右预览 */
+.pickpen-history-pane {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.pickpen-history-preview-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	flex-wrap: wrap;
+	margin-bottom: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.pickpen-history-preview-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+
+.pickpen-history-restore {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.pickpen-history-desktop-actions {
+	flex-wrap: wrap;
+}
+
+.pickpen-history-diff-setting {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	font-size: var(--font-ui-small);
+	white-space: nowrap;
+}
+
+.pickpen-history-desktop-actions .pickpen-history-diff-setting {
+	margin-right: auto;
+}
+
+.pickpen-history-confirm-text {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-error);
+}
+
+.pickpen-history-load-more {
+	margin-top: var(--size-4-2);
+	text-align: center;
+}
+
+/* ===== 版本历史 diff 视图（行级 + 行内字符高亮） ===== */
+
+.pickpen-history-diff {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.5;
+}
+
+.pickpen-diff-line {
+	display: flex;
+	gap: 6px;
+	padding: 0 var(--size-4-2);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.pickpen-diff-gutter {
+	flex: none;
+	color: var(--text-muted);
+	user-select: none;
+}
+
+.pickpen-diff-line.is-add {
+	background: color-mix(in srgb, var(--color-green, #4caf50) 12%, transparent);
+}
+
+.pickpen-diff-line.is-del {
+	background: color-mix(in srgb, var(--color-red, #e05252) 12%, transparent);
+}
+
+/* 行内变化段：比整行底色更深一档 */
+.pickpen-diff-inner.is-add {
+	background: color-mix(in srgb, var(--color-green, #4caf50) 30%, transparent);
+	border-radius: 2px;
+}
+
+.pickpen-diff-inner.is-del {
+	background: color-mix(in srgb, var(--color-red, #e05252) 30%, transparent);
+	border-radius: 2px;
+}
+
+/* ===== 版本历史移动端：桌面同款列表 / 详情两级页面 ===== */
+
+.pickpen-history-modal.is-mobile {
+	width: 100vw;
+	max-width: none;
+	height: calc(100vh - max(env(safe-area-inset-top), 44px));
+	max-height: none;
+	margin-top: max(env(safe-area-inset-top), 44px);
+	padding: 0;
+	border-radius: 28px 28px 0 0;
+	background: var(--background-primary);
+	overflow: hidden;
+}
+
+.pickpen-history-modal.is-mobile .modal-content {
+	height: auto;
+	flex: 1;
+	min-height: 0;
+	padding: 0;
+	overflow: hidden;
+}
+
+.pickpen-history-mobile-content {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.pickpen-history-modal.is-mobile .pickpen-history-mobile-header {
+	position: relative;
+	display: block;
+	height: 60px;
+	align-items: center;
+	min-height: 60px;
+	padding: 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	flex: none;
+}
+
+.pickpen-history-mobile-header .modal-title {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: calc(100% - 160px);
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+	line-height: 1.2;
+	text-align: center;
+	transform: translate(-50%, -50%);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pickpen-history-mobile-main {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	flex-direction: column;
+	background: var(--background-primary);
+}
+
+.pickpen-history-list.is-mobile {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	padding: 10px 16px max(20px, env(safe-area-inset-bottom));
+	overflow-y: auto;
+}
+
+.pickpen-history-mobile-item {
+	min-height: 44px;
+	padding: var(--size-4-2) var(--size-4-3);
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+}
+
+.pickpen-history-mobile-item:active {
+	opacity: 0.65;
+}
+
+.pickpen-history-mobile-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 60px;
+	padding: 8px 40px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	flex: none;
+}
+
+.pickpen-history-mobile-diff-setting {
+	gap: 6px;
+	margin-right: 28px;
+	font-size: 16px;
+}
+
+.pickpen-history-mobile-actions > button {
+	min-height: 44px;
+	padding: 0 14px;
+	border: 0;
+	border-radius: 22px;
+	background: var(--background-modifier-hover);
+	box-shadow: none;
+	font-size: 16px;
+	white-space: nowrap;
+}
+
+.pickpen-history-mobile-diff-setting .checkbox-container {
+	width: 34px;
+	height: 20px;
+}
+
+.pickpen-history-mobile-diff-setting .checkbox-container::after {
+	width: 16px;
+	height: 16px;
+	margin: 2px;
+}
+
+.pickpen-history-mobile-diff-setting .checkbox-container.is-enabled::after {
+	transform: translate3d(14px, 0, 0);
+}
+
+.pickpen-history-preview-head.is-mobile {
+	margin: 0;
+	padding: 8px 24px 0;
+	font-size: 14px;
+	background: var(--background-primary);
+}
+
+.pickpen-history-preview-head.is-mobile:empty {
+	display: none;
+}
+
+.pickpen-history-preview-body.is-mobile {
+	padding: 24px 24px max(28px, env(safe-area-inset-bottom));
+	background: var(--background-primary);
+	font-size: 16px;
+	line-height: 1.45;
+}
+
+.pickpen-history-preview-body.is-mobile > .markdown-preview-sizer {
+	min-height: 0;
+	padding: 0;
+	margin: 0;
+}
+
+.pickpen-history-preview-body.is-mobile .markdown-preview-section {
+	font-size: 16px;
+	line-height: 1.5;
+}
+
+.pickpen-history-preview-body.is-mobile .markdown-preview-section h1 {
+	font-size: 1.6em;
+}
+
+.pickpen-history-preview-body.is-mobile .markdown-preview-section h2 {
+	font-size: 1.35em;
+}
+
+.pickpen-history-preview-body.is-mobile .markdown-preview-section h3 {
+	font-size: 1.15em;
+}
+
+.pickpen-history-preview-body.is-mobile .markdown-preview-section pre,
+.pickpen-history-preview-body.is-mobile .markdown-preview-section code {
+	font-size: 0.9em;
+}
+
+.pickpen-history-preview-body.is-mobile .pickpen-history-diff {
+	font-size: 15px;
+}
+
+.pickpen-history-restore.is-mobile {
+	display: flex;
+	flex-wrap: wrap;
+	margin: 0;
+	padding: 0 24px;
+	background: var(--background-secondary);
+}
+
+.pickpen-history-restore.is-mobile:not(:empty) {
+	padding-top: 10px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pickpen-history-loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	min-height: 96px;
+	padding: 20px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.pickpen-history-spinner {
+	width: 20px;
+	height: 20px;
+	border: 2px solid var(--background-modifier-border);
+	border-top-color: var(--interactive-accent);
+	border-radius: 50%;
+	animation: pickpen-history-spin 0.8s linear infinite;
+}
+
+.pickpen-history-load-error {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 16px;
+}
+
+@keyframes pickpen-history-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (max-width: 430px) {
+	.pickpen-history-mobile-actions {
+		gap: 6px;
+		padding-right: 16px;
+		padding-left: 24px;
+	}
+
+	.pickpen-history-mobile-diff-setting {
+		gap: 6px;
+		margin-right: 12px;
+		font-size: 16px;
+	}
+
+	.pickpen-history-mobile-actions > button {
+		min-height: 42px;
+		padding: 0 12px;
+		font-size: 15px;
+	}
+}
+
+/* —— 调试日志面板（设置页，见 settings.ts renderDebugSection） —— */
+.pickpen-debug-log {
+	margin-top: 8px;
+}
+
+.pickpen-debug-log-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 4px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+/* 提醒效果预览：“已超限”Notice 的警示配色（真实提醒接入后沿用） */
+.pickpen-notice-alert {
+	background: var(--background-modifier-error, #e5534b) !important;
+	color: var(--text-on-accent, #fff);
+}
+
+/* 工具按钮（复制/清空）：小号中性，不抢视觉 */
+.pickpen-debug-log-bar button {
+	min-height: 0;
+	padding: 2px 10px;
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+/* 级别下拉交由 Obsidian Dropdown 组件自带主题样式，无额外覆盖 */
+
+/* ===== 关于与反馈（settings.ts → about.ts） ===== */
+/* 整块文本左对齐（移动端部分主题对设置项默认居中，这里统一纠正） */
+.pickpen-about {
+	text-align: left;
+}
+
+.pickpen-about .setting-item-description,
+.pickpen-about .pickpen-about-intro,
+.pickpen-about .pickpen-contact-qr-fallback {
+	text-align: left;
+}
+
+.pickpen-about-intro {
+	line-height: 1.7;
+	color: var(--text-normal);
+}
+
+/* 微信二维码：自适应小尺寸（原图 912×1354 竖图），窄屏随视口收缩，避免占太大 */
+.pickpen-contact-qr {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 0 10px;
+}
+
+.pickpen-contact-qr-actions {
+	/* 大图打开按钮行：普通尺寸即可，不做大 */
+}
+
+.pickpen-contact-qr img {
+	width: min(150px, 38vw);
+	height: auto; /* 按宽高比自动，912×1354 → 显示约 150×223 */
+	border-radius: 8px;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+	background: #fff; /* 二维码四周留白兜底 */
+}
+
+.pickpen-contact-qr-fallback {
+	font-size: 12px;
+	color: var(--text-muted);
+	text-align: left;
+	word-break: break-all;
+}
+
+/* ===== 设置整页标题下移：高特异性 + !important，防被 Obsidian 主题 h2 规则覆盖 ===== */
+.pickpen-settings-heading {
+	/* 小屏/窄窗口明显下移，避开顶部导航/安全区；宽屏仅保留观感间隙 */
+	margin-top: calc(env(safe-area-inset-top, 0px) + var(--size-4-3)) !important;
+	scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 64px) !important;
+}
+
+@media (max-width: 1000px) {
+	.pickpen-settings-heading {
+		margin-top: calc(env(safe-area-inset-top, 0px) + 44px) !important;
+	}
+}
+
+.pickpen-debug-log-box {
+	max-height: 260px;
+	min-height: 140px; /* 无日志时也保留可读的默认高度 */
+	overflow-y: auto;
+	margin-top: 2px;
+	padding: 6px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+	font-family: var(--font-monospace);
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.pickpen-debug-log-empty {
+	color: var(--text-faint);
+}
+
+.pickpen-dbg-line {
+	padding: 0;
+}
+
+.pickpen-dbg-line.is-error {
+	color: var(--text-error);
+}
+
+.pickpen-dbg-line.is-warn {
+	color: var(--text-warning);
+}
+
+.pickpen-dbg-line.is-debug {
+	color: var(--text-muted);
+}
+
+.pickpen-dbg-line.is-info {
+	color: var(--text-normal);
+}

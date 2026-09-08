@@ -1,0 +1,45 @@
+{
+  "name": "basic-tree",
+  "schema_version": 2,
+  "entries": {
+    "archive/removed.md": {
+      "state": "deleted"
+    },
+    "daily/2026-08-27.md": {
+      "state": "active",
+      "content_hash": "d63dd6d00c21b9ed1b70e868ea2efa4f1b92733bbf9b3fd51786a7a505d81e9d",
+      "size": "300"
+    },
+    "daily/2026-08-28.md": {
+      "state": "active",
+      "content_hash": "76c68db2a547cca3d61521f81e40208209f5b880b995a5ab40ebdd353d83cd14",
+      "size": "1250"
+    },
+    "project/a.md": {
+      "state": "active",
+      "content_hash": "9513229d435978263d82902c59d4e0fb86c941a9bf09b605cd8a6643f40149a8",
+      "size": "1"
+    },
+    "project/sub/b.md": {
+      "state": "active",
+      "content_hash": "3315f44da4a7aaaf8d84382c7583233f697787f5871294ed49cd41207f7375a0",
+      "size": "2"
+    },
+    "root.md": {
+      "state": "active",
+      "content_hash": "4813494d137e1631bba301d5acab6e7bb7aa74ce1185d456565ef51d737677b2",
+      "size": "3"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "archive/removed.md": "e715519c42116bdece21f310f7d94d54482131b9f87d1536454aa1146b771d79",
+      "daily/2026-08-27.md": "9aa149f98199e9b510ba2332622e3acb700926aa87431c5d991f007d82eedd33",
+      "daily/2026-08-28.md": "3ef346a146ef23956b988b168c73a7f049121e6f5cff77a032b66c59e73ea204",
+      "project/a.md": "7ce8a2a5b7812c103bce80d5bea7c4aea2e6be05e9ac631dbe830d1fc6821a52",
+      "project/sub/b.md": "7a32412cfc435868759648627ca9aee7495daa96856775452c5e0dc35e9c3ee6",
+      "root.md": "f073c39f26e57a6d70dae382b6659cc3e5587b851055e8dbef69018e352ad2f7"
+    },
+    "root_hash": "7ec882e5ab6ef76d6cae1a4a1ad9afa77d2ece2c83623de88ce6a3d4b3a6b7b9"
+  }
+}

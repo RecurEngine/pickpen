@@ -1,0 +1,26 @@
+{
+  "name": "dir-only-tree",
+  "schema_version": 2,
+  "entries": {
+    "notes": {
+      "state": "active",
+      "kind": 2
+    },
+    "notes/2026": {
+      "state": "active",
+      "kind": 2
+    },
+    "notes/2026/1": {
+      "state": "active",
+      "kind": 2
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "notes": "8cf4ff35d2ecb0b78c040f68903b734a0174b53f96c00d0ac34f8a8bf9572784",
+      "notes/2026": "2e7b86c236abdda461fc30e9d4becc37957bbe05022dc89f2321c0d95bf520b2",
+      "notes/2026/1": "eeb013e747a7b17fddd5171c6936406e2b1580803df2a658e20ebacb27232ae2"
+    },
+    "root_hash": "7411401fdcd431ae9114c0e55651be8532c6719c839ea5212994bd26d30ffe00"
+  }
+}

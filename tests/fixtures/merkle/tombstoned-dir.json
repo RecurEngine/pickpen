@@ -1,0 +1,22 @@
+{
+  "name": "tombstoned-dir",
+  "schema_version": 2,
+  "entries": {
+    "notes": {
+      "state": "deleted",
+      "kind": 2
+    },
+    "notes/a.md": {
+      "state": "active",
+      "content_hash": "76592b9de6d38238a52a3651867871e5c670e6320a8ef46a84b5590f8933f33e",
+      "size": "4"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "notes": "c9db85a422684c2e6030befa6c8c19a20a28c25b8b6ed1b4ee692c8c25344a76",
+      "notes/a.md": "4a6020d8141801d0e573585d3e344e7dbb19622dc20441b00cc3810345e0ba4c"
+    },
+    "root_hash": "dba76ce52cbda1560297ada4579b4029b3a2b54e5db1ab60abe95cc1ef7ea4d4"
+  }
+}

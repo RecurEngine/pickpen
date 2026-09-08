@@ -1,0 +1,17 @@
+{
+  "name": "nfc-equivalence",
+  "schema_version": 2,
+  "entries": {
+    "café.md": {
+      "state": "active",
+      "content_hash": "8c8a7a3c5ef6f3ecc78042144c3744a4ac87b52477d2ee847c78cf0e5d422a25",
+      "size": "10"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "café.md": "cd572dfeb5b0d297a703c320bad6478f697f358709064987ceca14719d5d0bf1"
+    },
+    "root_hash": "f6456c076770bc42190561930aae30de295da31425915d5e2c4103967199fb30"
+  }
+}

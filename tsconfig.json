@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"strict": true,
+		"noEmit": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"types": ["node"],
+		"verbatimModuleSyntax": true,
+		"useDefineForClassFields": true
+	},
+	"include": ["src/**/*.ts", "tests/**/*.ts", "esbuild.config.mjs"]
+}

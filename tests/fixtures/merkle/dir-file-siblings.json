@@ -1,0 +1,22 @@
+{
+  "name": "dir-file-siblings",
+  "schema_version": 2,
+  "entries": {
+    "docs/guide": {
+      "state": "active",
+      "kind": 2
+    },
+    "docs/guide.md": {
+      "state": "active",
+      "content_hash": "65b63117b1a4dfe468d927e32d8ea302d9d10c04c9b9b7dfac9c7770deacc0cc",
+      "size": "5"
+    }
+  },
+  "expected": {
+    "leaf_hashes": {
+      "docs/guide": "bc1e278e1fdb6c1cdb76e6c9f4801dd70d5bd18c2cd4c74e2e663b1b72d83e88",
+      "docs/guide.md": "813256f92545f64ca0b3ee92c8227001658760e4d7720981a9933159104ca6e1"
+    },
+    "root_hash": "370adf98c439a5e0718679d8e5a933db51e3c39d4a883808024f5bd696fcfb66"
+  }
+}
