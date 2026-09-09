@@ -1,4 +1,4 @@
-// 生产环境：api.pickpen.net
+// 生产环境配置。
 import type { EnvConfig } from "./types";
 
 const config: EnvConfig = {

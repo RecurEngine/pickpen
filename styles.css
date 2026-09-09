@@ -223,6 +223,11 @@
 	color: var(--text-accent);
 }
 
+.pickpen-subscription-original-price {
+	color: var(--text-muted);
+	text-decoration: line-through;
+}
+
 .pickpen-subscription-quantity {
 	width: 72px;
 	text-align: center;

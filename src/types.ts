@@ -29,10 +29,10 @@ export interface PluginSettings {
 // PICKPEN_BASE_URL 支持环境变量覆盖，供本地联调指向自建后端）；
 // 编译后为字符串字面量，运行时无 process 访问。?? 兜底仅静态分析路径。
 // 为编译期常量，不随 data.json 持久化（设置面板只读展示）。
-export const BASE_URL = process.env.PICKPEN_BASE_URL ?? "https://api.example.com/api";
+export const BASE_URL = process.env.PICKPEN_BASE_URL ?? "https://api.pickpen.net/api";
 
 // 移动端插件的官网收银台地址，与 API 域名独立；构建时可用 PICKPEN_CHECKOUT_URL 覆盖。
-export const CHECKOUT_URL = process.env.PICKPEN_CHECKOUT_URL ?? "https://www.example.com/checkout";
+export const CHECKOUT_URL = process.env.PICKPEN_CHECKOUT_URL ?? "https://www.pickpen.net/checkout";
 
 // 本地 dev 构建标识：构建脚本注入 PICKPEN_BUILD_TAG；正式渠道构建为空 → 设置面板不显示标记
 export const BUILD_TAG = process.env.PICKPEN_BUILD_TAG ?? "";

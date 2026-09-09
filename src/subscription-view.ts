@@ -14,11 +14,35 @@ export function formatAmount(amount: bigint): string {
 	return `${sign}¥${value / 100n}.${(value % 100n).toString().padStart(2, "0")}`;
 }
 
-export function purchaseQuote(plan: Pick<Plan, "monthlyPrice" | "annualPrice">, billingCycle: "monthly" | "annual", quantity: bigint) {
+export function normalizePurchaseDiscountPercent(value: number): bigint | undefined {
+	if (!Number.isInteger(value)) return undefined;
+	if (value === 0) return 100n;
+	if (value < 1 || value > 100) return undefined;
+	return BigInt(value);
+}
+
+export function formatDiscount(percent: bigint): string {
+	const whole = percent / 10n;
+	const decimal = percent % 10n;
+	return `${whole.toString()}${decimal === 0n ? "" : `.${decimal.toString()}`} 折`;
+}
+
+export function shouldDisplayPurchaseDiscount(percent: bigint): boolean {
+	return percent < 100n;
+}
+
+export function purchaseQuote(
+	plan: Pick<Plan, "monthlyPrice" | "annualPrice">,
+	billingCycle: "monthly" | "annual",
+	quantity: bigint,
+	discountPercent = 100n,
+) {
 	const unitPrice = billingCycle === "monthly" ? plan.monthlyPrice : plan.annualPrice;
+	const originalTotal = unitPrice * quantity;
 	return {
 		unitPrice,
-		total: unitPrice * quantity,
+		originalTotal,
+		total: (originalTotal * discountPercent + 50n) / 100n,
 		months: billingCycle === "monthly" ? quantity : quantity * 12n,
 	};
 }
@@ -109,14 +133,19 @@ export function renderSubscriptionSection(containerEl: HTMLElement, plugin: Pick
 				subscriptionReply.storageBytes,
 				subscriptionReply.vaultCount,
 			);
-			renderPurchase(plansRoot, plansReply.plans.filter((plan) => plan.purchasable), plansReply.pricingUrl);
+			renderPurchase(
+				plansRoot,
+				plansReply.plans.filter((plan) => plan.purchasable),
+				plansReply.pricingUrl,
+				plansReply.purchaseDiscountPercent,
+			);
 		} catch (err) {
 			renderError("网络不可达或服务端暂不可用");
 			debugLog.error(`[pickpen] 订阅加载失败，错误码：${errorCode(err) ?? "unknown"}`);
 		}
 	};
 
-	const renderPurchase = (parent: HTMLElement, plans: readonly Plan[], pricingURL: string) => {
+	const renderPurchase = (parent: HTMLElement, plans: readonly Plan[], pricingURL: string, configuredDiscountPercent: number) => {
 		renderPricingLink(parent, pricingURL);
 		if (plans.length === 0) {
 			new Setting(parent).setName("暂无可购买档位");
@@ -124,6 +153,11 @@ export function renderSubscriptionSection(containerEl: HTMLElement, plugin: Pick
 		}
 		if (plans.some((plan) => !purchaseQuantityRange(plan, "monthly") || !purchaseQuantityRange(plan, "annual"))) {
 			new Setting(parent).setName("套餐配置不可用").setDesc("服务端未返回有效的购买数量范围，请稍后重试");
+			return;
+		}
+		const discountPercent = normalizePurchaseDiscountPercent(configuredDiscountPercent);
+		if (discountPercent === undefined) {
+			new Setting(parent).setName("套餐配置不可用").setDesc("服务端未返回有效的购买折扣，请稍后重试");
 			return;
 		}
 		let selectedPlan = plans[0];
@@ -134,9 +168,17 @@ export function renderSubscriptionSection(containerEl: HTMLElement, plugin: Pick
 		let requestID = crypto.randomUUID();
 		const price = parent.createDiv({ cls: "pickpen-subscription-price" });
 		const updatePrice = () => {
-			const quote = purchaseQuote(selectedPlan, billingCycle, quantity);
+			const quote = purchaseQuote(selectedPlan, billingCycle, quantity, discountPercent);
 			const unit = billingCycle === "monthly" ? "月" : "年";
-			price.textContent = `${selectedPlan.name} · ${formatAmount(quote.unitPrice)}/${unit} × ${quantity.toString()} · 合计 ${formatAmount(quote.total)}（${quote.months.toString()} 个月）`;
+			price.empty();
+			price.createSpan({ text: `${selectedPlan.name} · ${formatAmount(quote.unitPrice)}/${unit} × ${quantity.toString()} · ` });
+			if (shouldDisplayPurchaseDiscount(discountPercent)) {
+				price.createSpan({ cls: "pickpen-subscription-original-price", text: `原价 ${formatAmount(quote.originalTotal)}` });
+				price.createSpan({ text: ` · ${formatDiscount(discountPercent)} ${formatAmount(quote.total)}` });
+			} else {
+				price.createSpan({ text: `合计 ${formatAmount(quote.total)}` });
+			}
+			price.createSpan({ text: `（${quote.months.toString()} 个月）` });
 		};
 		let quantitySetting!: Setting;
 		let minusButton!: ButtonComponent;

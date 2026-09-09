@@ -4,7 +4,15 @@ import { describe, expect, it } from "vitest";
 import { PlanSchema, SubscriptionSchema } from "../src/gen/proto/subscription/subscription_pb";
 import { resolvePricingURL } from "../src/subscription-pricing-link";
 import { formatQuotaBytes, subscriptionQuotaRows } from "../src/subscription-state-view";
-import { clampPurchaseQuantity, formatAmount, purchaseQuantityRange, purchaseQuote } from "../src/subscription-view";
+import {
+	clampPurchaseQuantity,
+	formatAmount,
+	formatDiscount,
+	normalizePurchaseDiscountPercent,
+	purchaseQuantityRange,
+	purchaseQuote,
+	shouldDisplayPurchaseDiscount,
+} from "../src/subscription-view";
 
 describe("订阅价格说明地址", () => {
 	it("接受服务端下发的绝对 HTTPS 地址", () => {
@@ -33,11 +41,48 @@ describe("订阅金额格式", () => {
 
 describe("订阅周期报价", () => {
 	const plan = { monthlyPrice: 2000n, annualPrice: 20000n };
-	it("月付按月数计价", () => {
-		expect(purchaseQuote(plan, "monthly", 3n)).toEqual({ unitPrice: 2000n, total: 6000n, months: 3n });
+	it("月付按月数计价并对整笔原价打折", () => {
+		expect(purchaseQuote(plan, "monthly", 3n, 80n)).toEqual({
+			unitPrice: 2000n,
+			originalTotal: 6000n,
+			total: 4800n,
+			months: 3n,
+		});
 	});
 	it("年付按年数计价并换算月份", () => {
-		expect(purchaseQuote(plan, "annual", 2n)).toEqual({ unitPrice: 20000n, total: 40000n, months: 24n });
+		expect(purchaseQuote(plan, "annual", 2n, 80n)).toEqual({
+			unitPrice: 20000n,
+			originalTotal: 40000n,
+			total: 32000n,
+			months: 24n,
+		});
+	});
+	it("对整笔金额四舍五入到分", () => {
+		expect(purchaseQuote({ monthlyPrice: 101n, annualPrice: 0n }, "monthly", 3n, 80n).total).toBe(242n);
+	});
+	it("折扣为 100 时保持原价", () => {
+		expect(purchaseQuote(plan, "monthly", 3n, 100n).total).toBe(6000n);
+	});
+});
+
+describe("订阅折扣配置", () => {
+	it("将旧服务端的默认值 0 兼容为无折扣", () => {
+		expect(normalizePurchaseDiscountPercent(0)).toBe(100n);
+		expect(normalizePurchaseDiscountPercent(100)).toBe(100n);
+		expect(shouldDisplayPurchaseDiscount(100n)).toBe(false);
+	});
+
+	it("接受有效折扣并生成中文折扣标签", () => {
+		expect(normalizePurchaseDiscountPercent(80)).toBe(80n);
+		expect(shouldDisplayPurchaseDiscount(80n)).toBe(true);
+		expect(formatDiscount(80n)).toBe("8 折");
+		expect(formatDiscount(85n)).toBe("8.5 折");
+	});
+
+	it("拒绝超出范围或非整数的折扣", () => {
+		expect(normalizePurchaseDiscountPercent(-1)).toBeUndefined();
+		expect(normalizePurchaseDiscountPercent(101)).toBeUndefined();
+		expect(normalizePurchaseDiscountPercent(80.5)).toBeUndefined();
 	});
 });
 
