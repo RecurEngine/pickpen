@@ -5,5 +5,8 @@
 # 依赖
 node_modules/
 
+# 本地环境配置
+.env.*.local
+
 # 生成物
 main.js

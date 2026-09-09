@@ -1,7 +1,7 @@
 {
 	"id": "pickpen",
 	"name": "Pickpen Sync",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"minAppVersion": "1.13.0",
 	"description": "Sync notes across devices with cloud snapshots, conflict copies, and version history.",
 	"author": "Pickpen",

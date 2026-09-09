@@ -4,6 +4,8 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 // ---- 环境判定与配置加载（node 侧，配置文件不进产物）----
 // 注意：本文件为 .mjs（纯 JS），不能用 TS 语法；config/*.ts 由 node 类型剥离（strip-only）加载，
@@ -14,6 +16,10 @@ if (!PICKPEN_ENVS.includes(env)) {
 	console.error(`错误: 未知环境 PICKPEN_ENV='${env}'（支持 ${PICKPEN_ENVS.join("/")}）`);
 	process.exit(1);
 }
+// 本地环境文件仅用于开发机，并由 .gitignore 与同步脚本共同阻止发布。
+// 调用命令时显式设置的环境变量优先于文件中的值。
+const localEnvFile = fileURLToPath(new URL(`./.env.${env}.local`, import.meta.url));
+if (existsSync(localEnvFile)) process.loadEnvFile(localEnvFile);
 // node ≥22.18 原生支持 TS 类型剥离，直接 import .ts 配置
 const envConfig = (await import(`./config/${env}.ts`)).default;
 // 支持 PICKPEN_BASE_URL 环境变量覆盖注入值（移动端联调可指向局域网内的自建后端；
