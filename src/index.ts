@@ -231,7 +231,7 @@ export default class PickpenPlugin extends Plugin {
 			},
 		});
 
-		// 文件历史版本：右键菜单「版本历史」+ 命令面板入口（spec FR-16）
+		// 文件历史版本：右键菜单「拾笔版本历史」+ 命令面板入口（spec FR-16）
 		installHistoryFeature(this);
 
 		this.updateDebugHook();

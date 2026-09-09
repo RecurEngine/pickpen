@@ -1,4 +1,4 @@
-// 文件历史版本（spec FR-16）：右键菜单「版本历史」/ 命令面板入口。
+// 文件历史版本（spec FR-16）：右键菜单「拾笔版本历史」/ 命令面板入口。
 // HistoryModal：分页列出 file_version 历史 → 点选显示与当前文件的 diff 对比 → 行内确认「恢复此版本」
 // （下载历史内容写回当前路径 → 刷新打开视图 → requestRun 触发同步上传为新版本，旧版本保留）。
 
@@ -49,7 +49,7 @@ export function isBinaryContent(content: Uint8Array): boolean {
 	return false;
 }
 
-// installHistoryFeature 注册右键菜单「版本历史」与命令面板入口；
+// installHistoryFeature 注册右键菜单「拾笔版本历史」与命令面板入口；
 // 未登录/未绑定或文件不在 Base（未同步）时菜单项禁用并附标题提示
 export function installHistoryFeature(plugin: PickpenPlugin): void {
 	plugin.registerEvent(
@@ -60,7 +60,7 @@ export function installHistoryFeature(plugin: PickpenPlugin): void {
 			menu.addItem((item) => {
 				item.setIcon("history");
 				item.setTitle(
-					!bound ? "版本历史（需先登录并绑定仓库）" : fileId ? "版本历史" : "版本历史（文件尚未同步）",
+					!bound ? "拾笔版本历史（需先登录并绑定仓库）" : fileId ? "拾笔版本历史" : "拾笔版本历史（文件尚未同步）",
 				);
 				if (!bound || !fileId) {
 					item.setDisabled(true);
