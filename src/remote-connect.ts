@@ -7,6 +7,7 @@ import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import { Platform } from "obsidian";
 
 import { debugLog } from "./debug-log";
+import { DataService } from "./gen/proto/data/data_pb";
 import { SyncService } from "./gen/proto/sync/sync.ext_pb";
 import { SubscriptionService } from "./gen/proto/subscription/subscription_pb";
 import { UserService } from "./gen/proto/user/user.ext_pb";
@@ -98,15 +99,17 @@ export function isStorageLimitExceeded(err: unknown): boolean {
 }
 
 const PUBLIC_AUTH_METHODS = new Set([
-	UserService.method.sendCode.name,
-	UserService.method.login.name,
-	UserService.method.refreshToken.name,
+	`${UserService.typeName}.${UserService.method.sendCode.name}`,
+	`${UserService.typeName}.${UserService.method.login.name}`,
+	`${UserService.typeName}.${UserService.method.refreshToken.name}`,
+	`${DataService.typeName}.${DataService.method.reportEvent.name}`,
 ]);
 
-// SendCode/Login/RefreshToken 不依赖 access token。尤其 RefreshToken 必须旁路自动刷新，
+// 公开方法不依赖 access token：SendCode/Login/RefreshToken 是登录前调用，ReportEvent 同理
+// （客户端事件发生在用户登录之前）。尤其 RefreshToken 必须旁路自动刷新，
 // 否则它自己的 11002 会再次触发 RefreshToken，形成递归请求风暴。
 function isPublicAuthMethod(req: { method: { name: string; parent: { typeName: string } } }): boolean {
-	return req.method.parent.typeName === UserService.typeName && PUBLIC_AUTH_METHODS.has(req.method.name);
+	return PUBLIC_AUTH_METHODS.has(`${req.method.parent.typeName}.${req.method.name}`);
 }
 
 // getClientOS 将 Obsidian 运行平台转换为服务端约定的操作系统标识。
@@ -176,6 +179,7 @@ export class RemoteClient {
 	userClient: ReturnType<typeof createClient<typeof UserService>>;
 	syncClient: ReturnType<typeof createClient<typeof SyncService>>;
 	subscriptionClient: ReturnType<typeof createClient<typeof SubscriptionService>>;
+	dataClient: ReturnType<typeof createClient<typeof DataService>>;
 	private getConfig: () => RemoteConfig;
 	private currentBaseUrl = "";
 
@@ -185,6 +189,7 @@ export class RemoteClient {
 		this.userClient = createClient(UserService, transport);
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
+		this.dataClient = createClient(DataService, transport);
 	}
 
 	// rebuild baseUrl 变更时重建 transport 与客户端（插件初始化时调用）
@@ -196,6 +201,7 @@ export class RemoteClient {
 		this.userClient = createClient(UserService, transport);
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
+		this.dataClient = createClient(DataService, transport);
 		this.currentBaseUrl = baseUrl;
 		debugLog.info("[pickpen] 远端地址已更新");
 	}

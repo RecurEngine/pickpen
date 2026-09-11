@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Platform } from "obsidian";
 
 import { AuthManager } from "../src/auth";
+import { DataService } from "../src/gen/proto/data/data_pb";
 import { SyncService } from "../src/gen/proto/sync/sync.ext_pb";
 import { UserService } from "../src/gen/proto/user/user.ext_pb";
 import {
@@ -166,7 +167,8 @@ describe("认证 interceptor 刷新状态机", () => {
 		UserService.method.sendCode,
 		UserService.method.login,
 		UserService.method.refreshToken,
-	])("公开认证 RPC %s 不注入 access token且不触发刷新", async (method) => {
+		DataService.method.reportEvent,
+	])("公开 RPC %s 不注入 access token且不触发刷新", async (method) => {
 		const onUnauthenticated = vi.fn(async () => true);
 		const cfg: RemoteConfig = {
 			baseUrl: "https://example.test/api",

@@ -23,7 +23,7 @@ Pickpen Sync is a network-connected service. Before using it, please note:
 - The plugin connects to Pickpen Sync servers to authenticate, manage subscriptions, and upload/download vault data for synchronization and version history.
 - A limited free tier is available. Paid plans provide additional storage and capabilities; current terms are shown on the [Pickpen Sync website](https://www.pickpen.net/pricing) and at checkout.
 - The support section loads a contact QR image from `rrecurengine.com` only when that section is displayed.
-- The plugin does not include client-side analytics, advertising, self-updating code, or background telemetry. Diagnostic details are added only to a local email draft after you click **Email feedback**; you can review or remove them before sending.
+- The plugin does not include client-side analytics, advertising, self-updating code, or background telemetry. Its single outbound report is one anonymous event sent when the setup guide is displayed after you enable the plugin (event name and stage only — no email address, device identifier, vault information, or note content). Diagnostic details are added only to a local email draft after you click **Email feedback**; you can review or remove them before sending.
 
 For the complete data-handling description, see [Privacy Policy](PRIVACY.md).
 
@@ -101,7 +101,7 @@ Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作
 - 插件会连接 Pickpen Sync 服务器，完成认证、订阅管理、Vault 数据上传下载和版本历史功能。
 - 服务提供有额度限制的免费方案；付费方案可获得更多存储空间与能力，具体条款以[官网价格页](https://www.pickpen.net/pricing)和结账页为准。
 - 打开“关于与反馈”区域时，插件会从 `rrecurengine.com` 加载客服二维码图片。
-- 插件不包含客户端统计分析、广告、自更新代码或后台遥测。只有在你点击“邮件反馈”后，插件才会在本地邮件草稿中加入诊断信息；发送前可自行检查或删除。
+- 插件不包含客户端统计分析、广告、自更新代码或后台遥测。唯一的对外上报是：在你启用插件后引导弹窗展示时，向服务端发送一次匿名事件（仅含事件名与阶段，不含邮箱、设备标识、仓库信息或笔记内容）。只有在你点击“邮件反馈”后，插件才会在本地邮件草稿中加入诊断信息；发送前可自行检查或删除。
 
 完整的数据处理说明见[隐私政策](PRIVACY.md)。
 

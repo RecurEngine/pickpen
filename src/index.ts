@@ -8,11 +8,13 @@ import { addIcon, Notice, Platform, Plugin, setIcon } from "obsidian";
 import pickpenIconSvg from "./assets/pickpen.svg";
 import { AuthManager } from "./auth";
 import { debugLog } from "./debug-log";
+import { reportSetupGuideShown } from "./event-report";
 import { installHistoryFeature } from "./history-view";
 import { planLegacyMigration, SessionStore, stripSessionKeys, vaultScopeKey, type KeyValueStore } from "./session-store";
 import { RemoteClient } from "./remote-connect";
-import { isSyncRibbonMenuItem, ribbonIcon, RIBBON_SYNC_TITLE, updateRibbonBadge } from "./ribbon-indicator";
+import { isSyncRibbonMenuItem, ribbonIcon, ribbonLabel, RIBBON_SYNC_TITLE, updateRibbonBadge } from "./ribbon-indicator";
 import { PickpenSettingTab } from "./settings";
+import { setupStage, SetupGuideModal, type SetupStage } from "./setup-guide";
 import { localDateKey, StorageLimitModal } from "./storage-limit-alert";
 import { syncState } from "./sync-state";
 import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings } from "./types";
@@ -56,6 +58,7 @@ export default class PickpenPlugin extends Plugin {
 	sessionStore!: SessionStore;
 	private ribbonEl?: HTMLElement;
 	private storageLimitModal: StorageLimitModal | null = null;
+	private guideModal: SetupGuideModal | null = null;
 	private settingTab!: PickpenSettingTab;
 	// accountBinding 本次会话的绑定记忆（账号 + vault_id）：登录后判定「同账号重登沿用绑定」vs「走选择流程」
 	private accountBinding: { email: string; vaultId: string } | null = null;
@@ -259,10 +262,52 @@ export default class PickpenPlugin extends Plugin {
 		debugLog.info("[pickpen] 启动时序完成：Base 加载 + 事件注册 + 轮询 + Session");
 	}
 
-	// syncNow 立即同步（命令面板 / ribbon）
+	// onUserEnable 用户点击启用插件那一刻（冷启动不会触发）：布局就绪后给出一次性引导。
+	// 不落任何持久化标记——该回调本身就是「用户此刻明确启用了插件」的信号。
+	onUserEnable(): void {
+		this.app.workspace.onLayoutReady(() => this.maybeShowSetupGuide());
+	}
+
+	// maybeShowSetupGuide 引导入口：仅在配置未完成（未登录 / 未绑定仓库）时提示
+	private maybeShowSetupGuide(): void {
+		const stage = setupStage(this.settings);
+		if (stage) this.showSetupGuide(stage);
+	}
+
+	// showSetupGuide 弹出引导弹窗；已有其他弹窗时不叠加
+	private showSetupGuide(stage: SetupStage): void {
+		if (this.guideModal || this.storageLimitModal) return;
+		const modal = new SetupGuideModal(this.app, stage, {
+			onPrimary: () => {
+				if (stage === "bind") {
+					modal.close();
+					openVaultManager(this.app, this);
+					return;
+				}
+				// 打开设置失败（宿主缺少设置接口）时保留弹窗：降级提示已给出，用户仍可选「稍后」
+				if (this.settingTab.openInSystemSettings({ focus: "account" })) modal.close();
+			},
+			onClosed: () => {
+				this.guideModal = null;
+			},
+		});
+		this.guideModal = modal;
+		modal.open();
+		// 上报放在去重守卫与 open() 之后：统计的是「真的展示给用户」的次数
+		reportSetupGuideShown(this.client, stage);
+	}
+
+	// syncNow 立即同步（命令面板 / ribbon）；未完成配置时改为把用户送到对应入口，不留死胡同
 	private async syncNow(): Promise<void> {
-		if (!this.settings.accessToken || !this.settings.vaultId) {
+		const stage = setupStage(this.settings);
+		if (stage === "login") {
 			new Notice("请先登录并绑定仓库");
+			this.settingTab.openInSystemSettings({ focus: "account" });
+			return;
+		}
+		if (stage === "bind") {
+			new Notice("请先选择要绑定的仓库");
+			openVaultManager(this.app, this);
 			return;
 		}
 		this.session.requestRun();
@@ -271,22 +316,15 @@ export default class PickpenPlugin extends Plugin {
 	private updateRibbon(): void {
 		if (!this.ribbonEl) return;
 		const storageLimitExceeded = syncState.storageLimitExceeded;
-		const parts: string[] = [];
-		if (syncState.lastSyncAt) {
-			parts.push(`最后同步 ${new Date(syncState.lastSyncAt).toLocaleTimeString("zh-CN", { hour12: false })}`);
-		}
-		if (storageLimitExceeded) {
-			parts.push("云端存储已满，点击处理");
-		} else if (syncState.pausedReason || syncState.lastError) {
-			parts.push(syncState.pausedReason || "有错误");
-		}
-		if (syncState.blockedPaths.length > 0) {
-			parts.push(`${syncState.blockedPaths.length} 个文件被阻塞`);
-		}
-		if (syncState.allSynced && parts.length === 0) {
-			parts.push("已全部同步");
-		}
-		const label = parts.length > 0 ? `Pickpen Sync：${parts.join(" ｜ ")}` : "Pickpen Sync";
+		const label = ribbonLabel({
+			stage: setupStage(this.settings),
+			storageLimitExceeded,
+			pausedReason: syncState.pausedReason,
+			lastError: syncState.lastError,
+			blockedCount: syncState.blockedPaths.length,
+			lastSyncAt: syncState.lastSyncAt,
+			allSynced: syncState.allSynced,
+		});
 		this.ribbonEl.setAttribute("aria-label", label);
 		this.ribbonEl.setAttribute("title", label);
 		const icon = ribbonIcon(storageLimitExceeded);
@@ -351,12 +389,13 @@ export default class PickpenPlugin extends Plugin {
 
 	private showStorageLimitAlert(force: boolean): void {
 		if (!syncState.storageLimitExceeded || this.storageLimitModal) return;
+		if (!force && this.guideModal) return; // 引导弹窗在前：不叠加第二个弹窗
 		const today = localDateKey();
 		if (!force && this.sessionStore.storageLimitAlertDate === today) return;
 		this.sessionStore.markStorageLimitAlertShown(today);
 		this.storageLimitModal = new StorageLimitModal(
 			this,
-			() => this.settingTab.openInSystemSettings({ focusSubscription: true }),
+			() => this.settingTab.openInSystemSettings({ focus: "subscription" }),
 			() => {
 				this.storageLimitModal = null;
 			},

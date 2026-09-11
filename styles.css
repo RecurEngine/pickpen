@@ -88,13 +88,21 @@
 	z-index: 2;
 }
 
-.pickpen-storage-limit-modal {
+.pickpen-storage-limit-modal,
+.pickpen-setup-guide-modal {
 	width: min(480px, 92vw);
 }
 
-.pickpen-storage-limit-message {
+.pickpen-storage-limit-message,
+.pickpen-setup-guide-message {
 	margin-bottom: var(--size-4-4);
 	line-height: var(--line-height-normal);
+}
+
+.pickpen-setup-guide-steps {
+	margin: 0 0 var(--size-4-4);
+	padding-left: var(--size-4-6);
+	color: var(--text-muted);
 }
 
 /* ===== 桌面订阅与支付宝付款 ===== */
@@ -143,7 +151,8 @@
 	color: var(--text-muted);
 }
 
-.pickpen-subscription.is-focused {
+.pickpen-subscription.is-focused,
+.pickpen-account-section.is-focused {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 2px;
 }

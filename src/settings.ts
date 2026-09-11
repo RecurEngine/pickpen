@@ -13,10 +13,26 @@ import { renderMobileSubscriptionSection } from "./mobile-subscription-view";
 import { BASE_URL, BUILD_TAG, DEBOUNCE_MS, type PluginSettings } from "./types";
 import { openVaultManager } from "./vault-manager";
 
+/** 跳转后需要滚动并高亮的区域 */
+export type SettingsFocus = "account" | "subscription";
+
+// 聚焦目标 → 容器选择器。账号区用专用 class 定位：.pickpen-settings-section 同时用于同步/诊断区。
+const FOCUS_SELECTORS: Record<SettingsFocus, string> = {
+	account: ".pickpen-account-section",
+	subscription: ".pickpen-subscription-plans",
+};
+
+export function focusSelector(focus: SettingsFocus): string {
+	return FOCUS_SELECTORS[focus];
+}
+
+// 聚焦请求有效期：宿主要为设置页新建窗口时会重绘一次，短暂保留请求以便重绘后补上高亮
+const FOCUS_TTL_MS = 3000;
+
 export class PickpenSettingTab extends PluginSettingTab {
 	private readonly plugin: PickpenPlugin;
 	private readonly view: PickpenSettingsView;
-	private focusSubscriptionOnDisplay = false;
+	private focusRequest: { target: SettingsFocus; expiresAt: number } | null = null;
 
 	constructor(app: App, plugin: PickpenPlugin) {
 		super(app, plugin);
@@ -26,7 +42,7 @@ export class PickpenSettingTab extends PluginSettingTab {
 
 	display(): void {
 		this.view.display();
-		this.scheduleSubscriptionFocus();
+		this.applyFocus();
 	}
 
 	override hide(): void {
@@ -34,26 +50,32 @@ export class PickpenSettingTab extends PluginSettingTab {
 		super.hide();
 	}
 
-	/** 从 Ribbon 等插件入口打开 Obsidian 系统设置，并选中 Pickpen Sync。 */
-	openInSystemSettings(options?: { focusSubscription?: boolean }): void {
-		this.focusSubscriptionOnDisplay = !!options?.focusSubscription;
+	/** 从 Ribbon、引导弹窗等入口打开 Obsidian 系统设置，选中 Pickpen Sync 并聚焦指定区域；返回是否成功打开。 */
+	openInSystemSettings(options?: { focus?: SettingsFocus }): boolean {
+		const focus = options?.focus;
+		this.focusRequest = focus ? { target: focus, expiresAt: Date.now() + FOCUS_TTL_MS } : null;
 		if (!openPluginSettings(this.app, this.plugin.manifest.id)) {
-			this.focusSubscriptionOnDisplay = false;
-			return;
+			this.focusRequest = null;
+			return false;
 		}
-		this.scheduleSubscriptionFocus();
+		this.applyFocus();
+		return true;
 	}
 
-	private scheduleSubscriptionFocus(): void {
-		if (!this.focusSubscriptionOnDisplay) return;
-		window.requestAnimationFrame(() => {
-			if (!this.focusSubscriptionOnDisplay) return;
-			const subscription = this.containerEl.querySelector<HTMLElement>(".pickpen-subscription-plans");
-			if (!subscription) return;
-			this.focusSubscriptionOnDisplay = false;
-			subscription.addClass("is-focused");
-			subscription.scrollIntoView({ behavior: "smooth", block: "start" });
-		});
+	// applyFocus 高亮目标区。display 与 openInSystemSettings 都会调用：前者覆盖「宿主重绘设置页
+	// 导致刚加上的高亮被换掉」（新建设置窗口时会发生），后者覆盖「设置页已打开、无需重绘」。
+	// 请求按有效期自然过期，不会在之后切换页签时反复高亮。
+	private applyFocus(): void {
+		const request = this.focusRequest;
+		if (!request) return;
+		if (Date.now() > request.expiresAt) {
+			this.focusRequest = null;
+			return;
+		}
+		const target = this.containerEl.querySelector<HTMLElement>(focusSelector(request.target));
+		if (!target) return; // 目标区尚未渲染：保留请求，等下次 display 重试
+		target.addClass("is-focused");
+		target.scrollIntoView({ behavior: "smooth", block: "start" });
 	}
 }
 
@@ -114,7 +136,8 @@ class PickpenSettingsView {
 
 		// —— 账号和仓库 ——
 		new Setting(containerEl).setHeading().setName("账号和仓库");
-		const accountSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section" });
+		// pickpen-account-section 仅供跳转聚焦定位（.pickpen-settings-section 缺省即同步/诊断区样式）
+		const accountSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section pickpen-account-section" });
 
 		// 同步状态卡片（单行实时状态，订阅 syncState 刷新）
 		this.renderStatusCard(accountSectionEl);

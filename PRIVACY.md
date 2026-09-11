@@ -15,7 +15,7 @@ To provide the service, Pickpen Sync processes:
 - Account and session data: email address, user identifier, access/refresh tokens, device identifier, and plugin version.
 - Sync data: remote vault identifiers and names; file paths, file contents, content hashes, timestamps, file identifiers, snapshot metadata, and retained version history.
 - Subscription data: plan, usage, storage limits, order identifiers, payment status, and related transaction metadata. Payment credentials are handled by the payment provider and are not entered into the plugin.
-- Operational server logs: source IP address, request method/path, plugin version, duration, result/error code, internal account/vault/order identifiers, and subscription/payment event metadata such as plan, amount, and status. Request/response bodies, authorization metadata, email addresses, synchronized file paths or contents, SQL statements/parameters, payment URLs, and raw error messages are not intentionally logged. Rotated application logs are retained for up to 30 days.
+- Operational server logs: source IP address, request method/path, plugin version, duration, result/error code, internal account/vault/order identifiers, and subscription/payment event metadata such as plan, amount, and status. Request/response bodies, authorization metadata, email addresses, synchronized file paths or contents, SQL statements/parameters, payment URLs, and raw error messages are not intentionally logged. The one exception is the setup-guide event described below, where the event name and stage are recorded. Rotated application logs are retained for up to 30 days.
 
 ### Storage and transmission
 
@@ -29,7 +29,7 @@ Pickpen Sync uses infrastructure and service providers including Tencent Cloud O
 
 ### Analytics and diagnostics
 
-The plugin contains no client-side analytics, advertising, or automatic telemetry. When diagnostic logging is enabled, the plugin records only its own deliberately emitted, minimized logs in memory. It does not intercept global console output. Clicking **Email feedback** creates a local email draft containing account/device context and, if enabled, recent diagnostic logs. Nothing is sent until you review and send that email.
+The plugin contains no client-side analytics, advertising, or automatic telemetry. The single outbound report is one anonymous event sent when the setup guide is displayed after you enable the plugin; it carries only the event name and the guide stage, with no email address, device identifier, vault information, or note content. When diagnostic logging is enabled, the plugin records only its own deliberately emitted, minimized logs in memory. It does not intercept global console output. Clicking **Email feedback** creates a local email draft containing account/device context and, if enabled, recent diagnostic logs. Nothing is sent until you review and send that email.
 
 ### Retention, deletion, and contact
 
@@ -46,7 +46,7 @@ Sync data and version history are retained while needed to provide your account 
 - 账号与会话：邮箱、用户标识、访问/刷新令牌、设备标识和插件版本。
 - 同步数据：远端仓库标识和名称，以及文件路径、文件内容、内容哈希、时间戳、文件标识、快照元数据和保留的版本历史。
 - 订阅数据：方案、用量、存储限额、订单标识、付款状态及相关交易元数据。付款凭据由支付服务商处理，不会在插件中输入。
-- 服务端运行日志：来源 IP、请求方法/路径、插件版本、耗时、结果/错误码、内部账号/仓库/订单标识，以及方案、金额、状态等订阅付款事件元数据。系统不会有意记录请求/响应正文、认证元数据、邮箱、同步文件路径或内容、SQL 语句/参数、付款链接或原始错误信息。轮转后的应用日志最长保留 30 天。
+- 服务端运行日志：来源 IP、请求方法/路径、插件版本、耗时、结果/错误码、内部账号/仓库/订单标识，以及方案、金额、状态等订阅付款事件元数据。系统不会有意记录请求/响应正文、认证元数据、邮箱、同步文件路径或内容、SQL 语句/参数、付款链接或原始错误信息；唯一例外是下方所述「引导事件」的事件名与阶段。轮转后的应用日志最长保留 30 天。
 
 ### 本地存储、传输和云端存储
 
@@ -60,7 +60,7 @@ Pickpen Sync 使用的基础设施和服务商包括腾讯云对象存储、腾�
 
 ### 统计与诊断
 
-插件不包含客户端统计分析、广告或自动遥测。开启调试日志后，只会在内存中记录插件主动输出的精简日志，不会拦截全局控制台。点击“邮件反馈”会在本地生成包含账号/设备上下文的邮件草稿；仅在调试日志已开启时附带最近日志。你检查并主动发送前，不会传出这些诊断信息。
+插件不包含客户端统计分析、广告或自动遥测。唯一的对外上报是：在你启用插件后引导弹窗展示时，向服务端发送一次匿名事件，仅含事件名与引导阶段，不含邮箱、设备标识、仓库信息或笔记内容。开启调试日志后，只会在内存中记录插件主动输出的精简日志，不会拦截全局控制台。点击“邮件反馈”会在本地生成包含账号/设备上下文的邮件草稿；仅在调试日志已开启时附带最近日志。你检查并主动发送前，不会传出这些诊断信息。
 
 ### 保留、删除与联系
 
