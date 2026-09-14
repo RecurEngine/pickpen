@@ -11,6 +11,7 @@
 
 import { TFolder, type TFile, type Vault } from "obsidian";
 
+import { ProgressTracker, type ProgressCallback } from "./progress";
 import { isExcluded, isTooBig, normalize } from "../excludes";
 import { nfcPath, detectCaseConflicts } from "./path";
 import { sha256Hex } from "./content-hash";
@@ -34,6 +35,7 @@ export interface LocalScanContext {
 	/** 服务端按当前套餐下发的单文件上限。 */
 	maxFileSizeBytes: number;
 	yieldControl?: YieldControl;
+	onProgress?: ProgressCallback;
 }
 
 export interface LocalScanResult {
@@ -122,13 +124,19 @@ export class LocalSnapshotBuilder {
 			detectCaseConflicts([...disk.keys(), ...dirs], ctx.caseInsensitive),
 		);
 
+		const tracker = new ProgressTracker(disk.size + dirs.length + oversized.length, ctx.onProgress);
+		for (const path of oversized) tracker.start(path)();
+
 		// 2. 快路径：mtime+size 与 Base 一致 → 复用 entry（不读内容）
 		const entries: Record<string, Entry> = {};
 		const needHash: TFile[] = [];
 		const base = ctx.base;
 		for (const [path, f] of disk) {
 			await yieldCtl.tick(100, 50);
-			if (caseConflicts.has(path)) continue;
+			if (caseConflicts.has(path)) {
+				tracker.start(path)();
+				continue;
+			}
 			const be = base?.entries[path];
 			const stat = f.stat;
 			if (
@@ -140,6 +148,7 @@ export class LocalSnapshotBuilder {
 			) {
 				const { local_mtime, local_size, ...rest } = be;
 				entries[path] = rest;
+				tracker.start(path)();
 				continue;
 			}
 			needHash.push(f);
@@ -148,12 +157,15 @@ export class LocalSnapshotBuilder {
 		// 3. 内容 hash（新文件/元数据变化才读内容）
 		const hashed = await mapConcurrent(needHash, hashConcurrency, async (f) => {
 			await yieldCtl.tick(100, 50);
+			const finish = tracker.start(f.path);
 			try {
 				const content = await ctx.vault.adapter.readBinary(f.path);
 				const hash = await sha256Hex(content);
 				return { path: f.path, hash, size: content.byteLength };
 			} catch {
 				return null; // 读取失败 → blocked
+			} finally {
+				finish();
 			}
 		});
 		const readFailures = new Set<string>();
@@ -176,10 +188,20 @@ export class LocalSnapshotBuilder {
 		// 目录与文件同构，rename/删除以 dir 行 tombstone 传播（spec §7.1 dir+children 合法）；
 		// 不物化则旧目录无行可 tombstone，重命名后空壳会被当新空目录同步回来
 		for (const dir of dirs) {
-			await yieldCtl.tick(100, 50);
-			if (caseConflicts.has(dir)) continue;
-			const np = nfcPath(dir) ?? dir;
-			entries[np] = { state: "active", kind: KIND_DIR, file_id: this.fileIDFor(np, ctx) };
+			const finishProgress = tracker.start(dir);
+			let processed = true;
+			try {
+				await yieldCtl.tick(100, 50);
+				if (caseConflicts.has(dir)) continue;
+				const np = nfcPath(dir) ?? dir;
+				entries[np] = { state: "active", kind: KIND_DIR, file_id: this.fileIDFor(np, ctx) };
+
+			} catch (err) {
+				processed = false;
+				throw err;
+			} finally {
+				finishProgress(processed);
+			}
 		}
 
 		// 4. §7.5 删除状态构造：Base 有而磁盘缺失 → deleted；Base deleted 磁盘缺失 → 保持
@@ -206,50 +228,63 @@ export class LocalSnapshotBuilder {
 
 	/** dirty 增量：只刷新 dirty 路径（spec §9.2：普通编辑不扫全库；dirty 可为文件夹） */
 	private async applyDirty(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<string[]> {
-		const dirty = [...(ctx.dirtyPaths ?? [])];
+		const dirty = [...(ctx.dirtyPaths ?? [])].filter(
+			(path) => !isExcluded(normalize(path), ctx.extraExcludes) && nfcPath(normalize(path)) !== null,
+		);
+		const tracker = new ProgressTracker(dirty.length, ctx.onProgress);
 		const entries: Record<string, Entry> = { ...this.current!.entries };
 		const blockedPaths: string[] = [];
 		const dirDirty: string[] = [];
 
 		for (const rawPath of dirty) {
-			await yieldCtl.tick(100, 50);
-			const path = normalize(rawPath);
-			if (isExcluded(path, ctx.extraExcludes)) continue;
-			const np = nfcPath(path);
-			if (np === null) continue;
-			const abstract = ctx.vault.getAbstractFileByPath(np);
-			if (abstract instanceof TFolder) {
-				// 文件夹 dirty 先收集：物化判定须在文件处理完后（与 fullAudit 规则 (a) 对齐）
-				dirDirty.push(np);
-				continue;
-			}
-			const file = ctx.vault.getFileByPath(np);
-			if (!file) {
-				// Obsidian 索引已无此文件 = 真实删除（dirty 来自 vault 事件，索引即真相源）：
-				// Base/current 有该路径 → deleted；否则忽略（未同步过的路径无状态变化）。
-				// 不做磁盘 stat 探测：delete 后文件已移入系统回收站，stat 失败会误判 blocked
-				// 导致删除不传播（§9.2 的读失败保护仅适用于索引中存在但读不出的情况，见下方 catch）
-				const prev = entries[np];
-				if (prev) {
-					entries[np] = { state: "deleted", kind: prev.kind };
-				}
-				continue;
-			}
-			const stat = file.stat;
-			if (stat && isTooBig(stat.size, ctx.maxFileSizeBytes)) {
-				blockedPaths.push(np);
-				continue;
-			}
+			const finishProgress = tracker.start(rawPath);
+			let processed = true;
 			try {
-				const content = await ctx.vault.adapter.readBinary(np);
-				entries[np] = {
-					state: "active",
-					content_hash: await sha256Hex(content),
-					size: String(content.byteLength),
-					file_id: this.fileIDFor(np, ctx),
-				};
-			} catch {
-				blockedPaths.push(np);
+				await yieldCtl.tick(100, 50);
+				const path = normalize(rawPath);
+				if (isExcluded(path, ctx.extraExcludes)) continue;
+				const np = nfcPath(path);
+				if (np === null) continue;
+				const abstract = ctx.vault.getAbstractFileByPath(np);
+				if (abstract instanceof TFolder) {
+					// 文件夹 dirty 先收集：物化判定须在文件处理完后（与 fullAudit 规则 (a) 对齐）
+					dirDirty.push(np);
+					continue;
+				}
+				const file = ctx.vault.getFileByPath(np);
+				if (!file) {
+					// Obsidian 索引已无此文件 = 真实删除（dirty 来自 vault 事件，索引即真相源）：
+					// Base/current 有该路径 → deleted；否则忽略（未同步过的路径无状态变化）。
+					// 不做磁盘 stat 探测：delete 后文件已移入系统回收站，stat 失败会误判 blocked
+					// 导致删除不传播（§9.2 的读失败保护仅适用于索引中存在但读不出的情况，见下方 catch）
+					const prev = entries[np];
+					if (prev) {
+						entries[np] = { state: "deleted", kind: prev.kind };
+					}
+					continue;
+				}
+				const stat = file.stat;
+				if (stat && isTooBig(stat.size, ctx.maxFileSizeBytes)) {
+					blockedPaths.push(np);
+					continue;
+				}
+				try {
+					const content = await ctx.vault.adapter.readBinary(np);
+					entries[np] = {
+						state: "active",
+						content_hash: await sha256Hex(content),
+						size: String(content.byteLength),
+						file_id: this.fileIDFor(np, ctx),
+					};
+				} catch {
+					blockedPaths.push(np);
+				}
+
+			} catch (err) {
+				processed = false;
+				throw err;
+			} finally {
+				finishProgress(processed);
 			}
 		}
 

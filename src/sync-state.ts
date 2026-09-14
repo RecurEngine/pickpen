@@ -1,5 +1,7 @@
 // 同步运行态（ribbon/状态栏/设置页订阅）
 
+import type { SyncProgress } from "./sync/progress";
+
 import { DEBOUNCE_MS } from "./types";
 
 export class SyncState {
@@ -11,6 +13,7 @@ export class SyncState {
 	blockedPaths: string[] = []; // 被阻塞路径（超限/读失败/大小写冲突/file-dir 冲突）
 	storageLimitExceeded = false; // 用户总存储已满；成功完成一次同步后清除
 	sessionRunning = false;
+	progress: SyncProgress | null = null;
 	localDebounceMs = DEBOUNCE_MS; // 当前生效值；有效服务端下发值可覆盖客户端默认
 	private listeners: Array<() => void> = [];
 

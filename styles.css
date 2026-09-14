@@ -52,15 +52,71 @@
 	}
 }
 
-/* 单行状态文案：超长（如错误详情）省略号截断 */
+.pickpen-status-content {
+	flex: 1;
+	min-width: 0;
+}
+
+.pickpen-status-progress,
+.pickpen-status-path {
+	margin-top: 4px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+/* 状态和路径允许在移动端换行。 */
 .pickpen-status-text {
 	flex: 1;
 	min-width: 0;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	white-space: normal;
+	overflow-wrap: anywhere;
 	font-size: var(--font-ui-medium);
 	color: var(--text-normal);
+}
+
+/* 进度条行：轨道 + 百分比，随阶段进度显示（见 refreshStatusCard） */
+.pickpen-status-metrics {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 4px;
+}
+
+/* display:flex 会盖掉浏览器对 [hidden] 的 display:none，必须显式还原 */
+.pickpen-status-metrics[hidden] {
+	display: none;
+}
+
+.pickpen-status-bar {
+	flex: 1;
+	min-width: 0;
+	height: 6px;
+	border-radius: 3px;
+	overflow: hidden;
+	background: var(--background-modifier-border);
+}
+
+.pickpen-status-bar-fill {
+	width: 0;
+	height: 100%;
+	border-radius: inherit;
+	background: var(--interactive-accent);
+	transition: width 150ms ease-out;
+}
+
+.pickpen-status-percent {
+	flex: none;
+	font-size: var(--font-ui-small);
+	font-variant-numeric: tabular-nums; /* 数字等宽：3%→30%→100% 时条宽不抖 */
+	color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.pickpen-status-bar-fill {
+		transition: none;
+	}
 }
 
 /* 容量已满期间 Ribbon 始终保留真实 DOM 红点；点击图标可重新打开处理弹窗。 */

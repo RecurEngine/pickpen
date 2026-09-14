@@ -6,6 +6,7 @@
 
 import { App, normalizePath, TAbstractFile } from "obsidian";
 
+import { ProgressTracker, type ProgressCallback } from "./progress";
 import { sha256Hex } from "./content-hash";
 import type { SnapshotRemote } from "./remote";
 import type { ApplyAction, ConflictCopy, DownloadItem } from "./types";
@@ -22,6 +23,7 @@ export interface ApplyContext {
 	yieldControl?: YieldControl;
 	/** 被跳过（用户改动）的路径回调：重新标记 dirty */
 	onSkipped?: (path: string) => void;
+	onProgress?: ProgressCallback;
 }
 
 const DOWNLOAD_CONCURRENCY = { desktop: 4, mobile: 2 } as const;
@@ -34,8 +36,10 @@ export class Applier {
 	) {}
 
 	/**
-	 * 下载需要的 Remote Blob 到内存（最大值由当前套餐决定）。返回 hash → 内容。
-	 * 移动端串行（DOWNLOAD_CONCURRENCY.mobile=2 且内容即刻写入临时区后释放）。
+	 * 下载需要的 Remote Blob（最大值由当前套餐决定）。返回 hash → 内容。
+	 * 指定 tmpDir 时逐项写入插件私有临时区并返回空 Map（内容用完即释放，不整轮驻留内存）：
+	 * 「下载 + 校验 + 写临时区」是同一个被追踪单元，计数到齐即临时区就绪。
+	 * 移动端串行（DOWNLOAD_CONCURRENCY.mobile=2）。
 	 */
 	async fetchBlobs(
 		downloads: DownloadItem[],
@@ -43,6 +47,8 @@ export class Applier {
 		expectedRootHash: string,
 		isMobile: boolean,
 		yieldCtl?: YieldControl,
+		onProgress?: ProgressCallback,
+		tmpDir?: string,
 	): Promise<Map<string, Uint8Array>> {
 		const out = new Map<string, Uint8Array>();
 		const yc = yieldCtl ?? createYieldControl();
@@ -50,15 +56,22 @@ export class Applier {
 		// 去重 hash（同一内容多路径只下载一次）
 		const byHash = new Map<string, DownloadItem>();
 		for (const d of downloads) byHash.set(d.content_hash, d);
+		const tracker = new ProgressTracker(byHash.size, onProgress);
 		await mapConcurrent([...byHash.values()], concurrency, async (d) => {
 			await yc.tick(100, 50);
-			const content = await this.remote.getBlob(d.content_hash, expectedRevision, expectedRootHash);
-			// 校验下载内容 hash（传输完整性）；content 可能是 protobuf subarray 视图，直接传视图本身
-			const actual = await sha256Hex(content);
-			if (actual !== d.content_hash) {
-				throw new Error(`下载内容校验失败：${d.path}`);
-			}
-			out.set(d.content_hash, content);
+			await tracker.track(d.path, async () => {
+				const content = await this.remote.getBlob(d.content_hash, expectedRevision, expectedRootHash);
+				// 校验下载内容 hash（传输完整性）；content 可能是 protobuf subarray 视图，直接传视图本身
+				const actual = await sha256Hex(content);
+				if (actual !== d.content_hash) {
+					throw new Error(`下载内容校验失败：${d.path}`);
+				}
+				if (tmpDir) {
+					await this.writeTemp(this.app, normalizePath(`${tmpDir}/${d.content_hash}`), content);
+					return; // 已落盘：不再驻留内存
+				}
+				out.set(d.content_hash, content);
+			});
 		});
 		return out;
 	}
@@ -86,11 +99,13 @@ export class Applier {
 		isMobile: boolean;
 		yieldControl?: YieldControl;
 		onSkipped?: (path: string) => void;
+		onProgress?: ProgressCallback;
 	}): Promise<string[]> {
 		const { actions, conflicts, expectedHashes, expectedRevision, expectedRootHash, tmpDir } = args;
 		const yc = args.yieldControl ?? createYieldControl();
 		const skipped = new Set<string>();
 		let batchCount = 0;
+		const tracker = new ProgressTracker(actions.length + conflicts.length, args.onProgress);
 
 		const maybeYield = async (): Promise<void> => {
 			batchCount++;
@@ -103,94 +118,114 @@ export class Applier {
 		};
 
 		for (const action of actions) {
-			await maybeYield();
-			if (action.kind === "mkdir") {
-				// 幂等创建目录（先逐级建父目录）
-				await ensureParentDirs(this.app, action.path);
-				if (!(await this.app.vault.adapter.exists(action.path))) {
-					await this.app.vault.adapter.mkdir(action.path);
-				}
-				continue;
-			}
-			if (action.kind === "rmdir") {
-				// 删除空目录；非空/失败 → 跳过（下一轮对账重试）。
-				// Obsidian 1.13 的 adapter.rmdir(path, false) 对空目录也报 EISDIR（内部走 rm），
-				// 须先确认目录为空再用 recursive 删除；非空说明期间有新内容，跳过
-				if (!(await this.app.vault.adapter.exists(action.path))) continue; // 幂等成功
-				try {
-					const listing = await this.app.vault.adapter.list(action.path);
-					if (listing.files.length === 0 && listing.folders.length === 0) {
-						await this.app.vault.adapter.rmdir(action.path, true);
-					} else {
-						skipped.add(action.path);
+			const finishProgress = tracker.start(action.path);
+			let processed = true;
+			try {
+				await maybeYield();
+				if (action.kind === "mkdir") {
+					// 幂等创建目录（先逐级建父目录）
+					await ensureParentDirs(this.app, action.path);
+					if (!(await this.app.vault.adapter.exists(action.path))) {
+						await this.app.vault.adapter.mkdir(action.path);
 					}
-				} catch {
-					skipped.add(action.path);
+					continue;
 				}
-				continue;
-			}
-			if (action.kind === "trash") {
-				const file = this.app.vault.getFileByPath(action.path);
-				if (!file) continue; // 幂等成功
-				// 用户在此期间改动过文件（hash 与 Session 开始时记录不符）→ 不删
-				if (expectedHashes.has(action.path)) {
+				if (action.kind === "rmdir") {
+					// 删除空目录；非空/失败 → 跳过（下一轮对账重试）。
+					// Obsidian 1.13 的 adapter.rmdir(path, false) 对空目录也报 EISDIR（内部走 rm），
+					// 须先确认目录为空再用 recursive 删除；非空说明期间有新内容，跳过
+					if (!(await this.app.vault.adapter.exists(action.path))) continue; // 幂等成功
 					try {
-						const content = await this.app.vault.adapter.readBinary(action.path);
-						const hash = await sha256Hex(content);
-						if (hash !== expectedHashes.get(action.path)) {
+						const listing = await this.app.vault.adapter.list(action.path);
+						if (listing.files.length === 0 && listing.folders.length === 0) {
+							await this.app.vault.adapter.rmdir(action.path, true);
+						} else {
 							skipped.add(action.path);
-							continue;
 						}
 					} catch {
-						continue; // 读失败视为不存在，幂等跳过
+						skipped.add(action.path);
 					}
+					continue;
 				}
-				await this.app.vault.trash(file, false);
-				continue;
-			}
+				if (action.kind === "trash") {
+					const file = this.app.vault.getFileByPath(action.path);
+					if (!file) continue; // 幂等成功
+					// 用户在此期间改动过文件（hash 与 Session 开始时记录不符）→ 不删
+					if (expectedHashes.has(action.path)) {
+						try {
+							const content = await this.app.vault.adapter.readBinary(action.path);
+							const hash = await sha256Hex(content);
+							if (hash !== expectedHashes.get(action.path)) {
+								skipped.add(action.path);
+								continue;
+							}
+						} catch {
+							continue; // 读失败视为不存在，幂等跳过
+						}
+					}
+					await this.app.vault.trash(file, false);
+					continue;
+				}
 
-			// write
-			const content = await this.loadWriteContent(action, expectedRevision, expectedRootHash, tmpDir);
-			if (!content) {
-				skipped.add(action.path);
-				continue;
-			}
-			// 目标已存在且已是目标内容 → 幂等跳过
-			const existing = this.app.vault.getFileByPath(action.path);
-			if (existing) {
-				const disk = await this.app.vault.adapter.readBinary(action.path);
-				const diskHash = await sha256Hex(disk);
-				if (diskHash === action.content_hash) continue;
-				// 目标存在但内容不同：Session 开始后用户改过 → 不覆盖，重新标脏
-				if (expectedHashes.has(action.path) && diskHash !== expectedHashes.get(action.path)) {
+				// write
+				const content = await this.loadWriteContent(action, expectedRevision, expectedRootHash, tmpDir);
+				if (!content) {
 					skipped.add(action.path);
 					continue;
 				}
+				// 目标已存在且已是目标内容 → 幂等跳过
+				const existing = this.app.vault.getFileByPath(action.path);
+				if (existing) {
+					const disk = await this.app.vault.adapter.readBinary(action.path);
+					const diskHash = await sha256Hex(disk);
+					if (diskHash === action.content_hash) continue;
+					// 目标存在但内容不同：Session 开始后用户改过 → 不覆盖，重新标脏
+					if (expectedHashes.has(action.path) && diskHash !== expectedHashes.get(action.path)) {
+						skipped.add(action.path);
+						continue;
+					}
+				}
+				await writeLocalFile(this.app, action.path, content);
+
+			} catch (err) {
+				processed = false;
+				throw err;
+			} finally {
+				finishProgress(processed);
 			}
-			await writeLocalFile(this.app, action.path, content);
 		}
 
 		// 冲突副本：优先从本地源复制（内容即源文件 hash），源失效则 GetBlob
 		for (const cc of conflicts) {
-			await maybeYield();
-			const target = this.app.vault.getFileByPath(cc.path);
-			if (target) {
-				const disk = await this.app.vault.adapter.readBinary(cc.path);
-				if ((await sha256Hex(disk)) === cc.content_hash) continue; // 幂等
-			}
-			let content: Uint8Array | null = null;
+			const finishProgress = tracker.start(cc.path);
+			let processed = true;
 			try {
-				const src = await this.app.vault.adapter.readBinary(cc.source_path);
-				if ((await sha256Hex(src)) === cc.content_hash) {
-					content = new Uint8Array(src);
+				await maybeYield();
+				const target = this.app.vault.getFileByPath(cc.path);
+				if (target) {
+					const disk = await this.app.vault.adapter.readBinary(cc.path);
+					if ((await sha256Hex(disk)) === cc.content_hash) continue; // 幂等
 				}
-			} catch {
-				// 源已消失 → 走 GetBlob
+				let content: Uint8Array | null = null;
+				try {
+					const src = await this.app.vault.adapter.readBinary(cc.source_path);
+					if ((await sha256Hex(src)) === cc.content_hash) {
+						content = new Uint8Array(src);
+					}
+				} catch {
+					// 源已消失 → 走 GetBlob
+				}
+				if (!content) {
+					content = await this.remote.getBlob(cc.content_hash, expectedRevision, expectedRootHash);
+				}
+				await writeLocalFile(this.app, cc.path, content);
+
+			} catch (err) {
+				processed = false;
+				throw err;
+			} finally {
+				finishProgress(processed);
 			}
-			if (!content) {
-				content = await this.remote.getBlob(cc.content_hash, expectedRevision, expectedRootHash);
-			}
-			await writeLocalFile(this.app, cc.path, content);
 		}
 
 		if (args.onSkipped) {

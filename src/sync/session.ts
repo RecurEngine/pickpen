@@ -9,6 +9,7 @@ import { debugLog } from "../debug-log";
 import { isFileIDMoved, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
+import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgress } from "./progress";
 import { Applier } from "./applier";
 import { BaseStore } from "./base-store";
 import { LocalSnapshotBuilder } from "./local-snapshot";
@@ -24,6 +25,7 @@ import { backoffMs, createYieldControl } from "./utils";
 const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
 
 export interface SyncStatus {
+	progress: SyncProgress | null;
 	running: boolean;
 	lastError: string;
 	blockedPaths: string[];
@@ -50,6 +52,8 @@ export interface SessionDeps {
 export class ReconcileSession {
 	private readonly deps: SessionDeps;
 	private running = false;
+	private progress: SyncProgress | null = null;
+	private progressVersion = 0;
 	private rerunRequested = false;
 	private forceAudit = false;
 	private dirtyPaths = new Set<string>();
@@ -96,6 +100,7 @@ export class ReconcileSession {
 
 	/** 换绑仓库：清内存状态 */
 	reset(): void {
+		this.clearProgress();
 		this.dirtyPaths.clear();
 		this.nextDirtyPaths.clear();
 		this.blockedPaths = [];
@@ -105,6 +110,7 @@ export class ReconcileSession {
 		this.lastError = "";
 		this.storageLimitExceeded = false;
 		this.deps.localBuilder.reset();
+		this.report();
 	}
 
 	/** 本地 dirty 事件入口（local-hint 调用；运行中 → 下一轮） */
@@ -123,12 +129,29 @@ export class ReconcileSession {
 		return normalizePath(`${this.deps.pluginDir}/tmp`);
 	}
 
+	private clearProgress(): void {
+		this.progressVersion++;
+		this.progress = null;
+	}
+
+	private beginPhase(phase: SyncPhase): ProgressCallback {
+		const version = ++this.progressVersion;
+		this.progress = { phase, completed: 0, total: null, activePaths: [] };
+		this.report();
+		return (update) => {
+			if (!this.running || version !== this.progressVersion) return;
+			this.progress = { phase, ...update };
+			this.report();
+		};
+	}
+
 	private report(): void {
 		const pending = this.deps.pendingStore.getPending() !== null;
 		const storageLimitConfirmed = this.storageLimitConfirmed;
 		this.storageLimitConfirmed = false;
 		this.deps.onStatus?.({
 			running: this.running,
+			progress: this.progress,
 			lastError: this.lastError,
 			blockedPaths: [...this.blockedPaths],
 			storageLimitExceeded: this.storageLimitExceeded,
@@ -143,6 +166,7 @@ export class ReconcileSession {
 		this.report();
 		try {
 			do {
+				this.beginPhase("preparing");
 				this.rerunRequested = false;
 				this.dirtyPaths = this.nextDirtyPaths;
 				this.nextDirtyPaths = new Set();
@@ -153,6 +177,7 @@ export class ReconcileSession {
 					// 只有一次无异常的同步轮次才能证明容量已经恢复。
 					this.storageLimitExceeded = false;
 				} catch (err) {
+					this.clearProgress();
 					if (isUnauthenticated(err)) {
 						this.lastError = "令牌失效，请重新登录";
 					} else if (isStorageLimitExceeded(err)) {
@@ -164,11 +189,15 @@ export class ReconcileSession {
 						debugLog.error("[pickpen] Session 失败", err);
 					}
 					this.consecutiveFailures++;
+					// 不在此处 report：storageLimitConfirmed 是一次性标志，在 report 内被消费，
+					// 多报一次会让随后的 finally 上报把它冲掉。循环继续时下一轮 beginPhase
+					// 立即带出错误，循环结束则 finally 上报，两种路径都不会漏。
 				}
 				await new Promise((r) => setTimeout(r, 0)); // 轮间让出事件循环
 			} while (this.rerunRequested || this.nextDirtyPaths.size > 0);
 		} finally {
 			this.running = false;
+			this.clearProgress();
 			this.report();
 		}
 	}
@@ -184,6 +213,7 @@ export class ReconcileSession {
 		}
 
 		// 2. 保存打开视图中的未落盘编辑（§9.1 步骤 2，view-sync 复用）
+		this.beginPhase("preparing");
 		const views = await captureAllOpenViews(app);
 		await saveDirtyOpenViews(app, views);
 
@@ -191,6 +221,7 @@ export class ReconcileSession {
 		const base = baseStore.getBase();
 		const knownRevision = base ? BigInt(base.base_revision) : 0n;
 		const knownRoot = base?.base_root_hash ?? "";
+		this.beginPhase("remote");
 		const head = await remote.pollHead(knownRevision, knownRoot);
 		if (!head) return;
 		const maxFileSizeBytes = Number(head.maxFileSizeBytes);
@@ -199,7 +230,9 @@ export class ReconcileSession {
 		}
 
 		// 4. 消费本轮 dirty；按需完整审计，增量刷新 L。
+		const scanProgress = this.beginPhase("scanning");
 		const localRes = await localBuilder.refresh({
+			onProgress: scanProgress,
 			vault: app.vault,
 			base,
 			dirtyPaths: this.dirtyPaths,
@@ -216,6 +249,7 @@ export class ReconcileSession {
 		this.blockedPaths = localRes.blockedPaths;
 
 		// 5. Head 未变且 L == B → 结束（§9.1 步骤 5）
+		this.beginPhase("planning");
 		const localTree = buildTree(local.entries);
 		const localRoot = await localTree.rootHash;
 		if (head.unchanged && base && localRoot === base.base_root_hash) {
@@ -229,6 +263,7 @@ export class ReconcileSession {
 		if (head.unchanged && base) {
 			remoteEntries = base.entries;
 		} else {
+			this.beginPhase("remote");
 			const manifest = await remote.getManifest(head.revision, head.rootHash);
 			remoteEntries = manifest.entries;
 		}
@@ -242,6 +277,7 @@ export class ReconcileSession {
 		};
 
 		// 7. 三方对账（§9.1 步骤 7）
+		this.beginPhase("planning");
 		const planResult = plan({
 			base,
 			local,
@@ -262,6 +298,7 @@ export class ReconcileSession {
 		if (!hasWork) {
 			// L 与 R 已一致（或仅 blocked 差异）：确认 Base 收敛
 			if (localRoot !== base?.base_root_hash) {
+				this.beginPhase("finishing");
 				await baseStore.saveBase({
 					schema_version: 2,
 					device_id: settings.deviceId,
@@ -275,27 +312,27 @@ export class ReconcileSession {
 			return;
 		}
 
-		// 8. 下载 Target 需要、本地尚无的 Remote Blob（§9.1 步骤 8）
+		// 8. 下载 Target 需要、本地尚无的 Remote Blob（§9.1 步骤 8）：下载即写插件私有临时区，
+		//    计数到齐即临时区就绪（避免「已完成 N/N 却仍在写盘」）
 		const downloads = planResult.apply_actions
 			.filter((a) => a.kind === "write")
 			.map((a) => ({ path: a.path, content_hash: a.content_hash, size: a.size }));
 		const yc = createYieldControl();
-		const tempContents = await this.applier.fetchBlobs(
+		await this.applier.fetchBlobs(
 			downloads,
 			head.revision,
 			head.rootHash,
 			Platform.isMobile,
 			yc,
+			this.beginPhase("downloading"),
+			this.tmpDir,
 		);
-		for (const [hash, content] of tempContents) {
-			await this.applier.writeTemp(app, normalizePath(`${this.tmpDir}/${hash}`), content);
-		}
 		for (const a of planResult.apply_actions) {
 			if (a.kind === "write") a.temp_path = normalizePath(`${this.tmpDir}/${a.content_hash}`);
 		}
 
 		// 9. 提交前重新 stat/hash 复查（§9.1 步骤 9）：变化则放弃本轮，不应用已下载临时文件
-		if (!(await this.verifyLocalUnchanged(planResult, expectedHashes))) {
+		if (!(await this.verifyLocalUnchanged(planResult, expectedHashes, this.beginPhase("verifying")))) {
 			return;
 		}
 
@@ -303,14 +340,19 @@ export class ReconcileSession {
 		const putHashes = new Map<string, string>(); // hash → 本地源路径
 		for (const p of planResult.puts) if (p.content_hash) putHashes.set(p.content_hash, p.path); // dir 无内容，跳过
 		for (const cc of planResult.conflict_copies) putHashes.set(cc.content_hash, cc.source_path);
+		const uploadProgress = this.beginPhase("uploading");
 		const existing = await remote.hasBlobs([...putHashes.keys()]);
-		for (const [hash, srcPath] of putHashes) {
-			if (existing.has(hash)) continue;
-			const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
-			await remote.putBlob(hash, content);
+		const uploads = [...putHashes].filter(([hash]) => !existing.has(hash));
+		const uploadTracker = new ProgressTracker(uploads.length, uploadProgress);
+		for (const [hash, srcPath] of uploads) {
+			await uploadTracker.track(srcPath, async () => {
+				const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
+				await remote.putBlob(hash, content);
+			});
 		}
 
 		// 11. 写 pending(prepared)——必须在 CommitSnapshot 之前落盘（§9.4）
+		this.beginPhase("committing");
 		await pendingStore.writePrepared({
 			schema_version: 2,
 			vault_id: settings.vaultId,
@@ -346,12 +388,14 @@ export class ReconcileSession {
 			this.rerunRequested = true; // 12023 不改变服务端 Head，poller 不会触发新 Session → 必须自请求
 			debugLog.warn(`[pickpen] CommitSnapshot 12023（file_id 身份冲突，第 ${this.fileIDMovedStreak} 次），退避后重新对账`);
 			// 退避基数小（本地计划问题而非服务端争用，12015 才用 20s 基数）；指数上限 30s 防病态循环
+			this.beginPhase("waiting");
 			await new Promise((r) => setTimeout(r, backoffMs(this.fileIDMovedStreak, 2_000, 30_000)));
 			return;
 		}
 		if (commit === null) {
 			// SNAPSHOT_CHANGED：不应用临时文件、不写 Base、保留已上传 Blob，
 			// 随机退避后从新 Head 重新对账（§9.3）
+			this.beginPhase("waiting");
 			await new Promise((r) => setTimeout(r, backoffMs(this.consecutiveFailures)));
 			return;
 		}
@@ -363,6 +407,7 @@ export class ReconcileSession {
 		await pendingStore.markCommitted(String(commit.revision));
 		await pendingStore.markApplying();
 		const skipped = await this.applier.applyPlan({
+			onProgress: this.beginPhase("applying"),
 			actions: planResult.apply_actions,
 			conflicts: planResult.conflict_copies,
 			expectedHashes,
@@ -374,6 +419,7 @@ export class ReconcileSession {
 			onSkipped: (p) => this.nextDirtyPaths.add(p),
 		});
 		for (const p of skipped) this.nextDirtyPaths.add(p);
+		this.beginPhase("finishing");
 		await this.refreshViewsByDisk(app, views);
 
 		// 14. 原子写新 Base（saveBase 内部重新 stat 记录实际落盘 mtime/size）→ 清 pending（§9.1 步骤 13/14）
@@ -398,6 +444,7 @@ export class ReconcileSession {
 		const pending = pendingStore.getPending();
 		if (!pending || !settings.accessToken || !settings.vaultId) return;
 
+		this.beginPhase("recovering");
 		let head;
 		try {
 			head = await remote.getHead();
@@ -412,6 +459,7 @@ export class ReconcileSession {
 				const manifest = await remote.getManifest(head.revision, head.rootHash);
 				await pendingStore.markApplying();
 				await this.applier.applyPlan({
+					onProgress: this.beginPhase("applying"),
 					actions: pending.apply_actions,
 					conflicts: [],
 					expectedHashes: new Map(),
@@ -422,6 +470,7 @@ export class ReconcileSession {
 					yieldControl: createYieldControl(),
 					onSkipped: (p) => this.nextDirtyPaths.add(p),
 				});
+				this.beginPhase("finishing");
 				await baseStore.saveBase({
 					schema_version: 2,
 					device_id: settings.deviceId,
@@ -486,36 +535,49 @@ export class ReconcileSession {
 	private async verifyLocalUnchanged(
 		planResult: SyncPlan,
 		expectedHashes: Map<string, string>,
+		onProgress: ProgressCallback,
 	): Promise<boolean> {
 		const { app } = this.deps;
 		// puts：源内容必须仍是计划的 hash（dir 无内容，跳过）
 		// 冲突副本 put 的 path 是待创建的副本路径（磁盘尚不存在），校验对象是其 source_path
 		const conflictSources = new Map(planResult.conflict_copies.map((c) => [c.path, c.source_path]));
-		for (const p of planResult.puts) {
-			if (p.kind === KIND_DIR) continue;
+		const filePuts = planResult.puts.filter((p) => p.kind !== KIND_DIR);
+		const tracker = new ProgressTracker(filePuts.length + planResult.deletes.length, onProgress);
+		for (const p of filePuts) {
 			const srcPath = conflictSources.get(p.path) ?? p.path;
+			const finish = tracker.start(srcPath);
+			let verified = false;
 			try {
 				const content = await app.vault.adapter.readBinary(srcPath);
 				if ((await this.hashContent(content)) !== p.content_hash) return false;
+				verified = true;
 			} catch {
 				return false; // 源文件消失：放弃
+			} finally {
+				finish(verified); // 放弃路径同样清掉活动路径：不虚增完成数、不留残留
 			}
 		}
 		// deletes：目标路径在 Session 期间重现 → 放弃（下一轮对账）；
 		// 目录删除目标做存在性检查（无内容 hash）
 		for (const d of planResult.deletes) {
-			const isDir = planResult.target_entries[d]?.kind === KIND_DIR;
-			if (isDir) {
-				if (await app.vault.adapter.exists(d)) return false;
-				continue;
-			}
-			const expected = expectedHashes.get(d);
+			const finish = tracker.start(d);
+			let processed = false;
 			try {
-				const content = await app.vault.adapter.readBinary(d);
-				const hash = await this.hashContent(content);
-				if (expected === undefined || hash !== expected) return false;
-			} catch {
-				// 文件不存在（正常：delete 目标本应不存在）
+				if (planResult.target_entries[d]?.kind === KIND_DIR) {
+					if (await app.vault.adapter.exists(d)) return false; // 读盘异常照旧向上抛
+				} else {
+					const expected = expectedHashes.get(d);
+					try {
+						const content = await app.vault.adapter.readBinary(d);
+						const hash = await this.hashContent(content);
+						if (expected === undefined || hash !== expected) return false;
+					} catch {
+						// 文件不存在（正常：delete 目标本应不存在）
+					}
+				}
+				processed = true;
+			} finally {
+				finish(processed);
 			}
 		}
 		return true;

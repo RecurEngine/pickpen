@@ -7,6 +7,8 @@ import { renderAboutAndFeedback } from "./about";
 import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { ErrCode, errorCode, isUnauthenticated } from "./remote-connect";
+import { formatProgress, progressPercent } from "./sync/progress";
+import { StatusRefresh } from "./status-refresh";
 import { syncState, type SyncState } from "./sync-state";
 import { renderSubscriptionSection } from "./subscription-view";
 import { renderMobileSubscriptionSection } from "./mobile-subscription-view";
@@ -108,9 +110,16 @@ class PickpenSettingsView {
 	private statusCardEl: HTMLElement | null = null;
 	private statusDotEl: HTMLElement | null = null;
 	private statusTextEl: HTMLElement | null = null;
+	private statusProgressEl: HTMLElement | null = null;
+	private statusMetricsEl: HTMLElement | null = null;
+	private statusBarFillEl: HTMLElement | null = null;
+	private statusPercentEl: HTMLElement | null = null;
+	private statusPathEl: HTMLElement | null = null;
+	private readonly statusRefresh = new StatusRefresh(() => this.refreshStatusCard());
 	private debounceInputEl: HTMLInputElement | null = null;
 	private statusListener = () => {
-		this.refreshStatusCard();
+		const status = deriveStatus(this.plugin.settings, syncState);
+		this.statusRefresh.request(JSON.stringify([status.mod, status.text, syncState.sessionRunning, syncState.progress?.phase]));
 		this.refreshDebounceDisplay();
 	};
 	private active = false;
@@ -126,6 +135,7 @@ class PickpenSettingsView {
 
 	display(): void {
 		this.active = true;
+		this.statusRefresh.cancel();
 		this.subscriptionCleanup?.();
 		this.subscriptionCleanup = null;
 		const { containerEl } = this;
@@ -139,7 +149,7 @@ class PickpenSettingsView {
 		// pickpen-account-section 仅供跳转聚焦定位（.pickpen-settings-section 缺省即同步/诊断区样式）
 		const accountSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section pickpen-account-section" });
 
-		// 同步状态卡片（单行实时状态，订阅 syncState 刷新）
+		// 同步状态卡片（实时状态和阶段进度，订阅 syncState 刷新）
 		this.renderStatusCard(accountSectionEl);
 		if (loggedIn) {
 			// 已登录：账号信息 + 退出登录
@@ -328,6 +338,7 @@ class PickpenSettingsView {
 	// 系统设置页 hide：取消订阅防泄漏
 	dispose(): void {
 		this.active = false;
+		this.statusRefresh.cancel();
 		if (this.started) {
 			this.started = false;
 			syncState.off(this.statusListener);
@@ -339,6 +350,11 @@ class PickpenSettingsView {
 		this.statusCardEl = null;
 		this.statusDotEl = null;
 		this.statusTextEl = null;
+		this.statusProgressEl = null;
+		this.statusMetricsEl = null;
+		this.statusBarFillEl = null;
+		this.statusPercentEl = null;
+		this.statusPathEl = null;
 		this.debounceInputEl = null;
 	}
 
@@ -503,12 +519,20 @@ class PickpenSettingsView {
 			);
 	}
 
-	// renderStatusCard 状态卡片：状态点 + 单行文案（class 由 deriveStatus 决定）
+	// renderStatusCard 状态卡片：状态点、阶段进度和当前路径（class 由 deriveStatus 决定）
 	private renderStatusCard(containerEl: HTMLElement): void {
 		const card = containerEl.createDiv({ cls: "pickpen-status-card" });
 		this.statusCardEl = card;
 		this.statusDotEl = card.createDiv({ cls: "pickpen-status-dot" });
-		this.statusTextEl = card.createDiv({ cls: "pickpen-status-text" });
+		const content = card.createDiv({ cls: "pickpen-status-content" });
+		this.statusTextEl = content.createDiv({ cls: "pickpen-status-text" });
+		this.statusProgressEl = content.createDiv({ cls: "pickpen-status-progress" });
+		// 进度条：纯装饰（百分比文本已表达同一信息），不进入无障碍树
+		const metrics = content.createDiv({ cls: "pickpen-status-metrics", attr: { "aria-hidden": "true" } });
+		this.statusMetricsEl = metrics;
+		this.statusBarFillEl = metrics.createDiv({ cls: "pickpen-status-bar" }).createDiv({ cls: "pickpen-status-bar-fill" });
+		this.statusPercentEl = metrics.createDiv({ cls: "pickpen-status-percent" });
+		this.statusPathEl = content.createDiv({ cls: "pickpen-status-path" });
 		this.refreshStatusCard();
 	}
 
@@ -517,18 +541,31 @@ class PickpenSettingsView {
 		if (!this.statusCardEl) return;
 		const s = deriveStatus(this.plugin.settings, syncState);
 		this.statusCardEl.setAttribute("class", `pickpen-status-card is-${s.mod}`);
-		this.statusTextEl!.textContent = s.text;
+		const running = syncState.sessionRunning ? syncState.progress : null;
+		const progress = running ? formatProgress(running) : null;
+		const percent = running ? progressPercent(running) : null;
+		this.statusTextEl!.textContent = s.mod === "syncing" && progress ? `同步中：${progress.text}` : s.text;
+		this.statusProgressEl!.textContent = progress && s.mod !== "syncing" ? progress.text : "";
+		this.statusProgressEl!.hidden = !progress || s.mod === "syncing";
+		// 进度条只由总量是否可知决定显隐；阶段文案在主行与独立行之间搬家不影响它
+		this.statusMetricsEl!.hidden = percent === null;
+		if (percent !== null) {
+			this.statusBarFillEl!.style.width = `${percent}%`;
+			this.statusPercentEl!.textContent = `${percent}%`;
+		}
+		this.statusPathEl!.textContent = progress?.path ?? "";
+		this.statusPathEl!.hidden = !progress?.path;
 	}
 }
 
 // deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 受阻 → 同步中 → 已全部同步）
-function deriveStatus(settings: PluginSettings, state: SyncState): { mod: string; text: string } {
+export function deriveStatus(settings: PluginSettings, state: SyncState): { mod: string; text: string } {
 	if (!settings.accessToken) return { mod: "yellow", text: "未登录：登录后开始同步" };
 	if (state.pausedReason) return { mod: "yellow", text: `已暂停：${state.pausedReason}` };
 	if (state.storageLimitExceeded) return { mod: "red", text: "同步已暂停：云端存储已满" };
 	if (state.lastError) return { mod: "red", text: `同步出错：${state.lastError}` };
 	if (state.blockedPaths.length > 0) return { mod: "yellow", text: `同步受阻：${state.blockedPaths.length} 个文件被阻塞（超限/冲突）` };
-	if (state.sessionRunning) return { mod: "syncing", text: "同步中…：正在同步本地变更" };
+	if (state.sessionRunning) return { mod: "syncing", text: "同步中：正在准备同步" };
 	return { mod: "green", text: "已全部同步" };
 }
 

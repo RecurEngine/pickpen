@@ -178,6 +178,7 @@ export default class PickpenPlugin extends Plugin {
 			onStatus: (s) => {
 				syncState.update({
 					sessionRunning: s.running,
+					progress: s.progress,
 					lastError: s.lastError,
 					blockedPaths: s.blockedPaths,
 					storageLimitExceeded: s.storageLimitExceeded,
