@@ -24,6 +24,8 @@ interface RemoteSnapshotConfig {
 }
 
 export interface RemoteHead {
+	/** 该响应所属仓库（服务端回显请求的 vault_id）：换绑期间据此丢弃在途的旧仓库响应 */
+	vaultId: string;
 	revision: bigint;
 	rootHash: string;
 	unchanged: boolean;
@@ -32,6 +34,10 @@ export interface RemoteHead {
 	maxFileSizeBytes: bigint;
 	/** 服务端建议的本地变更防抖窗口（ms）；0 = 客户端使用默认值 */
 	localDebounceMs: bigint;
+	/** 仓库是否端到端加密（true 时未解锁必须暂停同步） */
+	encrypted: boolean;
+	/** 密钥版本：与解锁时记录的不一致 = 口令已在别处变更，须重新解锁并重建本地基线 */
+	keyVersion: bigint;
 }
 
 export interface RemoteManifest {
@@ -62,12 +68,15 @@ export class SnapshotRemote {
 			knownRootHash: "",
 		});
 		const head = {
+			vaultId: String(resp.vaultId),
 			revision: resp.revision,
 			rootHash: resp.rootHash,
 			unchanged: resp.unchanged,
 			syncIntervalMs: resp.syncIntervalMs,
 			maxFileSizeBytes: resp.maxFileSizeBytes,
 			localDebounceMs: resp.localDebounceMs,
+			encrypted: resp.encrypted,
+			keyVersion: resp.keyVersion,
 		};
 		this.onHead?.(head);
 		return head;
@@ -83,12 +92,15 @@ export class SnapshotRemote {
 			knownRootHash,
 		});
 		const head = {
+			vaultId: String(resp.vaultId),
 			revision: resp.revision,
 			rootHash: resp.rootHash,
 			unchanged: resp.unchanged,
 			syncIntervalMs: resp.syncIntervalMs,
 			maxFileSizeBytes: resp.maxFileSizeBytes,
 			localDebounceMs: resp.localDebounceMs,
+			encrypted: resp.encrypted,
+			keyVersion: resp.keyVersion,
 		};
 		this.onHead?.(head);
 		return head;

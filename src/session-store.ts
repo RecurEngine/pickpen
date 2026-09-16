@@ -226,6 +226,23 @@ export class SessionStore {
 		this.save();
 	}
 
+	/**
+	 * snapshot 只读会话快照。刷新失败时用它判断：本机记录里的 refresh token 是否已被
+	 * 另一个实例轮换成新值（插件重载窗口内新旧实例并存时会发生），据此区分「我手里这把旧了」
+	 * 与「这把确实已失效」——前者可以自愈，后者才需要登出。
+	 */
+	snapshot(): SessionFields {
+		return {
+			email: this.state.email,
+			userId: this.state.userId,
+			accessToken: this.state.accessToken,
+			accessExpiresAtMs: this.state.accessExpiresAtMs,
+			refreshToken: this.state.refreshToken,
+			refreshExpiresAtMs: this.state.refreshExpiresAtMs,
+			deviceId: this.state.deviceId,
+		};
+	}
+
 	// ensureDeviceId 生成并持久化设备 ID（新装/迁移重生成后调用；不再写 data.json）
 	ensureDeviceId(): string {
 		if (!this.state.deviceId) {

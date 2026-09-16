@@ -7,8 +7,11 @@ import { addIcon, Notice, Platform, Plugin, setIcon } from "obsidian";
 
 import pickpenIconSvg from "./assets/pickpen.svg";
 import { AuthManager } from "./auth";
+import { requestPassword } from "./crypto/password-modal";
+import { resolveAutoUnlockPrompt, unlockPromptKey, type UnlockPromptCopy } from "./crypto/unlock-prompt";
+import { createVaultKey, unwrapDek, wrapDekWithPassword, WrongPasswordError } from "./crypto/vault-crypto";
+import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
-import { reportSetupGuideShown } from "./event-report";
 import { installHistoryFeature } from "./history-view";
 import { planLegacyMigration, SessionStore, stripSessionKeys, vaultScopeKey, type KeyValueStore } from "./session-store";
 import { RemoteClient } from "./remote-connect";
@@ -17,8 +20,8 @@ import { PickpenSettingTab } from "./settings";
 import { setupStage, SetupGuideModal, type SetupStage } from "./setup-guide";
 import { localDateKey, StorageLimitModal } from "./storage-limit-alert";
 import { syncState } from "./sync-state";
-import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings } from "./types";
-import { openVaultManager } from "./vault-manager";
+import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings, type VaultInfo } from "./types";
+import { createRemoteVault, enableRemoteVaultEncryption, fetchVaults, openVaultManager, updateRemoteVaultKey } from "./vault-manager";
 import { BaseStore } from "./sync/base-store";
 import { LocalHint } from "./sync/local-hint";
 import { LocalSnapshotBuilder } from "./sync/local-snapshot";
@@ -27,20 +30,28 @@ import { Poller } from "./sync/poller";
 import { SnapshotRemote } from "./sync/remote";
 import { ReconcileSession } from "./sync/session";
 
+// PAUSED_BY_LOCK 加密仓库未解锁时的暂停原因（同步状态栏展示；解锁后自动恢复）
+export const PAUSED_BY_LOCK = "仓库已加密，请输入密码解锁";
+
 const PICKPEN_ICON_ID = "pickpen-logo";
 // addIcon 接收 SVG 内部节点；源文件保留完整 <svg>，便于独立预览与编辑。
 const PICKPEN_ICON_SVG = pickpenIconSvg.replace(/^\s*<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
 
-// createSessionStore 探测 localStorage 可用性；不可用（隐私模式/禁用站点存储）→ SessionStore 降级仅内存，
+// 启动提醒延迟：等工作区与 ribbon 渲染完再提示，避免与宿主启动界面、其他插件通知抢注意力
+const STARTUP_REMINDER_DELAY_MS = 1500;
+
+// createLocalKV 探测 localStorage 可用性；不可用（隐私模式/禁用站点存储）→ 调用方降级为仅内存，
 // 本次运行可登录但不跨重启，且会告警一次
-function createSessionStore(scopeKey: string): SessionStore {
-	let kv: KeyValueStore | null = null;
+function createLocalKV(): KeyValueStore | null {
 	try {
-		kv = window.localStorage; // 与 KeyValueStore 接口同形；访问 getter 本身在禁用时抛错
+		return window.localStorage; // 与 KeyValueStore 接口同形；访问 getter 本身在禁用时抛错
 	} catch {
-		kv = null;
+		return null;
 	}
-	return new SessionStore(kv, scopeKey);
+}
+
+function createSessionStore(scopeKey: string): SessionStore {
+	return new SessionStore(createLocalKV(), scopeKey);
 }
 
 export default class PickpenPlugin extends Plugin {
@@ -59,16 +70,26 @@ export default class PickpenPlugin extends Plugin {
 	private ribbonEl?: HTMLElement;
 	private storageLimitModal: StorageLimitModal | null = null;
 	private guideModal: SetupGuideModal | null = null;
+	// startupReminderTimer 启动提醒定时器；setupGuideShown 本会话是否已展示过引导弹窗
+	private startupReminderTimer: ReturnType<typeof setTimeout> | null = null;
+	private setupGuideShown = false;
 	private settingTab!: PickpenSettingTab;
 	// accountBinding 本次会话的绑定记忆（账号 + vault_id）：登录后判定「同账号重登沿用绑定」vs「走选择流程」
 	private accountBinding: { email: string; vaultId: string } | null = null;
 	private localBuilder!: LocalSnapshotBuilder;
+	// promptedUnlockKey 已自动弹过解锁窗的「仓库:密钥版本」；用户取消后不再重复，密钥再变才重新提示
+	private promptedUnlockKey = "";
+	// localKeyOp 本机正在执行的密钥操作计数（新建加密仓库/转换/改密码）：期间不让在途 Head 触发自动弹窗
+	private localKeyOp = 0;
 
 	async onload(): Promise<void> {
 		// 模块可能在 Obsidian 内热重载：未收到新 Head 前始终从客户端默认防抖值开始。
 		syncState.localDebounceMs = DEBOUNCE_MS;
 		// 品牌图标：P 字母轮廓叠加书写笔，使用 currentColor 自动跟随 Obsidian 主题。
 		addIcon(PICKPEN_ICON_ID, PICKPEN_ICON_SVG);
+
+		// 仓库内容密钥的设备本地存储（「在本设备记住仓库密码」用），与会话同一作用域规则
+		vaultKeys.configure(createLocalKV(), vaultScopeKey(this.app));
 
 		// —— 登录会话装配：设备本地 localStorage 为权威，data.json 只存绑定/偏好 ——
 		this.sessionStore = createSessionStore(vaultScopeKey(this.app));
@@ -149,8 +170,14 @@ export default class PickpenPlugin extends Plugin {
 			onUnauthenticated: () => this.auth?.refresh() ?? Promise.resolve(false),
 		}));
 		this.client.rebuild(BASE_URL);
-		// auth 会话写入漏斗：改完内存镜像 → captureFrom 落设备本地 localStorage
-		this.auth = new AuthManager(this.settings, this.client, () => this.sessionStore.captureFrom(this.settings));
+		// auth 会话写入漏斗：改完内存镜像 → captureFrom 落设备本地 localStorage；
+		// 读取回调用于刷新失败时判断本机记录是否已被另一个实例轮换（见 AuthManager.doRefresh）
+		this.auth = new AuthManager(
+			this.settings,
+			this.client,
+			() => this.sessionStore.captureFrom(this.settings),
+			() => this.sessionStore.snapshot(),
+		);
 		this.remote = new SnapshotRemote(
 			this.client,
 			() => ({
@@ -161,6 +188,13 @@ export default class PickpenPlugin extends Plugin {
 			(head) => {
 				const localDebounceMs = resolveLocalDebounceMs(head.localDebounceMs);
 				if (localDebounceMs !== syncState.localDebounceMs) syncState.update({ localDebounceMs });
+				void this.applyRemoteEncryptionState({
+					// 用响应自带的仓库 ID，而不是投递时刻的绑定：换绑期间在途的旧仓库响应
+					// 若被当成新仓库的状态，会用旧仓库的密钥版本顶掉新仓库的解锁态
+					vaultId: head.vaultId,
+					encrypted: head.encrypted,
+					keyVersion: String(head.keyVersion),
+				});
 			},
 		);
 
@@ -174,6 +208,8 @@ export default class PickpenPlugin extends Plugin {
 			remote: this.remote,
 			pluginDir: this.manifest.dir ?? "",
 			caseInsensitive: Platform.isMobileApp, // 移动端文件系统按大小写不敏感处理
+			// 加密仓库未解锁时不能读盘算哈希：本轮整体不运行，并提示用户解锁
+			preflight: (interactive) => this.ensureVaultUnlocked(interactive),
 			initialStorageLimitExceeded: this.sessionStore.storageLimitAlertActive,
 			onStatus: (s) => {
 				syncState.update({
@@ -242,6 +278,7 @@ export default class PickpenPlugin extends Plugin {
 
 		// 启动时序：全部挂在 onLayoutReady 内
 		this.app.workspace.onLayoutReady(() => {
+			this.scheduleStartupSetupReminder(); // 每次启动都判定：配置未完成时延迟提醒
 			void this.onLayoutReady();
 		});
 
@@ -257,14 +294,37 @@ export default class PickpenPlugin extends Plugin {
 		// ③ 启动 Head 轮询与低频完整审计定时器（分离，spec §10）
 		this.poller.start();
 		// ④ 启动场景：force_audit（spec §9.2 场景 1；loadResult 异常同样是完整审计场景）
+		// interactive：加密仓库会在启动时直接要求解锁，而不是静默停在暂停态
 		const forceAudit = loadResult !== "ok" || this.pendingStore.getPending() !== null;
-		this.session.requestRun({ forceAudit: true });
+		this.session.requestRun({ forceAudit: true, interactive: true });
 		void forceAudit;
 		debugLog.info("[pickpen] 启动时序完成：Base 加载 + 事件注册 + 轮询 + Session");
 	}
 
+	// scheduleStartupSetupReminder 冷启动提醒：每次打开 Obsidian 都重新判定，配置未完成（未登录 /
+	// 未绑定仓库）时提示，不落任何持久化标记。延迟到工作区渲染之后再弹，且到点才读取当前状态
+	// ——延迟期间用户已登录 / 已绑定则静默跳过。
+	private scheduleStartupSetupReminder(): void {
+		this.startupReminderTimer = setTimeout(() => {
+			this.startupReminderTimer = null;
+			// 本会话已给过引导（例如「启用」那一刻刚弹过并被关掉）就不补弹第二次
+			if (this.setupGuideShown) return;
+			this.maybeShowSetupGuide();
+		}, STARTUP_REMINDER_DELAY_MS);
+		// 定时器不属于 Obsidian 生命周期：插件被禁用 / 更新后仍会触发，必须随卸载清掉
+		this.register(() => this.clearStartupReminder());
+	}
+
+	// clearStartupReminder 清掉尚未触发的启动提醒
+	private clearStartupReminder(): void {
+		if (this.startupReminderTimer === null) return;
+		clearTimeout(this.startupReminderTimer);
+		this.startupReminderTimer = null;
+	}
+
 	// onUserEnable 用户点击启用插件那一刻（冷启动不会触发）：布局就绪后给出一次性引导。
 	// 不落任何持久化标记——该回调本身就是「用户此刻明确启用了插件」的信号。
+	// 冷启动时未完成配置由 scheduleStartupSetupReminder 提醒，两者重复触发由 showSetupGuide 去重。
 	onUserEnable(): void {
 		this.app.workspace.onLayoutReady(() => this.maybeShowSetupGuide());
 	}
@@ -275,7 +335,8 @@ export default class PickpenPlugin extends Plugin {
 		if (stage) this.showSetupGuide(stage);
 	}
 
-	// showSetupGuide 弹出引导弹窗；已有其他弹窗时不叠加
+	// showSetupGuide 弹出引导弹窗；已有其他弹窗时不叠加。
+	// 会话标记与弹窗守卫各挡一类重复：守卫挡同时/重叠触发，标记挡「先弹的已被用户关掉、后弹的又来」
 	private showSetupGuide(stage: SetupStage): void {
 		if (this.guideModal || this.storageLimitModal) return;
 		const modal = new SetupGuideModal(this.app, stage, {
@@ -293,9 +354,8 @@ export default class PickpenPlugin extends Plugin {
 			},
 		});
 		this.guideModal = modal;
+		this.setupGuideShown = true;
 		modal.open();
-		// 上报放在去重守卫与 open() 之后：统计的是「真的展示给用户」的次数
-		reportSetupGuideShown(this.client, stage);
 	}
 
 	// syncNow 立即同步（命令面板 / ribbon）；未完成配置时改为把用户送到对应入口，不留死胡同
@@ -311,7 +371,8 @@ export default class PickpenPlugin extends Plugin {
 			openVaultManager(this.app, this);
 			return;
 		}
-		this.session.requestRun();
+		// 用户主动同步：加密仓库会先弹出解锁窗
+		this.session.requestRun({ interactive: true });
 	}
 
 	private updateRibbon(): void {
@@ -440,13 +501,21 @@ export default class PickpenPlugin extends Plugin {
 						blockedCount: syncState.blockedPaths.length,
 						lastSyncAt: syncState.lastSyncAt,
 					},
+					encryption: {
+						boundVaultId: vaultKeys.boundVaultId,
+						encrypted: vaultKeys.isEncrypted(),
+						locked: vaultKeys.isLocked(),
+						keyVersion: vaultKeys.keyVersion,
+						hasKeyParams: !!vaultKeys.getParams(),
+						remember: vaultKeys.remember,
+					},
 					base: base
 						? { revision: base.base_revision, entryCount: Object.keys(base.entries).length }
 						: null,
 					pendingRecovery: this.pendingStore?.getPending() !== null,
 				};
 			},
-			requestSync: () => this.session?.requestRun({ forceAudit: true }),
+			requestSync: () => this.session?.requestRun({ forceAudit: true, interactive: true }),
 		};
 	}
 
@@ -460,6 +529,250 @@ export default class PickpenPlugin extends Plugin {
 	resumeSync(): void {
 		debugLog.info("[pickpen] 恢复同步");
 		syncState.update({ pausedReason: "" });
+	}
+
+	// ===== 端到端加密仓库的密钥状态（spec §加密：仓库密码不上传，内容密钥随仓库元数据保存）=====
+
+
+	/**
+	 * 同步远端仓库的加密状态。密钥版本变化（别处转换了仓库或改过密码）时，
+	 * 旧内容密钥与旧本地基线全部失效：必须重新取密钥参数、重建 Base，并让用户重新解锁。
+	 * 未加密仓库直接同步执行，行为与改造前一致。
+	 */
+	async applyRemoteEncryptionState(state: {
+		vaultId: string;
+		encrypted: boolean;
+		keyVersion: string;
+	}): Promise<void> {
+		// 在途的 Head 响应可能属于换绑前的旧仓库：按响应自带的仓库 ID 判别，不是当前绑定就丢弃
+		if (!state.vaultId || state.vaultId !== this.settings.vaultId) return;
+		const switched = vaultKeys.boundVaultId !== "" && vaultKeys.boundVaultId !== state.vaultId;
+		// syncRemote 会改写加密态，先记下旧值：用于区分「对方刚启用加密」与「对方改了密码」
+		const wasEncrypted = vaultKeys.isEncrypted();
+		const keyChanged = vaultKeys.syncRemote(state);
+		if (switched) {
+			// 换绑：旧仓库的 Base/pending 对新仓库无效甚至有害
+			this.baseStore.reset();
+			await this.baseStore.flush();
+			await this.pendingStore.clear();
+			this.session.reset();
+		} else if (keyChanged) {
+			// 密钥代次可能变了（别处转换/新建），也可能只是重新包装（改密码）。
+			// 这里不清空 Base：内容寻址是否失效由 Base 里记录的密钥代次判定——
+			// 清空会让「内容没变、口径变了」的整库路径落进 Bootstrap 分支，复制出满仓冲突副本。
+			// 但旧密钥下的 pending 不再可信，清掉并重新对账。
+			await this.pendingStore.clear();
+			if (this.session.isRunning()) this.session.requestRun({ forceAudit: true });
+		}
+		if (state.encrypted && vaultKeys.isLocked()) {
+			// 首次拿到加密仓库状态时补一次参数；已取过则不重复请求。
+			// 顺序不可颠倒：没有参数时 unlock 会直接报错，本机记忆也解不开
+			if (!vaultKeys.getParams()) await this.adoptVaultState(state.vaultId);
+			await vaultKeys.tryRestoreRemembered();
+		}
+		// 先落暂停态再弹窗：弹窗期间同步与轮询必须停住
+		this.syncVaultLockState();
+		this.autoPromptUnlock(switched, keyChanged, wasEncrypted);
+	}
+
+	/**
+	 * 取到 Head 后才发现「仓库已加密、本机没有可用内容密钥」时主动弹解锁窗。
+	 * 同一「仓库 + 密钥版本」只自动弹一次：Head 响应可能并发到达，用户取消后又会一直停在
+	 * 未解锁态——没有去重就会反复弹窗；密钥版本再变则重新提示。换绑交给绑定流程处理。
+	 */
+	private autoPromptUnlock(switched: boolean, keyChanged: boolean, wasEncrypted: boolean): void {
+		if (this.localKeyOp > 0) return; // 本机正在改密码/转换：变更由该流程自己处理
+		const decision = resolveAutoUnlockPrompt({
+			switched,
+			locked: vaultKeys.isLocked(),
+			keyChanged,
+			wasEncrypted,
+			vaultId: vaultKeys.boundVaultId,
+			keyVersion: vaultKeys.keyVersion,
+			promptedKey: this.promptedUnlockKey,
+		});
+		if (!decision) return;
+		void this.promptUnlock(decision.copy); // 去重键的登记在 promptUnlock 内部完成
+	}
+
+	/** 纯取某仓库的加密状态与密钥参数（不改动运行时状态；核验非绑定仓库密码用） */
+	private async fetchVaultInfo(vaultId: string): Promise<VaultInfo | undefined> {
+		try {
+			const vaults = await fetchVaults(this.client);
+			return vaults.find((v) => v.vaultId === vaultId);
+		} catch (err) {
+			debugLog.warn(`[pickpen] 获取仓库加密参数失败：${err instanceof Error ? err.message : String(err)}`);
+			return undefined;
+		}
+	}
+
+	/** 取参数并接管进运行时状态（只对当前绑定仓库生效） */
+	private async adoptVaultState(vaultId: string): Promise<VaultInfo | undefined> {
+		const info = await this.fetchVaultInfo(vaultId);
+		if (!info || info.vaultId !== this.settings.vaultId) return info;
+		vaultKeys.syncRemote({ vaultId: info.vaultId, encrypted: info.encrypted, keyVersion: info.keyVersion });
+		vaultKeys.setParams(info.vaultId, info.keyParams);
+		return info;
+	}
+
+	/** 把「是否未解锁」反映到同步状态（未解锁 = 暂停同步）。只管理自己这一条暂停原因，
+	 * 不覆盖「未登录」「未绑定」「仓库管理操作中」等由其他流程设置的状态 */
+	private syncVaultLockState(): void {
+		if (!this.settings.vaultId) return;
+		if (vaultKeys.isLocked()) {
+			this.pauseSync(PAUSED_BY_LOCK);
+			return;
+		}
+		if (syncState.pausedReason === PAUSED_BY_LOCK) this.resumeSync();
+	}
+
+	/**
+	 * 确保绑定仓库已解锁。interactive=true 时弹窗要求输入密码（用户主动触发同步、绑定仓库时用）；
+	 * 后台轮询一律用 false，避免反复弹窗打断编辑。
+	 */
+	async ensureVaultUnlocked(interactive: boolean): Promise<boolean> {
+		if (!this.settings.vaultId) return true;
+		// 冷启动首轮还不知道该仓库是否加密（Head 尚未返回）：先取一次状态再判断，
+		// 否则会把加密仓库当成明文放行，随后整库扫描因缺少内容密钥全部落到 blocked
+		if (!vaultKeys.boundVaultId) {
+			const info = await this.adoptVaultState(this.settings.vaultId);
+			if (info?.encrypted) await vaultKeys.tryRestoreRemembered();
+		}
+		if (!vaultKeys.isEncrypted()) return true;
+		if (!vaultKeys.isLocked()) return true;
+		if (!interactive) {
+			this.syncVaultLockState();
+			return false;
+		}
+		return this.promptUnlock();
+	}
+
+	/**
+	 * 弹出解锁窗（启动、手动同步、绑定仓库等用户主动路径共用）。
+	 * copy 用于按触发原因定制文案，见 autoPromptUnlock。
+	 */
+	async promptUnlock(copy?: UnlockPromptCopy): Promise<boolean> {
+		if (!vaultKeys.isEncrypted()) {
+			new Notice("当前仓库未启用端到端加密");
+			return true;
+		}
+		if (!vaultKeys.isLocked()) {
+			new Notice("仓库已解锁");
+			return true;
+		}
+		// 登记本次提示：Head 响应可能并发到达，不登记会在弹窗还没关时又开一个。
+		// 必须写在第一个 await 之前
+		this.promptedUnlockKey = unlockPromptKey(this.settings.vaultId, vaultKeys.keyVersion);
+		// 解锁前一律取一次最新参数：别处可能刚改过密码/转换过仓库，
+		// 用旧参数解新信封只会一直报「密码不正确」，用户除了重启没有别的出路
+		await this.adoptVaultState(this.settings.vaultId);
+		const ok = await requestPassword(this.app, {
+			title: copy?.title ?? "解锁仓库",
+			description:
+				copy?.description ?? "该仓库已启用端到端加密，请输入仓库密码解锁后继续同步。密码只在本地校验，不会上传。",
+			submitLabel: "解锁",
+			remember: { initial: vaultKeys.remember },
+			onSubmit: async (password, remember) => {
+				try {
+					await vaultKeys.unlock(password);
+				} catch (err) {
+					if (err instanceof WrongPasswordError) return "仓库密码不正确";
+					throw err;
+				}
+				// 解锁成功后才落定偏好：密码错误不留任何副作用（此刻密钥在手，开=落盘、关=清除）
+				vaultKeys.setRemember(remember);
+				this.syncVaultLockState();
+				this.session.requestRun({ forceAudit: true });
+				new Notice("仓库已解锁");
+				return null;
+			},
+		});
+		if (!ok) this.syncVaultLockState();
+		return ok;
+	}
+
+	/** 在设置页切换「在本设备记住仓库密码」 */
+	setRememberVaultPassword(enabled: boolean): void {
+		vaultKeys.setRemember(enabled);
+	}
+
+	/** 新建仓库；password 非空 = 创建端到端加密仓库（就地生成内容密钥并接管解锁态） */
+	async createVaultWithOptions(name: string, password: string | null): Promise<VaultInfo> {
+		const params = password ? (await createVaultKey(password)).params : undefined;
+		this.localKeyOp++; // 变更在途：不让 Head 响应把本机自己的操作当成「别处在改密钥」
+		try {
+			const info = await createRemoteVault(this.client, name, params);
+			// 只在「当前没有绑定」或「建的就是当前绑定仓库」时接管密钥：
+			// 否则在已绑定并解锁仓库 A 的情况下新建加密仓库 B，会把 A 的内容密钥顶掉，
+			// 还在途的同步轮次会拿 B 的密钥去加密 A 的内容（本机与其它设备都将无法解密）
+			const willOwnBinding = !this.settings.vaultId || this.settings.vaultId === info.vaultId;
+			if (info.encrypted && password && willOwnBinding) await this.adoptVaultKey(info, password);
+			return info;
+		} finally {
+			this.localKeyOp--;
+		}
+	}
+
+	/**
+	 * 接纳一个刚建立的加密仓库：接管密钥参数并解锁（口令刚由用户输入，无需再次询问）。
+	 * 同时让本地基线作废——加密仓库的内容寻址与明文口径完全不同。
+	 */
+	private async adoptVaultKey(info: VaultInfo, password: string): Promise<void> {
+		vaultKeys.syncRemote({ vaultId: info.vaultId, encrypted: true, keyVersion: info.keyVersion });
+		vaultKeys.setParams(info.vaultId, info.keyParams);
+		await vaultKeys.unlock(password);
+	}
+
+	/**
+	 * 把未加密仓库转换为加密仓库：先登记加密参数，再用新口令生成内容密钥。
+	 * 转换后本地全部内容以密文重新上传（一次全量提交）；转换前已产生的历史版本保持原样。
+	 */
+	async enableVaultEncryption(vaultId: string, password: string): Promise<void> {
+		const { params } = await createVaultKey(password);
+		this.localKeyOp++; // 变更在途：不让 Head 响应把本机自己的转换当成「别处在改密钥」
+		try {
+			const info = await enableRemoteVaultEncryption(this.client, vaultId, params);
+			if (vaultId !== this.settings.vaultId) return;
+			// 保留 Base 是关键：磁盘内容没变、远端也没变，只是寻址哈希换了口径。
+			// 保留 Base 后三方对账会判定「仅 Local 改变」→ 全部走 put 重传，不会产生冲突副本；
+			// 若清空 Base，同样一批路径会落进 Bootstrap 分支被判成「双方创建不同内容」，
+			// 结果是每个文件都被复制成一份冲突副本。
+			// 重算全部寻址哈希不靠一次性内存标志，而是由 Base 中记录的密钥代次驱动（见 session.runOnce）：
+			// 这样转换中途失败/关闭 Obsidian，下次启动照样会重算，不会留下「声称已加密、内容仍是明文」的仓库。
+			await this.pendingStore.clear();
+			this.session.reset();
+			await this.adoptVaultKey(info, password);
+			this.syncVaultLockState();
+			this.session.requestRun({ forceAudit: true, interactive: true });
+		} finally {
+			this.localKeyOp--;
+		}
+	}
+
+	/** 用口令解开指定仓库的内容密钥（改密码前的核验；不改动运行时解锁态） */
+	async verifyVaultPassword(vaultId: string, password: string): Promise<Uint8Array> {
+		// 只取参数用于本地核验，绝不写回运行时状态：这是给别人仓库核验密码，
+		// 顶掉当前绑定仓库的参数会让本仓库用正确密码也解不开
+		const info = await this.fetchVaultInfo(vaultId);
+		if (!info?.keyParams) throw new Error("仓库未启用端到端加密");
+		return unwrapDek(password, info.keyParams);
+	}
+
+	/** 修改仓库密码：只重新包装同一个内容密钥，已存内容一个字节都不动 */
+	async changeVaultPassword(vaultId: string, dek: Uint8Array, newPassword: string): Promise<void> {
+		const params = await wrapDekWithPassword(dek, newPassword);
+		this.localKeyOp++; // 变更在途：不让 Head 响应把本机自己的改密码当成「别处在改密钥」
+		try {
+			const info = await updateRemoteVaultKey(this.client, vaultId, params);
+			if (vaultId !== this.settings.vaultId) return;
+			// 内容密钥未变 → 本地基线仍然有效；用新参数重新装载以保持解锁态与记忆
+			vaultKeys.syncRemote({ vaultId: info.vaultId, encrypted: true, keyVersion: info.keyVersion });
+			vaultKeys.setParams(info.vaultId, info.keyParams);
+			await vaultKeys.unlock(newPassword);
+			this.syncVaultLockState();
+		} finally {
+			this.localKeyOp--;
+		}
 	}
 
 	// afterLogin 登录成功后的绑定决策（状态机核心，settings.ts 登录按钮调用）：
@@ -504,6 +817,17 @@ export default class PickpenPlugin extends Plugin {
 		debugLog.info("[pickpen] 已绑定仓库");
 		this.resumeSync();
 		new Notice(`已绑定仓库：${name}`);
+		// 加密仓库必须先解锁才能读盘算哈希：绑定是用户主动操作，直接弹解锁窗
+		const info = await this.adoptVaultState(vaultId);
+		if (info?.encrypted) {
+			await vaultKeys.tryRestoreRemembered();
+			if (vaultKeys.isLocked()) {
+				this.syncVaultLockState();
+				await this.promptUnlock();
+				return;
+			}
+		}
+		this.syncVaultLockState();
 		this.session.requestRun({ forceAudit: true });
 	}
 
@@ -520,6 +844,7 @@ export default class PickpenPlugin extends Plugin {
 		this.settings.vaultId = "";
 		this.settings.vaultName = "";
 		this.accountBinding = null;
+		vaultKeys.reset(); // 仓库已不存在，内容密钥与本地记忆一并清除
 		delete this.settings.vaultOwner;
 		await this.saveSettings();
 		this.pauseSync("请选择要绑定的仓库");
@@ -529,6 +854,7 @@ export default class PickpenPlugin extends Plugin {
 	// logout 退出登录 = 解绑：清 token 与绑定仓库（重新登录必须重新选择）
 	async logout(): Promise<void> {
 		this.accountBinding = null;
+		vaultKeys.reset(); // 解绑即上锁：内容密钥不跨账号留存
 		syncState.update({ storageLimitExceeded: false });
 		this.handleStorageLimitState(false, false);
 		this.pauseSync("未登录");
@@ -541,6 +867,10 @@ export default class PickpenPlugin extends Plugin {
 
 	async onunload(): Promise<void> {
 		delete (window as unknown as Record<string, unknown>).__pickpenDebug;
+		// 卸载不会中断已启动的 Promise 链：必须显式停掉，否则旧实例会在「禁用→启用」
+		// 或插件更新后与新实例并存——并发同步同一仓库，并继续消耗两边共享的 refresh token
+		this.session?.dispose();
+		this.auth?.dispose();
 		this.poller.stop();
 		this.localHint.unload();
 		await this.baseStore.flush();

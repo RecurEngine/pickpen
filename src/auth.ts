@@ -3,6 +3,7 @@
 import { LoginType, SendCodeType } from "./gen/proto/user/user.ext_pb";
 import { debugLog } from "./debug-log";
 import type { PluginSettings } from "./types";
+import type { SessionFields } from "./session-store";
 import type { RemoteClient } from "./remote-connect";
 import { ErrCode, errorCode } from "./remote-connect";
 
@@ -12,13 +13,30 @@ export class AuthManager {
 	// onSessionPersist：会话写入回调（index.ts 注入 = sessionStore.captureFrom(settings)，
 	// 把镜像 token 族写进设备本地 localStorage；绝不写 data.json）
 	private onSessionPersist: () => void;
+	// onSessionLoad：会话读取回调（index.ts 注入 = sessionStore.snapshot()）。刷新失败时用它
+	// 判断本机记录是否已被另一个实例轮换过（详见 doRefresh 的 11002 分支）。
+	private onSessionLoad: () => SessionFields;
 	// refreshing 在途刷新 promise：并发请求共享同一个刷新（并发去重）
 	private refreshing: Promise<boolean> | null = null;
+	// disposed：插件实例已被卸载。卸载不会中断在途 Promise，若不拦住，已停用的实例会继续
+	// 轮换（并可能清空）与新实例共享的会话记录——这正是「重载插件后被登出」的成因。
+	private disposed = false;
 
-	constructor(settings: PluginSettings, client: RemoteClient, onSessionPersist: () => void) {
+	constructor(
+		settings: PluginSettings,
+		client: RemoteClient,
+		onSessionPersist: () => void,
+		onSessionLoad: () => SessionFields,
+	) {
 		this.settings = settings;
 		this.client = client;
 		this.onSessionPersist = onSessionPersist;
+		this.onSessionLoad = onSessionLoad;
+	}
+
+	/** 卸载时调用：此后不再发起刷新，也不再因刷新失败而清空会话（新实例已接管） */
+	dispose(): void {
+		this.disposed = true;
 	}
 
 	// 内存镜像 accessToken 与会话权威同源（onload applyTo / 每次写后 captureFrom），进程内判定等价
@@ -52,6 +70,9 @@ export class AuthManager {
 	// refresh 用 refresh token 换新 token 对（并发去重；失败返回 false 不清登录态，
 	// 由调用方决定是否重试/退出；refresh 失效时内部清空 token 并返回 false）
 	refresh(): Promise<boolean> {
+		if (this.disposed) {
+			return Promise.resolve(false);
+		}
 		if (this.refreshing) {
 			return this.refreshing;
 		}
@@ -68,37 +89,68 @@ export class AuthManager {
 	}
 
 	private async doRefresh(): Promise<boolean> {
+		if (this.disposed) return false;
 		if (!this.settings.refreshToken || !this.settings.userId) {
 			return false;
 		}
+		const presented = this.settings.refreshToken;
+		let failure: unknown;
 		try {
-			const resp = await this.client.userClient.refreshToken({
-				userId: BigInt(this.settings.userId),
-				deviceId: this.settings.deviceId,
-				refreshToken: this.settings.refreshToken,
-			});
-			this.settings.accessToken = resp.accessToken;
-			this.settings.accessExpiresAtMs = Number(resp.accessExpiresAtMs);
-			this.settings.refreshToken = resp.refreshToken;
-			this.settings.refreshExpiresAtMs = Number(resp.refreshExpiresAtMs);
-			this.onSessionPersist(); // 只写设备本地会话（refresh 一次性轮换必须落 localStorage 而非 data.json）
-			debugLog.info("[pickpen] token 已自动刷新");
+			await this.requestNewPair(presented);
 			return true;
 		} catch (err) {
-			// refresh token 失效（11002，如 30 天过期）→ 清空登录态落入未登录
-			if (errorCode(err) === ErrCode.InvalidOrMissingCredentials) {
+			failure = err;
+		}
+		if (errorCode(failure) === ErrCode.InvalidOrMissingCredentials) {
+			// 11002 有两种含义：这把 refresh token 已失效，或它只是被本机另一个实例轮换掉了
+			// （插件重载窗口内新旧实例并存，两者共用同一 deviceId 的同一把轮换凭证）。
+			// 后者可以自愈：本机记录里若已是另一把，说明失效的只是我手里这把，采用并重试一次。
+			const stored = this.onSessionLoad();
+			if (stored.refreshToken && stored.refreshToken !== presented && stored.userId === this.settings.userId) {
+				debugLog.info("[pickpen] 本机会话已被其它实例轮换，改用最新 token 重试");
+				this.settings.accessToken = stored.accessToken;
+				this.settings.accessExpiresAtMs = stored.accessExpiresAtMs;
+				this.settings.refreshToken = stored.refreshToken;
+				this.settings.refreshExpiresAtMs = stored.refreshExpiresAtMs;
+				try {
+					await this.requestNewPair(stored.refreshToken);
+					return true;
+				} catch (retryErr) {
+					failure = retryErr;
+				}
+			}
+			// 提交的就是本机记录里那把、且仍被拒 → 会话确实失效，清空登录态落入未登录。
+			// 已卸载的实例不参与判定：它无权清掉新实例正在使用的会话。
+			if (errorCode(failure) === ErrCode.InvalidOrMissingCredentials && !this.disposed) {
 				debugLog.warn("[pickpen] refresh token 失效，已退出登录");
 				await this.logout();
 				return false;
 			}
-			// 网络类错误不视为失效，保持登录态由调用方按现状处理
-			debugLog.warn(`[pickpen] token 刷新失败，错误码：${errorCode(err) ?? "unknown"}`);
-			return false;
 		}
+		// 网络类错误不视为失效，保持登录态由调用方按现状处理
+		debugLog.warn(`[pickpen] token 刷新失败，错误码：${errorCode(failure) ?? "unknown"}`);
+		return false;
 	}
 
-	// logout 清除本地登录态（设置面板退出登录）；保留 email 便于重登展示
+	// requestNewPair 用给定 refresh token 换新 token 对并落盘（成功即写内存镜像与设备本地会话）
+	private async requestNewPair(refreshToken: string): Promise<void> {
+		const resp = await this.client.userClient.refreshToken({
+			userId: BigInt(this.settings.userId),
+			deviceId: this.settings.deviceId,
+			refreshToken,
+		});
+		this.settings.accessToken = resp.accessToken;
+		this.settings.accessExpiresAtMs = Number(resp.accessExpiresAtMs);
+		this.settings.refreshToken = resp.refreshToken;
+		this.settings.refreshExpiresAtMs = Number(resp.refreshExpiresAtMs);
+		this.onSessionPersist(); // 只写设备本地会话（refresh 一次性轮换必须落 localStorage 而非 data.json）
+		debugLog.info("[pickpen] token 已自动刷新");
+	}
+
+	// logout 清除本地登录态（设置面板退出登录）；保留 email 便于重登展示。
+	// 已卸载的实例直接返回：会话是与新实例共享的，旧实例无权清空它。
 	async logout(): Promise<void> {
+		if (this.disposed) return;
 		this.settings.accessToken = "";
 		this.settings.accessExpiresAtMs = 0;
 		this.settings.refreshToken = "";

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { Platform } from "obsidian";
 
 import { AuthManager } from "../src/auth";
-import { DataService } from "../src/gen/proto/data/data_pb";
 import { SyncService } from "../src/gen/proto/sync/sync.ext_pb";
 import { UserService } from "../src/gen/proto/user/user.ext_pb";
 import {
@@ -12,6 +11,7 @@ import {
 	type RemoteClient,
 	type RemoteConfig,
 } from "../src/remote-connect";
+import type { SessionFields } from "../src/session-store";
 import type { PluginSettings } from "../src/types";
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
@@ -36,6 +36,33 @@ function clientWithRefresh(refreshToken: (...args: unknown[]) => Promise<unknown
 	return {
 		userClient: { refreshToken },
 	} as unknown as RemoteClient;
+}
+
+/** 设备本地会话记录桩：read 返回当前记录（可模拟「另一个实例刚写入新 token」） */
+function deviceSession(overrides: Partial<SessionFields> = {}) {
+	let state: SessionFields = {
+		email: "user@example.com",
+		userId: "61",
+		accessToken: "old-access",
+		accessExpiresAtMs: 0,
+		refreshToken: "old-refresh",
+		refreshExpiresAtMs: 0,
+		deviceId: "dev-1",
+		...overrides,
+	};
+	return {
+		read: () => ({ ...state }),
+		write: (patch: Partial<SessionFields>) => (state = { ...state, ...patch }),
+	};
+}
+
+/** 装配 AuthManager：写回调空实现（会话落盘由 SessionStore 单测覆盖），读回调接设备记录桩 */
+function managerWith(
+	state: PluginSettings,
+	refreshToken: (...args: unknown[]) => Promise<unknown>,
+	device = deviceSession(),
+): AuthManager {
+	return new AuthManager(state, clientWithRefresh(refreshToken), () => {}, () => device.read());
 }
 
 function request(method: unknown, authorization = "Bearer stale") {
@@ -74,7 +101,7 @@ describe("AuthManager refresh 去重", () => {
 				refreshExpiresAtMs: BigInt(Date.now() + 30 * 24 * 60 * 60 * 1000),
 			};
 		});
-		manager = new AuthManager(state, clientWithRefresh(refreshToken), () => {});
+		manager = managerWith(state, refreshToken);
 
 		outer = manager.refresh();
 		expect(await outer).toBe(true);
@@ -93,7 +120,7 @@ describe("AuthManager refresh 去重", () => {
 				refreshExpiresAtMs: 3n,
 			};
 		});
-		const manager = new AuthManager(state, clientWithRefresh(refreshToken), () => {});
+		const manager = managerWith(state, refreshToken);
 
 		expect(await Promise.all([manager.refresh(), manager.refresh(), manager.refresh()])).toEqual([true, true, true]);
 		expect(refreshToken).toHaveBeenCalledTimes(1);
@@ -101,18 +128,91 @@ describe("AuthManager refresh 去重", () => {
 		expect(state.refreshToken).toBe("new-refresh");
 	});
 
-	it("refresh token 返回 11002 时清空登录态", async () => {
+	it("refresh token 返回 11002 且本机记录仍是同一把 → 会话确实失效，清空登录态", async () => {
 		const state = settings();
 		const refreshToken = vi.fn(async () => {
 			throw { code: ErrCode.InvalidOrMissingCredentials };
 		});
-		const manager = new AuthManager(state, clientWithRefresh(refreshToken), () => {});
+		const manager = managerWith(state, refreshToken);
 
 		expect(await manager.refresh()).toBe(false);
 		expect(refreshToken).toHaveBeenCalledTimes(1);
 		expect(state.accessToken).toBe("");
 		expect(state.refreshToken).toBe("");
 		expect(state.userId).toBe("");
+	});
+
+	it("11002 但本机记录已被另一个实例轮换 → 改用记录里的新 token 重试一次，不登出", async () => {
+		const state = settings();
+		// 插件重载窗口：另一个实例已经刷新过，本机记录里是新的一把，而我手里提交的是旧的
+		const device = deviceSession({ accessToken: "peer-access", refreshToken: "peer-refresh", userId: "61" });
+		const seen: string[] = [];
+		const refreshToken = vi.fn(async (raw: unknown) => {
+			const { refreshToken: presented } = raw as { refreshToken: string };
+			seen.push(presented);
+			if (presented === "old-refresh") throw { code: ErrCode.InvalidOrMissingCredentials };
+			return {
+				accessToken: "healed-access",
+				accessExpiresAtMs: 11n,
+				refreshToken: "healed-refresh",
+				refreshExpiresAtMs: 12n,
+			};
+		});
+		const manager = managerWith(state, refreshToken, device);
+
+		expect(await manager.refresh()).toBe(true);
+		expect(seen).toEqual(["old-refresh", "peer-refresh"]);
+		expect(state.accessToken).toBe("healed-access");
+		expect(state.refreshToken).toBe("healed-refresh");
+		expect(state.userId).toBe("61"); // 未被登出清空
+	});
+
+	it("本机记录属于另一个账号时不采用（只认同一 userId）", async () => {
+		const state = settings();
+		const device = deviceSession({ refreshToken: "other-account-refresh", userId: "999" });
+		const refreshToken = vi.fn(async () => {
+			throw { code: ErrCode.InvalidOrMissingCredentials };
+		});
+		const manager = managerWith(state, refreshToken, device);
+
+		expect(await manager.refresh()).toBe(false);
+		expect(refreshToken).toHaveBeenCalledTimes(1); // 没有拿别的账号的 token 重试
+		expect(state.accessToken).toBe("");
+	});
+
+	it("已卸载的实例不再刷新，也不清空与新实例共享的会话", async () => {
+		const state = settings();
+		const refreshToken = vi.fn(async () => {
+			throw { code: ErrCode.InvalidOrMissingCredentials };
+		});
+		const manager = managerWith(state, refreshToken);
+		manager.dispose();
+
+		expect(await manager.refresh()).toBe(false);
+		expect(refreshToken).not.toHaveBeenCalled();
+		expect(state.accessToken).toBe("old-access");
+
+		await manager.logout();
+		expect(state.accessToken).toBe("old-access"); // 旧实例无权清掉新实例正在用的会话
+	});
+
+	it("在途刷新期间被卸载：完成后不因 11002 清空会话", async () => {
+		const state = settings();
+		let release = () => {};
+		const gate = new Promise<void>((r) => (release = r));
+		const refreshToken = vi.fn(async () => {
+			await gate;
+			throw { code: ErrCode.InvalidOrMissingCredentials };
+		});
+		const manager = managerWith(state, refreshToken);
+
+		const inflight = manager.refresh();
+		manager.dispose(); // 刷新已在途时插件被卸载
+		release();
+
+		expect(await inflight).toBe(false);
+		expect(state.accessToken).toBe("old-access");
+		expect(state.refreshToken).toBe("old-refresh");
 	});
 });
 
@@ -137,7 +237,7 @@ describe("认证 interceptor 刷新状态机", () => {
 			refreshToken: "new-refresh",
 			refreshExpiresAtMs: BigInt(Date.now() + 30 * 24 * 60 * 60 * 1000),
 		}));
-		const manager = new AuthManager(state, clientWithRefresh(refreshToken), () => {});
+		const manager = managerWith(state, refreshToken);
 		const getConfig = (): RemoteConfig => ({
 			baseUrl: "https://example.test/api",
 			pluginVersion: "0.1.0",
@@ -167,7 +267,6 @@ describe("认证 interceptor 刷新状态机", () => {
 		UserService.method.sendCode,
 		UserService.method.login,
 		UserService.method.refreshToken,
-		DataService.method.reportEvent,
 	])("公开 RPC %s 不注入 access token且不触发刷新", async (method) => {
 		const onUnauthenticated = vi.fn(async () => true);
 		const cfg: RemoteConfig = {

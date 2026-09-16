@@ -2,14 +2,18 @@
 // 仓库按 vault_id 定位（spec §11），绑定后持久化 vault_id、名字仅展示。
 // 重命名仅改远端元数据（Blob 按 hash 寻址，内容存储不动），管理操作期间暂停本机同步。
 
-import { App, ButtonComponent, Modal, Notice, TextComponent } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Platform, TextComponent, ToggleComponent } from "obsidian";
 
+import { requestPassword } from "./crypto/password-modal";
+import { showVaultPassword } from "./crypto/password-view-modal";
+import { WrongPasswordError } from "./crypto/vault-crypto";
+import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
 import type { Plan } from "./gen/proto/subscription/subscription_pb";
 import type PickpenPlugin from "./index";
 import { ErrCode, errorCode, isUnauthenticated, type RemoteClient } from "./remote-connect";
 import { syncState } from "./sync-state";
-import type { VaultInfo } from "./types";
+import type { VaultInfo, VaultKeyParams } from "./types";
 
 export interface VaultQuota {
 	count: bigint;
@@ -34,15 +38,40 @@ export function formatVaultQuota(quota: VaultQuota | undefined): string {
 		: "仓库数量：暂不可用";
 }
 
-// fetchVaults 列出当前用户全部仓库（int64 → 十进制字符串）
-export async function fetchVaults(client: RemoteClient): Promise<VaultInfo[]> {
-	const resp = await client.syncClient.listVaults({});
-	return resp.vaults.map((v) => ({
+// vaultInfoFromProto 协议仓库信息 → 插件内部形态（int64 → 十进制字符串；含加密参数）
+export function vaultInfoFromProto(v: {
+	vaultId: bigint;
+	name: string;
+	revision: bigint;
+	rootHash: string;
+	encrypted: boolean;
+	keyVersion: bigint;
+	keyParams?: { version: number; kdf: number; kdfSalt: string; kdfIterations: number; wrapNonce: string; wrappedKey: string };
+}): VaultInfo {
+	return {
 		vaultId: String(v.vaultId),
 		name: v.name,
 		revision: String(v.revision),
 		rootHash: v.rootHash,
-	}));
+		encrypted: v.encrypted,
+		keyVersion: String(v.keyVersion),
+		keyParams: v.keyParams
+			? {
+					version: v.keyParams.version,
+					kdf: v.keyParams.kdf,
+					kdfSalt: v.keyParams.kdfSalt,
+					kdfIterations: v.keyParams.kdfIterations,
+					wrapNonce: v.keyParams.wrapNonce,
+					wrappedKey: v.keyParams.wrappedKey,
+				}
+			: undefined,
+	};
+}
+
+// fetchVaults 列出当前用户全部仓库（int64 → 十进制字符串）
+export async function fetchVaults(client: RemoteClient): Promise<VaultInfo[]> {
+	const resp = await client.syncClient.listVaults({});
+	return resp.vaults.map(vaultInfoFromProto);
 }
 
 // fetchVaultQuota 从订阅接口获取已创建数量和当前套餐总上限。
@@ -54,23 +83,51 @@ export async function fetchVaultQuota(client: RemoteClient): Promise<VaultQuota 
 	return resolveVaultQuota(plansReply.plans, subscriptionReply.current?.planId, subscriptionReply.vaultCount);
 }
 
-// createRemoteVault 显式新建仓库（同名幂等返回已有仓库）
-export async function createRemoteVault(client: RemoteClient, name: string): Promise<VaultInfo> {
-	const resp = await client.syncClient.createVault({ name });
-	const v = resp.vault!;
-	return { vaultId: String(v.vaultId), name: v.name, revision: String(v.revision), rootHash: v.rootHash };
+// createRemoteVault 显式新建仓库（同名幂等返回已有仓库）；keyParams 非空 = 新建端到端加密仓库
+export async function createRemoteVault(
+	client: RemoteClient,
+	name: string,
+	keyParams?: VaultKeyParams,
+): Promise<VaultInfo> {
+	const resp = await client.syncClient.createVault({ name, keyParams });
+	return vaultInfoFromProto(resp.vault!);
 }
 
 // renameRemoteVault 重命名仓库（仅改远端元数据）
 export async function renameRemoteVault(client: RemoteClient, vaultId: string, newName: string): Promise<VaultInfo> {
 	const resp = await client.syncClient.updateVault({ vaultId: BigInt(vaultId), newName });
-	const v = resp.vault!;
-	return { vaultId: String(v.vaultId), name: v.name, revision: String(v.revision), rootHash: v.rootHash };
+	return vaultInfoFromProto(resp.vault!);
+}
+
+// enableRemoteVaultEncryption 把未加密仓库转换为端到端加密仓库（客户端随后全量重传内容）
+export async function enableRemoteVaultEncryption(
+	client: RemoteClient,
+	vaultId: string,
+	keyParams: VaultKeyParams,
+): Promise<VaultInfo> {
+	const resp = await client.syncClient.enableVaultEncryption({ vaultId: BigInt(vaultId), keyParams });
+	return vaultInfoFromProto(resp.vault!);
+}
+
+// updateRemoteVaultKey 修改仓库密码（只替换被包装的内容密钥，已存内容不动）
+export async function updateRemoteVaultKey(
+	client: RemoteClient,
+	vaultId: string,
+	keyParams: VaultKeyParams,
+): Promise<VaultInfo> {
+	const resp = await client.syncClient.updateVaultKey({ vaultId: BigInt(vaultId), keyParams });
+	return vaultInfoFromProto(resp.vault!);
 }
 
 // deleteRemoteVault 删除仓库（远端数据不可恢复）
 export async function deleteRemoteVault(client: RemoteClient, vaultId: string): Promise<void> {
 	await client.syncClient.deleteVault({ vaultId: BigInt(vaultId) });
+}
+
+// reasonText 错误文案：优先带上服务端返回的可读消息，便于用户判断（如密码错误、版本过旧）
+function reasonText(err: unknown, fallback: string): string {
+	const raw = (err as { rawMessage?: string } | undefined)?.rawMessage;
+	return raw ? `${fallback}：${raw}` : fallback;
 }
 
 // openVaultManager 打开仓库管理弹窗（登录后自动打开 / 设置面板「仓库管理」按钮）；
@@ -94,6 +151,7 @@ class VaultManagerModal extends Modal {
 		this.plugin = plugin;
 		this.onChange = onChange;
 		this.modalEl.classList.add("pickpen-vault-manager-modal"); // 弹窗加宽（styles.css）
+		if (Platform.isMobile) this.modalEl.classList.add("is-mobile"); // 窄屏降级：缩小按钮与字号（styles.css）
 	}
 
 	async onOpen(): Promise<void> {
@@ -169,12 +227,28 @@ class VaultManagerModal extends Modal {
 
 	private renderCreateAction(bound: boolean): void {
 		let newName = "";
+		let encrypt = false;
 		const atLimit = this.quota?.atLimit ?? false;
 		const createCard = this.actionsEl.createDiv({ cls: "pickpen-vault-card pickpen-vault-create" });
 		new TextComponent(createCard)
 			.setPlaceholder(this.plugin.app.vault.getName())
 			.setDisabled(atLimit)
 			.onChange((value) => (newName = value.trim()));
+		// 端到端加密开关：默认不加密（与既有仓库行为一致），勾选后在创建时设置仓库密码
+		const encryptRow = createCard.createDiv({ cls: "pickpen-vault-encrypt" });
+		new ToggleComponent(encryptRow)
+			.setDisabled(atLimit)
+			.setTooltip("内容在本机加密后再上传，服务端与文件内容均不可读；密码忘记后无法恢复")
+			.onChange((value) => (encrypt = value));
+		encryptRow.createDiv({ cls: "pickpen-vault-encrypt-label", text: "端到端加密" });
+		// 整行可点：移动端没有 hover，标签与留白区点击也切换开关。
+		// 转发到开关自身的原生 click，与手指直接点开关走同一条链路——实测 ToggleComponent.setValue 不写回
+		// input.checked、也不触发 onChange，走它会导致开关看着切了、encrypt 却仍是 false；
+		// 点在开关本体上时跳过，交回原生行为，避免切换两次。
+		encryptRow.addEventListener("click", (evt) => {
+			if (atLimit || (evt.target as HTMLElement).closest("input, .checkbox-container")) return;
+			encryptRow.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
+		});
 		const createButtonText = atLimit ? "已达仓库上限" : bound ? "新建仓库" : "新建并绑定";
 		const createButton = new ButtonComponent(createCard)
 			.setButtonText(createButtonText)
@@ -184,9 +258,130 @@ class VaultManagerModal extends Modal {
 			createButton.setTooltip("仓库数量已达当前套餐上限");
 		} else {
 			createButton.onClick(() => {
-				void (bound ? this.createOnly(newName) : this.createAndBind(newName));
+				if (!encrypt) {
+					void (bound ? this.createOnly(newName) : this.createAndBind(newName));
+					return;
+				}
+				void this.createEncrypted(newName, bound);
 			});
 		}
+	}
+
+	// createEncrypted 新建端到端加密仓库：先设密码（两次输入），成功后再重绘或直接绑定
+	private async createEncrypted(name: string, bound: boolean): Promise<void> {
+		if (!name) {
+			new Notice("请输入仓库名称（≤128 字符、不含 / 与 \\）");
+			return;
+		}
+		await requestPassword(this.plugin.app, {
+			title: "新建加密仓库",
+			description:
+				"仓库内容会在本机加密后再上传，服务端只保存密文与文件名等元数据。" +
+				"仓库密码与账号登录无关、不会上传；忘记密码将无法恢复仓库内容。",
+			submitLabel: "创建",
+			confirm: true,
+			remember: { initial: vaultKeys.remember },
+			onSubmit: async (password, remember) => {
+				// 偏好先落定：随后新建流程里的解锁会按它决定是否在本机留存密钥
+				this.plugin.setRememberVaultPassword(remember);
+				const created = await this.createWithPassword(name, password);
+				if (bound) {
+					new Notice(`仓库已创建：${created.name}`);
+					await this.refresh();
+					return null;
+				}
+				await this.plugin.bindVault(created.vaultId, created.name);
+				this.onChange?.();
+				this.close();
+				return null;
+			},
+		});
+	}
+
+	// createWithPassword 创建加密仓库（失败抛出 → 由密码弹窗内联展示，便于直接改密码重试）
+	private async createWithPassword(name: string, password: string): Promise<VaultInfo> {
+		if (this.quota?.atLimit) throw new Error("仓库数量已达当前套餐上限");
+		try {
+			return await this.plugin.createVaultWithOptions(name, password);
+		} catch (err) {
+			if (isUnauthenticated(err)) {
+				this.close();
+				throw new Error("登录已失效，请重新登录");
+			}
+			if (errorCode(err) === ErrCode.VaultLimitExceeded) throw new Error("仓库数量已达当前套餐上限");
+			debugLog.error(`[pickpen] 新建加密仓库失败，错误码：${errorCode(err) ?? "unknown"}`);
+			throw new Error(reasonText(err, "新建失败"));
+		}
+	}
+
+	// startEnableEncryption 把当前绑定仓库转换为端到端加密仓库
+	private async startEnableEncryption(v: VaultInfo): Promise<void> {
+		await requestPassword(this.plugin.app, {
+			title: "转换为加密仓库",
+			description:
+				`「${v.name}」将转换为端到端加密仓库：设置仓库密码后，本机全部内容会用新密钥重新上传。\n` +
+				"注意：转换之前已产生的历史版本不会被重新加密，仍以明文保存在服务端；" +
+				"其他设备需要重新输入该密码才能继续同步。",
+			submitLabel: "转换",
+			confirm: true,
+			remember: { initial: vaultKeys.remember },
+			onSubmit: async (password, remember) => {
+				// 同新建：偏好先落定，转换流程内部的解锁据此决定是否在本机留存密钥
+				this.plugin.setRememberVaultPassword(remember);
+				const prevPaused = syncState.pausedReason;
+				this.plugin.pauseSync("仓库加密转换中");
+				try {
+					await this.plugin.enableVaultEncryption(v.vaultId, password);
+				} catch (err) {
+					debugLog.error(`[pickpen] 转换为加密仓库失败，错误码：${errorCode(err) ?? "unknown"}`);
+					this.restorePause(prevPaused);
+					throw new Error(reasonText(err, "转换失败"));
+				}
+				// 转换成功后同样要恢复暂停态，否则会一直停在「转换中」不再同步
+				this.restorePause(prevPaused);
+				this.onChange?.();
+				new Notice("已转换为加密仓库，正在重新上传内容");
+				await this.refresh();
+				return null;
+			},
+		});
+	}
+
+	// startChangePassword 修改仓库密码：先核验当前密码，再设置新密码（内容不重加密）
+	private async startChangePassword(v: VaultInfo): Promise<void> {
+		let dek: Uint8Array | null = null;
+		const verified = await requestPassword(this.plugin.app, {
+			title: "修改仓库密码",
+			description: `请输入「${v.name}」当前的仓库密码。`,
+			submitLabel: "下一步",
+			onSubmit: async (password) => {
+				try {
+					dek = await this.plugin.verifyVaultPassword(v.vaultId, password);
+					return null;
+				} catch (err) {
+					if (err instanceof WrongPasswordError) return "仓库密码不正确";
+					throw err;
+				}
+			},
+		});
+		if (!verified || !dek) return;
+		const current = dek;
+		await requestPassword(this.plugin.app, {
+			title: "设置新密码",
+			description: "新密码用于重新包装同一个内容密钥：已同步的内容不会重新加密，切换是即时的。",
+			submitLabel: "修改密码",
+			confirm: true,
+			onSubmit: async (password) => {
+				try {
+					await this.plugin.changeVaultPassword(v.vaultId, current, password);
+				} catch (err) {
+					debugLog.error(`[pickpen] 修改仓库密码失败，错误码：${errorCode(err) ?? "unknown"}`);
+					throw new Error(reasonText(err, "修改失败"));
+				}
+				new Notice("仓库密码已修改");
+				return null;
+			},
+		});
 	}
 
 	// renderItem 单个仓库卡片：head（名称+徽标）+ foot（revision+按钮组）
@@ -194,21 +389,41 @@ class VaultManagerModal extends Modal {
 		const isBound = this.plugin.settings.vaultId === v.vaultId;
 		const isEmpty = v.revision === "0";
 		const card = this.listEl.createDiv({ cls: `pickpen-vault-card${isBound ? " is-current" : ""}` });
-		// 头部行：名称（粗体、超长省略）+ 徽标组
+		// 头部行：名称（粗体、超长省略）+ revision 紧随其后（两者都是仓库自身信息），徽标组靠右
 		const head = card.createDiv({ cls: "pickpen-vault-card-head" });
 		head.createDiv({ cls: "pickpen-vault-card-name", text: v.name });
+		head.createDiv({ cls: "pickpen-vault-meta", text: `revision ${v.revision}` });
 		const badges = head.createDiv({ cls: "pickpen-vault-badges" });
 		if (isBound) badges.createDiv({ cls: "pickpen-vault-badge is-bound", text: "当前绑定" });
 		if (isEmpty) badges.createDiv({ cls: "pickpen-vault-badge is-empty", text: "空仓库" });
-		// 底部行：revision 信息（左）+ 操作按钮组（右）
+		if (v.encrypted) badges.createDiv({ cls: "pickpen-vault-badge is-encrypted", text: "已加密" });
+		// 底部行：操作按钮组
 		const foot = card.createDiv({ cls: "pickpen-vault-card-foot" });
-		foot.createDiv({ cls: "pickpen-vault-meta", text: `revision ${v.revision}` });
 		const actions = foot.createDiv({ cls: "pickpen-vault-actions" });
 		if (!isBound && !this.plugin.settings.vaultId) {
 			new ButtonComponent(actions)
 				.setButtonText("绑定")
 				.setCta()
 				.onClick(() => void this.bind(v));
+		}
+		if (v.encrypted) {
+			// 只有当前绑定仓库的密钥在本机；且未解锁时不展示密码（重新解锁后才恢复）
+			const password = vaultKeys.getVaultPassword();
+			if (isBound && !vaultKeys.isLocked() && password) {
+				new ButtonComponent(actions)
+					.setButtonText("查看密码")
+					.onClick(() => showVaultPassword(this.plugin.app, password));
+			}
+			new ButtonComponent(actions)
+				.setButtonText("修改密码")
+				.onClick(() => void this.startChangePassword(v));
+		} else {
+			const encryptButton = new ButtonComponent(actions).setButtonText("启用加密");
+			if (isBound) {
+				encryptButton.onClick(() => void this.startEnableEncryption(v));
+			} else {
+				encryptButton.setDisabled(true).setTooltip("只有当前绑定仓库可以转换为端到端加密");
+			}
 		}
 		new ButtonComponent(actions).setButtonText("重命名").onClick(() => this.startRename(v, card));
 		const deleteButton = new ButtonComponent(actions)

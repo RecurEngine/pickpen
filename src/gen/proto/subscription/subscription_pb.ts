@@ -211,7 +211,7 @@ export type Subscription = Message<"subscription.Subscription"> & {
   endsAtMs: bigint;
 
   /**
-   * 来源：purchase 或 trial。
+   * 来源：purchase、trial 或 grant（管理后台赠送）。
    *
    * @generated from field: string source = 5;
    */

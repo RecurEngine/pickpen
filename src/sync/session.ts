@@ -5,6 +5,7 @@
 
 import { App, Platform, normalizePath } from "obsidian";
 
+import { remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
 import { isFileIDMoved, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
@@ -43,6 +44,9 @@ export interface SessionDeps {
 	pendingStore: PendingStore;
 	localBuilder: LocalSnapshotBuilder;
 	remote: SnapshotRemote;
+	/** 同步前置检查：返回 false 表示本轮不能运行（如加密仓库尚未解锁）。
+	 * interactive = 本轮由用户操作触发，允许弹出需要用户输入的提示 */
+	preflight?: (interactive: boolean) => Promise<boolean>;
 	pluginDir: string;
 	caseInsensitive: boolean;
 	initialStorageLimitExceeded?: boolean;
@@ -56,6 +60,8 @@ export class ReconcileSession {
 	private progressVersion = 0;
 	private rerunRequested = false;
 	private forceAudit = false;
+	/** 本轮强制重算全部寻址哈希（换成加密口径时用：磁盘没变但远端哈希整体变了） */
+	private rehashAll = false;
 	private dirtyPaths = new Set<string>();
 	private nextDirtyPaths = new Set<string>();
 	/** 本轮 rename 提示（newPath → oldPath）：local-snapshot 据此继承 file_id */
@@ -69,7 +75,11 @@ export class ReconcileSession {
 	private lastError = "";
 	private storageLimitExceeded: boolean;
 	private storageLimitConfirmed = false;
+	/** 本轮是否由用户操作触发（决定能否弹出需要输入的提示） */
+	private interactiveRequested = false;
 	private applier: Applier;
+	/** 插件实例已卸载：在途轮次不再继续（卸载不会中断已启动的 Promise 链） */
+	private disposed = false;
 
 	constructor(deps: SessionDeps) {
 		this.deps = deps;
@@ -77,9 +87,27 @@ export class ReconcileSession {
 		this.applier = new Applier(deps.app, deps.remote);
 	}
 
-	/** 唯一入口：dirty 提示 / 轮询发现 / 切前台 / 手动同步共用 */
-	requestRun(opts?: { forceAudit?: boolean; dirtyPaths?: ReadonlySet<string> }): void {
+	/**
+	 * 卸载时调用：停止在途轮次并拒绝新轮次。旧实例若继续跑，会与新实例并发同步同一仓库，
+	 * 还会继续消耗两边共享的 refresh token（见 AuthManager.dispose 的说明）。
+	 */
+	dispose(): void {
+		this.disposed = true;
+	}
+
+	/** 唯一入口：dirty 提示 / 轮询发现 / 切前台 / 手动同步共用。
+	 * interactive = 由用户操作触发（手动同步、绑定仓库、启动）：允许弹出需要用户输入的提示
+	 * （如加密仓库的解锁窗）；后台轮询一律 false，避免打断编辑。 */
+	requestRun(opts?: {
+		forceAudit?: boolean;
+		rehashAll?: boolean;
+		dirtyPaths?: ReadonlySet<string>;
+		interactive?: boolean;
+	}): void {
+		if (this.disposed) return;
 		if (opts?.forceAudit) this.forceAudit = true;
+		if (opts?.rehashAll) this.rehashAll = true;
+		if (opts?.interactive) this.interactiveRequested = true;
 		if (opts?.dirtyPaths) {
 			for (const p of opts.dirtyPaths) this.nextDirtyPaths.add(p);
 		}
@@ -166,14 +194,22 @@ export class ReconcileSession {
 		this.report();
 		try {
 			do {
+				if (this.disposed) return; // 已卸载：不再开启新一轮（finally 仍会收尾上报）
 				this.beginPhase("preparing");
 				this.rerunRequested = false;
 				this.dirtyPaths = this.nextDirtyPaths;
 				this.nextDirtyPaths = new Set();
 				const force = this.forceAudit;
 				this.forceAudit = false;
+				const interactive = this.interactiveRequested;
+				this.interactiveRequested = false;
+				// 内容寻址代次与基线不一致（明文转加密、别处换了密钥）→ 本轮重算全部寻址哈希。
+				// 判定依据落盘在 Base 里，因此转换中途失败/关闭 Obsidian 后重开依然会重算，
+				// 不会留下「仓库已标记为加密、内容却还是明文」的状态。
+				const rehashAll = this.rehashAll || this.baseEpochStale();
+				this.rehashAll = false;
 				try {
-					await this.runOnce(force);
+					await this.runOnce(force, interactive, rehashAll);
 					// 只有一次无异常的同步轮次才能证明容量已经恢复。
 					this.storageLimitExceeded = false;
 				} catch (err) {
@@ -194,7 +230,7 @@ export class ReconcileSession {
 					// 立即带出错误，循环结束则 finally 上报，两种路径都不会漏。
 				}
 				await new Promise((r) => setTimeout(r, 0)); // 轮间让出事件循环
-			} while (this.rerunRequested || this.nextDirtyPaths.size > 0);
+			} while (!this.disposed && (this.rerunRequested || this.nextDirtyPaths.size > 0));
 		} finally {
 			this.running = false;
 			this.clearProgress();
@@ -202,10 +238,21 @@ export class ReconcileSession {
 		}
 	}
 
-	private async runOnce(forceAudit: boolean): Promise<void> {
+	/** Base 记录的内容密钥代次与当前代次是否不一致（不一致 = 必须重算全部寻址哈希） */
+	private baseEpochStale(): boolean {
+		const base = this.deps.baseStore.getBase();
+		if (!base) return false; // 无 Base 时全量扫描本就会重算
+		return (base.key_epoch ?? "") !== vaultKeys.getEpoch();
+	}
+
+	private async runOnce(forceAudit: boolean, interactive: boolean, rehashAll: boolean): Promise<void> {
 		const { app, baseStore, pendingStore, localBuilder, remote } = this.deps;
 		const settings = this.deps.getSettings();
 		if (!settings.accessToken || !settings.vaultId) return;
+
+		// 0. 同步前置检查（加密仓库未解锁时不能读盘算哈希，本轮整体不运行）
+		if (this.deps.preflight && !(await this.deps.preflight(interactive))) return;
+		if (this.disposed) return; // 已卸载：前置检查期间被卸载则不再继续
 
 		// 1. pending 恢复（§9.1 步骤 1 / §9.4）
 		if (pendingStore.getPending()) {
@@ -238,6 +285,7 @@ export class ReconcileSession {
 			dirtyPaths: this.dirtyPaths,
 			renameHints: this.suppressRenameHints ? undefined : this.renameHints, // 12023 抑制期不继承身份
 			forceAudit,
+			rehashAll,
 			extraExcludes: settings.extraExcludes,
 			caseInsensitive: this.deps.caseInsensitive,
 			isMobile: Platform.isMobile,
@@ -347,7 +395,11 @@ export class ReconcileSession {
 		for (const [hash, srcPath] of uploads) {
 			await uploadTracker.track(srcPath, async () => {
 				const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
-				await remote.putBlob(hash, content);
+				// 上传统一出口：加密仓库在这里转成密文。
+				// 声明哈希用计划里的 hash 而不是重算值：文件若在上传期间被改动，服务端重算
+				// SHA-256 会当场以 12006 拒绝，而不是把内容存到一个没人引用的新地址上
+				const sealed = await sealForRemote(content);
+				await remote.putBlob(hash, sealed.bytes);
 			});
 		}
 
@@ -508,9 +560,9 @@ export class ReconcileSession {
 		return out;
 	}
 
+	/** 本地内容的远端寻址哈希：加密仓库为密文哈希（与提交给服务端的一致） */
 	private async hashContent(content: ArrayBuffer): Promise<string> {
-		const { sha256Hex } = await import("./content-hash");
-		return sha256Hex(content);
+		return remoteHash(content);
 	}
 
 	/** 写盘后按路径分组刷新打开视图（磁盘内容即刚落盘的目标内容） */

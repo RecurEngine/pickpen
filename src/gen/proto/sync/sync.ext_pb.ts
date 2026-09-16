@@ -9,10 +9,67 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sync/sync.ext.proto.
  */
 export const file_sync_sync_ext: GenFile = /*@__PURE__*/
-  fileDesc("ChNzeW5jL3N5bmMuZXh0LnByb3RvEgRzeW5jIlAKCVZhdWx0SW5mbxIQCgh2YXVsdF9pZBgBIAEoAxIMCgRuYW1lGAIgASgJEhAKCHJldmlzaW9uGAMgASgDEhEKCXJvb3RfaGFzaBgEIAEoCSITChFMaXN0VmF1bHRzUmVxdWVzdCIyCg9MaXN0VmF1bHRzUmVwbHkSHwoGdmF1bHRzGAEgAygLMg8uc3luYy5WYXVsdEluZm8iIgoSQ3JlYXRlVmF1bHRSZXF1ZXN0EgwKBG5hbWUYASABKAkiMgoQQ3JlYXRlVmF1bHRSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIjgKElVwZGF0ZVZhdWx0UmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIQCghuZXdfbmFtZRgCIAEoCSIyChBVcGRhdGVWYXVsdFJlcGx5Eh4KBXZhdWx0GAEgASgLMg8uc3luYy5WYXVsdEluZm8iJgoSRGVsZXRlVmF1bHRSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDIjIKEERlbGV0ZVZhdWx0UmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyJYChNHZXRWYXVsdEhlYWRSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhYKDmtub3duX3JldmlzaW9uGAIgASgDEhcKD2tub3duX3Jvb3RfaGFzaBgDIAEoCSKvAQoRR2V0VmF1bHRIZWFkUmVwbHkSEAoIdmF1bHRfaWQYASABKAMSEAoIcmV2aXNpb24YAiABKAMSEQoJcm9vdF9oYXNoGAMgASgJEhEKCXVuY2hhbmdlZBgEIAEoCBIYChBzeW5jX2ludGVydmFsX21zGAUgASgDEhkKEWxvY2FsX2RlYm91bmNlX21zGAYgASgDEhsKE21heF9maWxlX3NpemVfYnl0ZXMYByABKAMiXQoSR2V0TWFuaWZlc3RSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhkKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgDEhoKEmV4cGVjdGVkX3Jvb3RfaGFzaBgDIAEoCSJOChBHZXRNYW5pZmVzdFJlcGx5EhAKCHJldmlzaW9uGAEgASgDEhEKCXJvb3RfaGFzaBgCIAEoCRIVCg1tYW5pZmVzdF9qc29uGAMgASgMIjMKD0hhc0Jsb2JzUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIOCgZoYXNoZXMYAiADKAkiIQoNSGFzQmxvYnNSZXBseRIQCghleGlzdGluZxgBIAMoCSJPCg5QdXRCbG9iUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIMCgRoYXNoGAIgASgJEgwKBHNpemUYAyABKAMSDwoHY29udGVudBgEIAEoDCIgCgxQdXRCbG9iUmVwbHkSEAoIZXhpc3RpbmcYASABKAgigAEKDkdldEJsb2JSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEgwKBGhhc2gYAiABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAyABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAQgASgJEhcKD2hpc3RvcnlfZmlsZV9pZBgFIAEoCSItCgxHZXRCbG9iUmVwbHkSDAoEc2l6ZRgBIAEoAxIPCgdjb250ZW50GAIgASgMIloKCE11dGF0aW9uEiAKA3B1dBgBIAEoCzIRLnN5bmMuUHV0TXV0YXRpb25IABImCgZkZWxldGUYAiABKAsyFC5zeW5jLkRlbGV0ZU11dGF0aW9uSABCBAoCb3AibwoLUHV0TXV0YXRpb24SDAoEcGF0aBgBIAEoCRIUCgxjb250ZW50X2hhc2gYAiABKAkSDAoEc2l6ZRgDIAEoAxIPCgdmaWxlX2lkGAQgASgJEh0KBGtpbmQYBSABKA4yDy5zeW5jLkVudHJ5S2luZCIeCg5EZWxldGVNdXRhdGlvbhIMCgRwYXRoGAEgASgJIp0BChVDb21taXRTbmFwc2hvdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAMgASgJEhgKEHRhcmdldF9yb290X2hhc2gYBCABKAkSIQoJbXV0YXRpb25zGAUgAygLMg4uc3luYy5NdXRhdGlvbiJLChNDb21taXRTbmFwc2hvdFJlcGx5EhAKCHJldmlzaW9uGAEgASgDEhEKCXJvb3RfaGFzaBgCIAEoCRIPCgdjaGFuZ2VkGAMgASgIImMKF0xpc3RGaWxlVmVyc2lvbnNSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEg8KB2ZpbGVfaWQYAiABKAkSEQoJcGFnZV9zaXplGAMgASgDEhIKCnBhZ2VfdG9rZW4YBCABKAkioQEKD0ZpbGVWZXJzaW9uSW5mbxIPCgdmaWxlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSEAoIcmV2aXNpb24YAyABKAMSJQoFc3RhdGUYBCABKA4yFi5zeW5jLkZpbGVWZXJzaW9uU3RhdGUSFAoMY29udGVudF9oYXNoGAUgASgJEgwKBHNpemUYBiABKAMSEgoKY3JlYXRlZF9hdBgHIAEoAyJrChVMaXN0RmlsZVZlcnNpb25zUmVwbHkSJwoIdmVyc2lvbnMYASADKAsyFS5zeW5jLkZpbGVWZXJzaW9uSW5mbxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEAoIaGFzX21vcmUYAyABKAgqUAoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARISCg5FTlRSWV9LSU5EX0RJUhACKmkKEEZpbGVWZXJzaW9uU3RhdGUSIgoeRklMRV9WRVJTSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASFwoTRklMRV9WRVJTSU9OX0FDVElWRRABEhgKFEZJTEVfVkVSU0lPTl9ERUxFVEVEEAIyzwUKC1N5bmNTZXJ2aWNlEjwKCkxpc3RWYXVsdHMSFy5zeW5jLkxpc3RWYXVsdHNSZXF1ZXN0GhUuc3luYy5MaXN0VmF1bHRzUmVwbHkSPwoLQ3JlYXRlVmF1bHQSGC5zeW5jLkNyZWF0ZVZhdWx0UmVxdWVzdBoWLnN5bmMuQ3JlYXRlVmF1bHRSZXBseRI/CgtVcGRhdGVWYXVsdBIYLnN5bmMuVXBkYXRlVmF1bHRSZXF1ZXN0GhYuc3luYy5VcGRhdGVWYXVsdFJlcGx5Ej8KC0RlbGV0ZVZhdWx0Ehguc3luYy5EZWxldGVWYXVsdFJlcXVlc3QaFi5zeW5jLkRlbGV0ZVZhdWx0UmVwbHkSQgoMR2V0VmF1bHRIZWFkEhkuc3luYy5HZXRWYXVsdEhlYWRSZXF1ZXN0Ghcuc3luYy5HZXRWYXVsdEhlYWRSZXBseRI/CgtHZXRNYW5pZmVzdBIYLnN5bmMuR2V0TWFuaWZlc3RSZXF1ZXN0GhYuc3luYy5HZXRNYW5pZmVzdFJlcGx5EjYKCEhhc0Jsb2JzEhUuc3luYy5IYXNCbG9ic1JlcXVlc3QaEy5zeW5jLkhhc0Jsb2JzUmVwbHkSMwoHUHV0QmxvYhIULnN5bmMuUHV0QmxvYlJlcXVlc3QaEi5zeW5jLlB1dEJsb2JSZXBseRIzCgdHZXRCbG9iEhQuc3luYy5HZXRCbG9iUmVxdWVzdBoSLnN5bmMuR2V0QmxvYlJlcGx5EkgKDkNvbW1pdFNuYXBzaG90Ehsuc3luYy5Db21taXRTbmFwc2hvdFJlcXVlc3QaGS5zeW5jLkNvbW1pdFNuYXBzaG90UmVwbHkSTgoQTGlzdEZpbGVWZXJzaW9ucxIdLnN5bmMuTGlzdEZpbGVWZXJzaW9uc1JlcXVlc3QaGy5zeW5jLkxpc3RGaWxlVmVyc2lvbnNSZXBseUIcWhpwaWNrcGVuL3BrZy9nZW4vcHJvdG8vc3luY2IGcHJvdG8z");
+  fileDesc("ChNzeW5jL3N5bmMuZXh0LnByb3RvEgRzeW5jIoEBCg5WYXVsdEtleVBhcmFtcxIPCgd2ZXJzaW9uGAEgASgFEgsKA2tkZhgCIAEoBRIQCghrZGZfc2FsdBgDIAEoCRIWCg5rZGZfaXRlcmF0aW9ucxgEIAEoBRISCgp3cmFwX25vbmNlGAUgASgJEhMKC3dyYXBwZWRfa2V5GAYgASgJIqIBCglWYXVsdEluZm8SEAoIdmF1bHRfaWQYASABKAMSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIRCglyb290X2hhc2gYBCABKAkSEQoJZW5jcnlwdGVkGAUgASgIEhMKC2tleV92ZXJzaW9uGAYgASgDEigKCmtleV9wYXJhbXMYByABKAsyFC5zeW5jLlZhdWx0S2V5UGFyYW1zIhMKEUxpc3RWYXVsdHNSZXF1ZXN0IjIKD0xpc3RWYXVsdHNSZXBseRIfCgZ2YXVsdHMYASADKAsyDy5zeW5jLlZhdWx0SW5mbyJMChJDcmVhdGVWYXVsdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIoCgprZXlfcGFyYW1zGAIgASgLMhQuc3luYy5WYXVsdEtleVBhcmFtcyIyChBDcmVhdGVWYXVsdFJlcGx5Eh4KBXZhdWx0GAEgASgLMg8uc3luYy5WYXVsdEluZm8iOAoSVXBkYXRlVmF1bHRSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhAKCG5ld19uYW1lGAIgASgJIjIKEFVwZGF0ZVZhdWx0UmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyImChJEZWxldGVWYXVsdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMiMgoQRGVsZXRlVmF1bHRSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIloKHEVuYWJsZVZhdWx0RW5jcnlwdGlvblJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSKAoKa2V5X3BhcmFtcxgCIAEoCzIULnN5bmMuVmF1bHRLZXlQYXJhbXMiPAoaRW5hYmxlVmF1bHRFbmNyeXB0aW9uUmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyJTChVVcGRhdGVWYXVsdEtleVJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSKAoKa2V5X3BhcmFtcxgCIAEoCzIULnN5bmMuVmF1bHRLZXlQYXJhbXMiNQoTVXBkYXRlVmF1bHRLZXlSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIlgKE0dldFZhdWx0SGVhZFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSFgoOa25vd25fcmV2aXNpb24YAiABKAMSFwoPa25vd25fcm9vdF9oYXNoGAMgASgJItcBChFHZXRWYXVsdEhlYWRSZXBseRIQCgh2YXVsdF9pZBgBIAEoAxIQCghyZXZpc2lvbhgCIAEoAxIRCglyb290X2hhc2gYAyABKAkSEQoJdW5jaGFuZ2VkGAQgASgIEhgKEHN5bmNfaW50ZXJ2YWxfbXMYBSABKAMSGQoRbG9jYWxfZGVib3VuY2VfbXMYBiABKAMSGwoTbWF4X2ZpbGVfc2l6ZV9ieXRlcxgHIAEoAxIRCgllbmNyeXB0ZWQYCCABKAgSEwoLa2V5X3ZlcnNpb24YCSABKAMiXQoSR2V0TWFuaWZlc3RSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhkKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgDEhoKEmV4cGVjdGVkX3Jvb3RfaGFzaBgDIAEoCSJOChBHZXRNYW5pZmVzdFJlcGx5EhAKCHJldmlzaW9uGAEgASgDEhEKCXJvb3RfaGFzaBgCIAEoCRIVCg1tYW5pZmVzdF9qc29uGAMgASgMIjMKD0hhc0Jsb2JzUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIOCgZoYXNoZXMYAiADKAkiIQoNSGFzQmxvYnNSZXBseRIQCghleGlzdGluZxgBIAMoCSJPCg5QdXRCbG9iUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIMCgRoYXNoGAIgASgJEgwKBHNpemUYAyABKAMSDwoHY29udGVudBgEIAEoDCIgCgxQdXRCbG9iUmVwbHkSEAoIZXhpc3RpbmcYASABKAgigAEKDkdldEJsb2JSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEgwKBGhhc2gYAiABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAyABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAQgASgJEhcKD2hpc3RvcnlfZmlsZV9pZBgFIAEoCSItCgxHZXRCbG9iUmVwbHkSDAoEc2l6ZRgBIAEoAxIPCgdjb250ZW50GAIgASgMIloKCE11dGF0aW9uEiAKA3B1dBgBIAEoCzIRLnN5bmMuUHV0TXV0YXRpb25IABImCgZkZWxldGUYAiABKAsyFC5zeW5jLkRlbGV0ZU11dGF0aW9uSABCBAoCb3AibwoLUHV0TXV0YXRpb24SDAoEcGF0aBgBIAEoCRIUCgxjb250ZW50X2hhc2gYAiABKAkSDAoEc2l6ZRgDIAEoAxIPCgdmaWxlX2lkGAQgASgJEh0KBGtpbmQYBSABKA4yDy5zeW5jLkVudHJ5S2luZCIeCg5EZWxldGVNdXRhdGlvbhIMCgRwYXRoGAEgASgJIp0BChVDb21taXRTbmFwc2hvdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAMgASgJEhgKEHRhcmdldF9yb290X2hhc2gYBCABKAkSIQoJbXV0YXRpb25zGAUgAygLMg4uc3luYy5NdXRhdGlvbiJLChNDb21taXRTbmFwc2hvdFJlcGx5EhAKCHJldmlzaW9uGAEgASgDEhEKCXJvb3RfaGFzaBgCIAEoCRIPCgdjaGFuZ2VkGAMgASgIImMKF0xpc3RGaWxlVmVyc2lvbnNSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEg8KB2ZpbGVfaWQYAiABKAkSEQoJcGFnZV9zaXplGAMgASgDEhIKCnBhZ2VfdG9rZW4YBCABKAkioQEKD0ZpbGVWZXJzaW9uSW5mbxIPCgdmaWxlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSEAoIcmV2aXNpb24YAyABKAMSJQoFc3RhdGUYBCABKA4yFi5zeW5jLkZpbGVWZXJzaW9uU3RhdGUSFAoMY29udGVudF9oYXNoGAUgASgJEgwKBHNpemUYBiABKAMSEgoKY3JlYXRlZF9hdBgHIAEoAyJrChVMaXN0RmlsZVZlcnNpb25zUmVwbHkSJwoIdmVyc2lvbnMYASADKAsyFS5zeW5jLkZpbGVWZXJzaW9uSW5mbxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEAoIaGFzX21vcmUYAyABKAgqUAoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARISCg5FTlRSWV9LSU5EX0RJUhACKmkKEEZpbGVWZXJzaW9uU3RhdGUSIgoeRklMRV9WRVJTSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASFwoTRklMRV9WRVJTSU9OX0FDVElWRRABEhgKFEZJTEVfVkVSU0lPTl9ERUxFVEVEEAIy+AYKC1N5bmNTZXJ2aWNlEjwKCkxpc3RWYXVsdHMSFy5zeW5jLkxpc3RWYXVsdHNSZXF1ZXN0GhUuc3luYy5MaXN0VmF1bHRzUmVwbHkSPwoLQ3JlYXRlVmF1bHQSGC5zeW5jLkNyZWF0ZVZhdWx0UmVxdWVzdBoWLnN5bmMuQ3JlYXRlVmF1bHRSZXBseRI/CgtVcGRhdGVWYXVsdBIYLnN5bmMuVXBkYXRlVmF1bHRSZXF1ZXN0GhYuc3luYy5VcGRhdGVWYXVsdFJlcGx5Ej8KC0RlbGV0ZVZhdWx0Ehguc3luYy5EZWxldGVWYXVsdFJlcXVlc3QaFi5zeW5jLkRlbGV0ZVZhdWx0UmVwbHkSXQoVRW5hYmxlVmF1bHRFbmNyeXB0aW9uEiIuc3luYy5FbmFibGVWYXVsdEVuY3J5cHRpb25SZXF1ZXN0GiAuc3luYy5FbmFibGVWYXVsdEVuY3J5cHRpb25SZXBseRJICg5VcGRhdGVWYXVsdEtleRIbLnN5bmMuVXBkYXRlVmF1bHRLZXlSZXF1ZXN0Ghkuc3luYy5VcGRhdGVWYXVsdEtleVJlcGx5EkIKDEdldFZhdWx0SGVhZBIZLnN5bmMuR2V0VmF1bHRIZWFkUmVxdWVzdBoXLnN5bmMuR2V0VmF1bHRIZWFkUmVwbHkSPwoLR2V0TWFuaWZlc3QSGC5zeW5jLkdldE1hbmlmZXN0UmVxdWVzdBoWLnN5bmMuR2V0TWFuaWZlc3RSZXBseRI2CghIYXNCbG9icxIVLnN5bmMuSGFzQmxvYnNSZXF1ZXN0GhMuc3luYy5IYXNCbG9ic1JlcGx5EjMKB1B1dEJsb2ISFC5zeW5jLlB1dEJsb2JSZXF1ZXN0GhIuc3luYy5QdXRCbG9iUmVwbHkSMwoHR2V0QmxvYhIULnN5bmMuR2V0QmxvYlJlcXVlc3QaEi5zeW5jLkdldEJsb2JSZXBseRJICg5Db21taXRTbmFwc2hvdBIbLnN5bmMuQ29tbWl0U25hcHNob3RSZXF1ZXN0Ghkuc3luYy5Db21taXRTbmFwc2hvdFJlcGx5Ek4KEExpc3RGaWxlVmVyc2lvbnMSHS5zeW5jLkxpc3RGaWxlVmVyc2lvbnNSZXF1ZXN0Ghsuc3luYy5MaXN0RmlsZVZlcnNpb25zUmVwbHlCHFoacGlja3Blbi9wa2cvZ2VuL3Byb3RvL3N5bmNiBnByb3RvMw");
 
 /**
- * VaultInfo 仓库信息（用户内名字唯一，uk_user_vault）
+ * VaultKeyParams 仓库内容密钥的包装参数。内容密钥由客户端随机生成并加密后随仓库保存，
+ * 服务端只存储、不解析、无法解出；仓库密码本身永不上传。各字段均为十六进制小写字符串。
+ *
+ * @generated from message sync.VaultKeyParams
+ */
+export type VaultKeyParams = Message<"sync.VaultKeyParams"> & {
+  /**
+   * 加密协议版本，当前仅 1
+   *
+   * @generated from field: int32 version = 1;
+   */
+  version: number;
+
+  /**
+   * 口令派生算法：1 = PBKDF2-HMAC-SHA256
+   *
+   * @generated from field: int32 kdf = 2;
+   */
+  kdf: number;
+
+  /**
+   * 口令派生盐（32 位 hex = 16 字节）
+   *
+   * @generated from field: string kdf_salt = 3;
+   */
+  kdfSalt: string;
+
+  /**
+   * 口令派生迭代次数
+   *
+   * @generated from field: int32 kdf_iterations = 4;
+   */
+  kdfIterations: number;
+
+  /**
+   * 包装内容密钥的 nonce（24 位 hex = 12 字节）
+   *
+   * @generated from field: string wrap_nonce = 5;
+   */
+  wrapNonce: string;
+
+  /**
+   * 被口令派生密钥包装的内容密钥（96 位 hex = 48 字节）
+   *
+   * @generated from field: string wrapped_key = 6;
+   */
+  wrappedKey: string;
+};
+
+/**
+ * Describes the message sync.VaultKeyParams.
+ * Use `create(VaultKeyParamsSchema)` to create a new message.
+ */
+export const VaultKeyParamsSchema: GenMessage<VaultKeyParams> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 0);
+
+/**
+ * VaultInfo 仓库信息（用户内名字唯一，冲突返回 12005）
  *
  * @generated from message sync.VaultInfo
  */
@@ -44,6 +101,27 @@ export type VaultInfo = Message<"sync.VaultInfo"> & {
    * @generated from field: string root_hash = 4;
    */
   rootHash: string;
+
+  /**
+   * true = 端到端加密仓库，客户端须先解锁再同步
+   *
+   * @generated from field: bool encrypted = 5;
+   */
+  encrypted: boolean;
+
+  /**
+   * 密钥版本：0 = 未加密；每次创建加密仓库/转换/改密码 +1
+   *
+   * @generated from field: int64 key_version = 6;
+   */
+  keyVersion: bigint;
+
+  /**
+   * 未加密仓库为空
+   *
+   * @generated from field: sync.VaultKeyParams key_params = 7;
+   */
+  keyParams?: VaultKeyParams | undefined;
 };
 
 /**
@@ -51,7 +129,7 @@ export type VaultInfo = Message<"sync.VaultInfo"> & {
  * Use `create(VaultInfoSchema)` to create a new message.
  */
 export const VaultInfoSchema: GenMessage<VaultInfo> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 0);
+  messageDesc(file_sync_sync_ext, 1);
 
 /**
  * ListVaults 空请求：身份经 Bearer 头（interceptor 注入 userID）
@@ -66,7 +144,7 @@ export type ListVaultsRequest = Message<"sync.ListVaultsRequest"> & {
  * Use `create(ListVaultsRequestSchema)` to create a new message.
  */
 export const ListVaultsRequestSchema: GenMessage<ListVaultsRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 1);
+  messageDesc(file_sync_sync_ext, 2);
 
 /**
  * @generated from message sync.ListVaultsReply
@@ -85,7 +163,7 @@ export type ListVaultsReply = Message<"sync.ListVaultsReply"> & {
  * Use `create(ListVaultsReplySchema)` to create a new message.
  */
 export const ListVaultsReplySchema: GenMessage<ListVaultsReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 2);
+  messageDesc(file_sync_sync_ext, 3);
 
 /**
  * @generated from message sync.CreateVaultRequest
@@ -97,6 +175,13 @@ export type CreateVaultRequest = Message<"sync.CreateVaultRequest"> & {
    * @generated from field: string name = 1;
    */
   name: string;
+
+  /**
+   * 省略 = 创建未加密仓库；提供 = 创建端到端加密仓库（参数非法返回 12009）
+   *
+   * @generated from field: sync.VaultKeyParams key_params = 2;
+   */
+  keyParams?: VaultKeyParams | undefined;
 };
 
 /**
@@ -104,7 +189,7 @@ export type CreateVaultRequest = Message<"sync.CreateVaultRequest"> & {
  * Use `create(CreateVaultRequestSchema)` to create a new message.
  */
 export const CreateVaultRequestSchema: GenMessage<CreateVaultRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 3);
+  messageDesc(file_sync_sync_ext, 4);
 
 /**
  * @generated from message sync.CreateVaultReply
@@ -121,7 +206,7 @@ export type CreateVaultReply = Message<"sync.CreateVaultReply"> & {
  * Use `create(CreateVaultReplySchema)` to create a new message.
  */
 export const CreateVaultReplySchema: GenMessage<CreateVaultReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 4);
+  messageDesc(file_sync_sync_ext, 5);
 
 /**
  * @generated from message sync.UpdateVaultRequest
@@ -143,7 +228,7 @@ export type UpdateVaultRequest = Message<"sync.UpdateVaultRequest"> & {
  * Use `create(UpdateVaultRequestSchema)` to create a new message.
  */
 export const UpdateVaultRequestSchema: GenMessage<UpdateVaultRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 5);
+  messageDesc(file_sync_sync_ext, 6);
 
 /**
  * @generated from message sync.UpdateVaultReply
@@ -160,7 +245,7 @@ export type UpdateVaultReply = Message<"sync.UpdateVaultReply"> & {
  * Use `create(UpdateVaultReplySchema)` to create a new message.
  */
 export const UpdateVaultReplySchema: GenMessage<UpdateVaultReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 6);
+  messageDesc(file_sync_sync_ext, 7);
 
 /**
  * @generated from message sync.DeleteVaultRequest
@@ -177,7 +262,7 @@ export type DeleteVaultRequest = Message<"sync.DeleteVaultRequest"> & {
  * Use `create(DeleteVaultRequestSchema)` to create a new message.
  */
 export const DeleteVaultRequestSchema: GenMessage<DeleteVaultRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 7);
+  messageDesc(file_sync_sync_ext, 8);
 
 /**
  * @generated from message sync.DeleteVaultReply
@@ -196,7 +281,93 @@ export type DeleteVaultReply = Message<"sync.DeleteVaultReply"> & {
  * Use `create(DeleteVaultReplySchema)` to create a new message.
  */
 export const DeleteVaultReplySchema: GenMessage<DeleteVaultReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 8);
+  messageDesc(file_sync_sync_ext, 9);
+
+/**
+ * @generated from message sync.EnableVaultEncryptionRequest
+ */
+export type EnableVaultEncryptionRequest = Message<"sync.EnableVaultEncryptionRequest"> & {
+  /**
+   * @generated from field: int64 vault_id = 1;
+   */
+  vaultId: bigint;
+
+  /**
+   * 必填；参数非法返回 12009
+   *
+   * @generated from field: sync.VaultKeyParams key_params = 2;
+   */
+  keyParams?: VaultKeyParams | undefined;
+};
+
+/**
+ * Describes the message sync.EnableVaultEncryptionRequest.
+ * Use `create(EnableVaultEncryptionRequestSchema)` to create a new message.
+ */
+export const EnableVaultEncryptionRequestSchema: GenMessage<EnableVaultEncryptionRequest> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 10);
+
+/**
+ * @generated from message sync.EnableVaultEncryptionReply
+ */
+export type EnableVaultEncryptionReply = Message<"sync.EnableVaultEncryptionReply"> & {
+  /**
+   * key_version 已递增
+   *
+   * @generated from field: sync.VaultInfo vault = 1;
+   */
+  vault?: VaultInfo | undefined;
+};
+
+/**
+ * Describes the message sync.EnableVaultEncryptionReply.
+ * Use `create(EnableVaultEncryptionReplySchema)` to create a new message.
+ */
+export const EnableVaultEncryptionReplySchema: GenMessage<EnableVaultEncryptionReply> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 11);
+
+/**
+ * @generated from message sync.UpdateVaultKeyRequest
+ */
+export type UpdateVaultKeyRequest = Message<"sync.UpdateVaultKeyRequest"> & {
+  /**
+   * @generated from field: int64 vault_id = 1;
+   */
+  vaultId: bigint;
+
+  /**
+   * 必填；必须是同一内容密钥用新口令重新包装的结果
+   *
+   * @generated from field: sync.VaultKeyParams key_params = 2;
+   */
+  keyParams?: VaultKeyParams | undefined;
+};
+
+/**
+ * Describes the message sync.UpdateVaultKeyRequest.
+ * Use `create(UpdateVaultKeyRequestSchema)` to create a new message.
+ */
+export const UpdateVaultKeyRequestSchema: GenMessage<UpdateVaultKeyRequest> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 12);
+
+/**
+ * @generated from message sync.UpdateVaultKeyReply
+ */
+export type UpdateVaultKeyReply = Message<"sync.UpdateVaultKeyReply"> & {
+  /**
+   * key_version 已递增
+   *
+   * @generated from field: sync.VaultInfo vault = 1;
+   */
+  vault?: VaultInfo | undefined;
+};
+
+/**
+ * Describes the message sync.UpdateVaultKeyReply.
+ * Use `create(UpdateVaultKeyReplySchema)` to create a new message.
+ */
+export const UpdateVaultKeyReplySchema: GenMessage<UpdateVaultKeyReply> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 13);
 
 /**
  * @generated from message sync.GetVaultHeadRequest
@@ -227,7 +398,7 @@ export type GetVaultHeadRequest = Message<"sync.GetVaultHeadRequest"> & {
  * Use `create(GetVaultHeadRequestSchema)` to create a new message.
  */
 export const GetVaultHeadRequestSchema: GenMessage<GetVaultHeadRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 9);
+  messageDesc(file_sync_sync_ext, 14);
 
 /**
  * @generated from message sync.GetVaultHeadReply
@@ -270,11 +441,25 @@ export type GetVaultHeadReply = Message<"sync.GetVaultHeadReply"> & {
   localDebounceMs: bigint;
 
   /**
-   * 当前生效套餐的单文件上限；插件用于上传前过滤，服务端仍会权威校验
+   * 当前生效套餐的单文件上限（明文口径）；插件用于上传前过滤，服务端仍会权威校验
    *
    * @generated from field: int64 max_file_size_bytes = 7;
    */
   maxFileSizeBytes: bigint;
+
+  /**
+   * true = 端到端加密仓库（客户端未解锁时应暂停同步并提示解锁）
+   *
+   * @generated from field: bool encrypted = 8;
+   */
+  encrypted: boolean;
+
+  /**
+   * 密钥版本；与客户端解锁时记录的版本不一致 = 口令已在别处变更，须重新解锁
+   *
+   * @generated from field: int64 key_version = 9;
+   */
+  keyVersion: bigint;
 };
 
 /**
@@ -282,7 +467,7 @@ export type GetVaultHeadReply = Message<"sync.GetVaultHeadReply"> & {
  * Use `create(GetVaultHeadReplySchema)` to create a new message.
  */
 export const GetVaultHeadReplySchema: GenMessage<GetVaultHeadReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 10);
+  messageDesc(file_sync_sync_ext, 15);
 
 /**
  * @generated from message sync.GetManifestRequest
@@ -311,7 +496,7 @@ export type GetManifestRequest = Message<"sync.GetManifestRequest"> & {
  * Use `create(GetManifestRequestSchema)` to create a new message.
  */
 export const GetManifestRequestSchema: GenMessage<GetManifestRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 11);
+  messageDesc(file_sync_sync_ext, 16);
 
 /**
  * @generated from message sync.GetManifestReply
@@ -340,7 +525,7 @@ export type GetManifestReply = Message<"sync.GetManifestReply"> & {
  * Use `create(GetManifestReplySchema)` to create a new message.
  */
 export const GetManifestReplySchema: GenMessage<GetManifestReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 12);
+  messageDesc(file_sync_sync_ext, 17);
 
 /**
  * @generated from message sync.HasBlobsRequest
@@ -364,7 +549,7 @@ export type HasBlobsRequest = Message<"sync.HasBlobsRequest"> & {
  * Use `create(HasBlobsRequestSchema)` to create a new message.
  */
 export const HasBlobsRequestSchema: GenMessage<HasBlobsRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 13);
+  messageDesc(file_sync_sync_ext, 18);
 
 /**
  * @generated from message sync.HasBlobsReply
@@ -383,7 +568,7 @@ export type HasBlobsReply = Message<"sync.HasBlobsReply"> & {
  * Use `create(HasBlobsReplySchema)` to create a new message.
  */
 export const HasBlobsReplySchema: GenMessage<HasBlobsReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 14);
+  messageDesc(file_sync_sync_ext, 19);
 
 /**
  * @generated from message sync.PutBlobRequest
@@ -395,20 +580,22 @@ export type PutBlobRequest = Message<"sync.PutBlobRequest"> & {
   vaultId: bigint;
 
   /**
-   * 声明的内容 SHA-256（服务端重算校验）
+   * 声明的内容 SHA-256（服务端重算校验）；加密仓库为密文哈希
    *
    * @generated from field: string hash = 2;
    */
   hash: string;
 
   /**
-   * 内容字节数（须与 content 长度一致且不超过当前套餐上限）
+   * 内容字节数（须与 content 长度一致且不超过当前套餐上限）；加密仓库为密文长度
    *
    * @generated from field: int64 size = 3;
    */
   size: bigint;
 
   /**
+   * 未加密仓库为明文；加密仓库为密文，服务端不解析
+   *
    * @generated from field: bytes content = 4;
    */
   content: Uint8Array;
@@ -419,7 +606,7 @@ export type PutBlobRequest = Message<"sync.PutBlobRequest"> & {
  * Use `create(PutBlobRequestSchema)` to create a new message.
  */
 export const PutBlobRequestSchema: GenMessage<PutBlobRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 15);
+  messageDesc(file_sync_sync_ext, 20);
 
 /**
  * @generated from message sync.PutBlobReply
@@ -438,7 +625,7 @@ export type PutBlobReply = Message<"sync.PutBlobReply"> & {
  * Use `create(PutBlobReplySchema)` to create a new message.
  */
 export const PutBlobReplySchema: GenMessage<PutBlobReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 16);
+  messageDesc(file_sync_sync_ext, 21);
 
 /**
  * @generated from message sync.GetBlobRequest
@@ -479,7 +666,7 @@ export type GetBlobRequest = Message<"sync.GetBlobRequest"> & {
  * Use `create(GetBlobRequestSchema)` to create a new message.
  */
 export const GetBlobRequestSchema: GenMessage<GetBlobRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 17);
+  messageDesc(file_sync_sync_ext, 22);
 
 /**
  * @generated from message sync.GetBlobReply
@@ -501,7 +688,7 @@ export type GetBlobReply = Message<"sync.GetBlobReply"> & {
  * Use `create(GetBlobReplySchema)` to create a new message.
  */
 export const GetBlobReplySchema: GenMessage<GetBlobReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 18);
+  messageDesc(file_sync_sync_ext, 23);
 
 /**
  * Mutation 单条变更：put（新建/覆盖）或 delete（写 tombstone，不移除 key）
@@ -532,7 +719,7 @@ export type Mutation = Message<"sync.Mutation"> & {
  * Use `create(MutationSchema)` to create a new message.
  */
 export const MutationSchema: GenMessage<Mutation> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 19);
+  messageDesc(file_sync_sync_ext, 24);
 
 /**
  * @generated from message sync.PutMutation
@@ -546,14 +733,14 @@ export type PutMutation = Message<"sync.PutMutation"> & {
   path: string;
 
   /**
-   * 64 位 hex SHA-256（dir 时为空）
+   * 64 位 hex SHA-256（dir 时为空）；加密仓库为密文哈希
    *
    * @generated from field: string content_hash = 2;
    */
   contentHash: string;
 
   /**
-   * 不超过当前套餐上限（dir 时为 0）
+   * 逻辑大小（明文口径），不超过当前套餐上限（dir 时为 0）
    *
    * @generated from field: int64 size = 3;
    */
@@ -579,7 +766,7 @@ export type PutMutation = Message<"sync.PutMutation"> & {
  * Use `create(PutMutationSchema)` to create a new message.
  */
 export const PutMutationSchema: GenMessage<PutMutation> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 20);
+  messageDesc(file_sync_sync_ext, 25);
 
 /**
  * @generated from message sync.DeleteMutation
@@ -596,7 +783,7 @@ export type DeleteMutation = Message<"sync.DeleteMutation"> & {
  * Use `create(DeleteMutationSchema)` to create a new message.
  */
 export const DeleteMutationSchema: GenMessage<DeleteMutation> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 21);
+  messageDesc(file_sync_sync_ext, 26);
 
 /**
  * @generated from message sync.CommitSnapshotRequest
@@ -639,7 +826,7 @@ export type CommitSnapshotRequest = Message<"sync.CommitSnapshotRequest"> & {
  * Use `create(CommitSnapshotRequestSchema)` to create a new message.
  */
 export const CommitSnapshotRequestSchema: GenMessage<CommitSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 22);
+  messageDesc(file_sync_sync_ext, 27);
 
 /**
  * @generated from message sync.CommitSnapshotReply
@@ -668,7 +855,7 @@ export type CommitSnapshotReply = Message<"sync.CommitSnapshotReply"> & {
  * Use `create(CommitSnapshotReplySchema)` to create a new message.
  */
 export const CommitSnapshotReplySchema: GenMessage<CommitSnapshotReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 23);
+  messageDesc(file_sync_sync_ext, 28);
 
 /**
  * @generated from message sync.ListFileVersionsRequest
@@ -706,7 +893,7 @@ export type ListFileVersionsRequest = Message<"sync.ListFileVersionsRequest"> & 
  * Use `create(ListFileVersionsRequestSchema)` to create a new message.
  */
 export const ListFileVersionsRequestSchema: GenMessage<ListFileVersionsRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 24);
+  messageDesc(file_sync_sync_ext, 29);
 
 /**
  * @generated from message sync.FileVersionInfo
@@ -737,13 +924,15 @@ export type FileVersionInfo = Message<"sync.FileVersionInfo"> & {
   state: FileVersionState;
 
   /**
-   * dir 版本为空
+   * dir 版本为空；加密仓库为密文哈希
    *
    * @generated from field: string content_hash = 5;
    */
   contentHash: string;
 
   /**
+   * 逻辑大小（明文口径）
+   *
    * @generated from field: int64 size = 6;
    */
   size: bigint;
@@ -761,7 +950,7 @@ export type FileVersionInfo = Message<"sync.FileVersionInfo"> & {
  * Use `create(FileVersionInfoSchema)` to create a new message.
  */
 export const FileVersionInfoSchema: GenMessage<FileVersionInfo> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 25);
+  messageDesc(file_sync_sync_ext, 30);
 
 /**
  * @generated from message sync.ListFileVersionsReply
@@ -790,7 +979,7 @@ export type ListFileVersionsReply = Message<"sync.ListFileVersionsReply"> & {
  * Use `create(ListFileVersionsReplySchema)` to create a new message.
  */
 export const ListFileVersionsReplySchema: GenMessage<ListFileVersionsReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 26);
+  messageDesc(file_sync_sync_ext, 31);
 
 /**
  * EntryKind 条目类型（1=file 2=dir；0/缺省按 file，与 manifest JSON 的 kind 数字同值）
@@ -858,6 +1047,11 @@ export const FileVersionStateSchema: GenEnum<FileVersionState> = /*@__PURE__*/
  * 不存在的 vault_id 一律返回业务错误 12004，不再惰性建仓。
  * 鉴权经 Authorization: Bearer 头（interceptor 注入 userID）。
  *
+ * 端到端加密仓库：文件内容由客户端加密后上传，服务端只存密文与明文元数据
+ * （仓库名、路径、类型、大小、时间、版本关系），无法解密。读写加密仓库的客户端必须在
+ * 请求头携带 Client-E2EE-Version: 1；缺失或低于 1 时服务端对所有内容 RPC 返回 12008
+ * （拒绝不支持的客户端，避免其把明文写入加密仓库或把密文写坏到本地）。
+ *
  * @generated from service sync.SyncService
  */
 export const SyncService: GenService<{
@@ -900,6 +1094,27 @@ export const SyncService: GenService<{
     methodKind: "unary";
     input: typeof DeleteVaultRequestSchema;
     output: typeof DeleteVaultReplySchema;
+  },
+  /**
+   * EnableVaultEncryption 把未加密仓库转换为端到端加密仓库（客户端随后按新密钥全量重传内容；
+   * 转换前已产生的历史版本保持原样，不会被重新加密）。仓库已加密时返回 12011。
+   *
+   * @generated from rpc sync.SyncService.EnableVaultEncryption
+   */
+  enableVaultEncryption: {
+    methodKind: "unary";
+    input: typeof EnableVaultEncryptionRequestSchema;
+    output: typeof EnableVaultEncryptionReplySchema;
+  },
+  /**
+   * UpdateVaultKey 修改仓库密码（仅替换被包装的内容密钥，不改动任何已存内容）。仓库未加密时返回 12010。
+   *
+   * @generated from rpc sync.SyncService.UpdateVaultKey
+   */
+  updateVaultKey: {
+    methodKind: "unary";
+    input: typeof UpdateVaultKeyRequestSchema;
+    output: typeof UpdateVaultKeyReplySchema;
   },
   /**
    * GetVaultHead 空轮询：返回 Head 与当前套餐单文件上限，Head 未变时客户端不请求 Manifest。

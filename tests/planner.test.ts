@@ -173,6 +173,31 @@ describe("§8.4 Bootstrap（无 Base）", () => {
 		const p = runPlan(null, snap({}), snap({}));
 		expect(p.deletes).toEqual([]);
 	});
+
+	// 明文仓库转加密会重算全部内容的寻址哈希（明文哈希 → 密文哈希）。
+	// 这类「内容没变、口径变了」的批量改写必须保留 Base：否则同样一批路径会落进 Bootstrap
+	// 的「双方创建不同内容」分支，每个文件都被复制成一份冲突副本。
+	it("明文转加密：保留 Base 时全部按 Local 变化重传，不产生冲突副本", () => {
+		const b = snap({ "x.md": active(A), "y.md": active(A) });
+		const local = snap({ "x.md": active(B), "y.md": active(C) }); // 密文哈希
+		const p = runPlan(b, local, snap({ "x.md": active(A), "y.md": active(A) }));
+		expect(p.conflict_copies).toEqual([]);
+		expect(p.puts).toEqual([
+			expect.objectContaining({ path: "x.md", content_hash: B }),
+			expect.objectContaining({ path: "y.md", content_hash: C }),
+		]);
+		expect(p.apply_actions).toEqual([]);
+	});
+
+	it("明文转加密：Base 被清空则同批路径退化成冲突副本（回归护栏）", () => {
+		const local = snap({ "x.md": active(B) });
+		const p = runPlan(null, local, snap({ "x.md": active(A) }));
+		// 保存 Base 的写法下这一条本应是 put x.md；清空 Base 后变成「保留远端 + 复制副本」
+		expect(p.conflict_copies).toHaveLength(1);
+		expect(p.puts.map((m) => m.path)).toEqual([p.conflict_copies[0].path]);
+		expect(p.puts.map((m) => m.path)).not.toContain("x.md");
+		expect(p.target_entries["x.md"].content_hash).toBe(A);
+	});
 });
 
 describe("目录条目（kind=2）", () => {

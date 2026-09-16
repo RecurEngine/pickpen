@@ -6,6 +6,7 @@
 
 import { App, normalizePath, TAbstractFile } from "obsidian";
 
+import { openForLocal, remoteHash } from "../crypto/vault-key-store";
 import { ProgressTracker, type ProgressCallback } from "./progress";
 import { sha256Hex } from "./content-hash";
 import type { SnapshotRemote } from "./remote";
@@ -61,7 +62,8 @@ export class Applier {
 			await yc.tick(100, 50);
 			await tracker.track(d.path, async () => {
 				const content = await this.remote.getBlob(d.content_hash, expectedRevision, expectedRootHash);
-				// 校验下载内容 hash（传输完整性）；content 可能是 protobuf subarray 视图，直接传视图本身
+				// 校验下载内容 hash（传输完整性）；content 可能是 protobuf subarray 视图，直接传视图本身。
+				// 加密仓库下这里是密文，校验对象就是密文本身；解密统一放在写盘边界（loadWriteContent）。
 				const actual = await sha256Hex(content);
 				if (actual !== d.content_hash) {
 					throw new Error(`下载内容校验失败：${d.path}`);
@@ -154,7 +156,8 @@ export class Applier {
 					if (expectedHashes.has(action.path)) {
 						try {
 							const content = await this.app.vault.adapter.readBinary(action.path);
-							const hash = await sha256Hex(content);
+							// 本地文件是明文，比较对象是远端寻址哈希：加密仓库须按密文口径重算
+							const hash = await remoteHash(content);
 							if (hash !== expectedHashes.get(action.path)) {
 								skipped.add(action.path);
 								continue;
@@ -177,7 +180,7 @@ export class Applier {
 				const existing = this.app.vault.getFileByPath(action.path);
 				if (existing) {
 					const disk = await this.app.vault.adapter.readBinary(action.path);
-					const diskHash = await sha256Hex(disk);
+					const diskHash = await remoteHash(disk); // 明文 → 远端寻址哈希（与 action.content_hash 同口径）
 					if (diskHash === action.content_hash) continue;
 					// 目标存在但内容不同：Session 开始后用户改过 → 不覆盖，重新标脏
 					if (expectedHashes.has(action.path) && diskHash !== expectedHashes.get(action.path)) {
@@ -204,19 +207,21 @@ export class Applier {
 				const target = this.app.vault.getFileByPath(cc.path);
 				if (target) {
 					const disk = await this.app.vault.adapter.readBinary(cc.path);
-					if ((await sha256Hex(disk)) === cc.content_hash) continue; // 幂等
+					if ((await remoteHash(disk)) === cc.content_hash) continue; // 幂等
 				}
+				// 本地明文优先（内容即 cc.content_hash），源已失效再走远端下载（可能是密文）
 				let content: Uint8Array | null = null;
 				try {
 					const src = await this.app.vault.adapter.readBinary(cc.source_path);
-					if ((await sha256Hex(src)) === cc.content_hash) {
+					if ((await remoteHash(src)) === cc.content_hash) {
 						content = new Uint8Array(src);
 					}
 				} catch {
 					// 源已消失 → 走 GetBlob
 				}
 				if (!content) {
-					content = await this.remote.getBlob(cc.content_hash, expectedRevision, expectedRootHash);
+					const blob = await this.remote.getBlob(cc.content_hash, expectedRevision, expectedRootHash);
+					content = await openForLocal(blob);
 				}
 				await writeLocalFile(this.app, cc.path, content);
 
@@ -234,30 +239,38 @@ export class Applier {
 		return [...skipped];
 	}
 
-	/** write 动作取内容：temp 文件（hash 校验）→ 失败则 GetBlob 重新下载（§9.4） */
+	/**
+	 * write 动作取内容：temp 文件（hash 校验）→ 失败则 GetBlob 重新下载（§9.4）。
+	 * 这里是写盘边界：临时区与远端拿到的都是远端字节（加密仓库即密文），
+	 * 校验通过后统一解密成本地明文再返回——解密失败会抛出（内容损坏/密钥不符，
+	 * 绝不能把密文当明文写进 vault）。
+	 */
 	private async loadWriteContent(
 		action: ApplyAction,
 		expectedRevision: bigint,
 		expectedRootHash: string,
 		tmpDir: string,
 	): Promise<Uint8Array | null> {
+		// 读临时文件失败只降级为「重新下载」；解密失败必须向上抛，不能被吞成静默跳过
 		if (action.temp_path) {
+			let raw: ArrayBuffer | null = null;
 			try {
-				const raw = await this.app.vault.adapter.readBinary(normalizePath(action.temp_path));
-				if ((await sha256Hex(raw)) === action.content_hash) {
-					return new Uint8Array(raw);
-				}
+				raw = await this.app.vault.adapter.readBinary(normalizePath(action.temp_path));
 			} catch {
-				// temp 缺失/损坏 → 重新下载
+				raw = null; // temp 缺失/损坏 → 重新下载
+			}
+			if (raw && (await sha256Hex(raw)) === action.content_hash) {
+				return await openForLocal(new Uint8Array(raw));
 			}
 		}
+		let blob: Uint8Array | null = null;
 		try {
-			const content = await this.remote.getBlob(action.content_hash, expectedRevision, expectedRootHash);
-			if ((await sha256Hex(content)) === action.content_hash) {
-				return content;
-			}
+			blob = await this.remote.getBlob(action.content_hash, expectedRevision, expectedRootHash);
 		} catch {
-			// 下载失败：跳过（下一轮重试）
+			blob = null; // 下载失败：跳过（下一轮重试）
+		}
+		if (blob && (await sha256Hex(blob)) === action.content_hash) {
+			return await openForLocal(blob);
 		}
 		return null;
 	}

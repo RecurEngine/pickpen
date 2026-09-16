@@ -9,6 +9,7 @@
 import { App, normalizePath, Plugin } from "obsidian";
 
 import { debugLog } from "../debug-log";
+import { vaultKeys } from "../crypto/vault-key-store";
 import type { Entry, Snapshot } from "./types";
 
 export type BaseLoadResult = "ok" | "no-base" | "corrupt";
@@ -72,6 +73,9 @@ export class BaseStore {
 	 * 磁盘上已不存在的 active 条目删除其 local_* 快路径字段（下一轮按 dirty 处理）。
 	 */
 	async saveBase(snapshot: Snapshot): Promise<void> {
+		// 把「写这份基线时用的内容密钥代次」一并落盘：它是判断内容寻址口径是否变化的唯一可靠依据，
+		// 只放在内存里的话，转换中途失败/关闭 Obsidian 后重开就会误判成「没有工作可做」
+		snapshot = { ...snapshot, key_epoch: vaultKeys.getEpoch() };
 		const entries: Record<string, Entry> = {};
 		for (const [path, e] of Object.entries(snapshot.entries)) {
 			if (e.state !== "active") {

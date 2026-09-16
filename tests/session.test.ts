@@ -166,4 +166,46 @@ describe("ReconcileSession 串行保证", () => {
 		await tick();
 		expect(session.isRunning()).toBe(false);
 	});
+
+	// 卸载不会中断已启动的 Promise 链：旧实例若继续跑，会与新实例并发同步同一仓库、
+	// 并继续消耗两边共享的 refresh token（插件「禁用→启用」/更新时的竞态）
+	it("dispose 后拒绝新轮次，不发任何远端请求", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		session.dispose();
+		session.requestRun({ forceAudit: true });
+		await tick();
+		await tick();
+		expect(deps.remote.pollHead).not.toHaveBeenCalled();
+	});
+
+	it("在途轮次期间 dispose：本轮结束即止，不再开新一轮（丢弃 rerun 请求）", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		const pollHead = deps.remote.pollHead as ReturnType<typeof vi.fn>;
+		let release = () => {};
+		const gate = new Promise<void>((r) => (release = r));
+		pollHead.mockImplementation(async () => {
+			await gate;
+			return {
+				revision: 1n,
+				rootHash: "r1",
+				unchanged: true,
+				syncIntervalMs: 0n,
+				maxFileSizeBytes: 30n * 1024n * 1024n,
+				localDebounceMs: 0n,
+			};
+		});
+
+		session.requestRun();
+		await tick();
+		session.requestRun({ forceAudit: true }); // 运行中的 rerun 请求
+		session.dispose();
+		release();
+		await tick();
+		await tick();
+		await tick();
+		expect(pollHead).toHaveBeenCalledTimes(1);
+		expect(session.isRunning()).toBe(false);
+	});
 });

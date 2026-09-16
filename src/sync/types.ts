@@ -25,6 +25,9 @@ export interface Snapshot {
 	base_revision: string;
 	base_root_hash: string;
 	entries: Record<string, Entry>;
+	/** 写入本基线时所用内容密钥的寻址代次（未加密仓库为 ""；老基线缺省视为 ""）。
+	 * 与当前代次不一致 = 内容寻址口径变了，本地必须重算全部寻址哈希。 */
+	key_epoch?: string;
 }
 
 /** 提交给服务端的 put mutation（spec §11.3） */

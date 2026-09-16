@@ -14,7 +14,7 @@ import { TFolder, type TFile, type Vault } from "obsidian";
 import { ProgressTracker, type ProgressCallback } from "./progress";
 import { isExcluded, isTooBig, normalize } from "../excludes";
 import { nfcPath, detectCaseConflicts } from "./path";
-import { sha256Hex } from "./content-hash";
+import { remoteHash } from "../crypto/vault-key-store";
 import { KIND_DIR } from "./types";
 import type { Entry, Snapshot } from "./types";
 import { createYieldControl, mapConcurrent, newUUID, type YieldControl } from "./utils";
@@ -27,6 +27,9 @@ export interface LocalScanContext {
 	/** rename 提示（newPath → oldPath），用于继承 file_id 保 rename 身份 */
 	renameHints?: Map<string, string>;
 	forceAudit: boolean;
+	/** 强制重算全部内容的寻址哈希，跳过 mtime+size 快路径。
+	 * 用于换了加密口径的场景（明文仓库转加密）：磁盘文件没变，但远端寻址哈希整体变了。 */
+	rehashAll?: boolean;
 	extraExcludes: string[];
 	/** 大小写不敏感平台（Platform.isDesktopApp 为 false 或运行时探测） */
 	caseInsensitive: boolean;
@@ -140,6 +143,7 @@ export class LocalSnapshotBuilder {
 			const be = base?.entries[path];
 			const stat = f.stat;
 			if (
+				!ctx.rehashAll &&
 				be &&
 				be.state === "active" &&
 				stat &&
@@ -160,7 +164,8 @@ export class LocalSnapshotBuilder {
 			const finish = tracker.start(f.path);
 			try {
 				const content = await ctx.vault.adapter.readBinary(f.path);
-				const hash = await sha256Hex(content);
+				// 寻址哈希：加密仓库为密文哈希，未加密仓库为明文 SHA-256；size 恒为明文大小
+				const hash = await remoteHash(content);
 				return { path: f.path, hash, size: content.byteLength };
 			} catch {
 				return null; // 读取失败 → blocked
@@ -272,7 +277,7 @@ export class LocalSnapshotBuilder {
 					const content = await ctx.vault.adapter.readBinary(np);
 					entries[np] = {
 						state: "active",
-						content_hash: await sha256Hex(content),
+						content_hash: await remoteHash(content),
 						size: String(content.byteLength),
 						file_id: this.fileIDFor(np, ctx),
 					};

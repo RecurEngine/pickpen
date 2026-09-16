@@ -1,6 +1,10 @@
 // 插件内部统一类型（Snapshot 同步 v2）：绑定主键 vault_id（name 仅展示），
 // int64 一律十进制字符串。登录态：access_token（2h）+ refresh_token（30d，自动刷新）。
 
+import type { VaultKeyParams } from "./crypto/vault-crypto";
+
+export type { VaultKeyParams };
+
 // PluginSettings 内存镜像。持久化拆分：
 //  - vaultId/vaultName/extraExcludes/debugLog 落 data.json（会随 iCloud 同步 vault）；
 //  - email/userId/token 族/deviceId 属登录会话，来源=设备本地 SessionStore（session-store.ts），
@@ -66,4 +70,10 @@ export interface VaultInfo {
 	name: string;
 	revision: string;
 	rootHash: string;
+	/** 端到端加密仓库：同步前必须先用仓库密码解锁 */
+	encrypted: boolean;
+	/** 密钥版本；每次创建加密仓库/转换为加密/改密码 +1 */
+	keyVersion: string;
+	/** 解锁所需的密钥包装参数（未加密仓库为 undefined） */
+	keyParams?: VaultKeyParams;
 }

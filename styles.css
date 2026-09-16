@@ -390,6 +390,7 @@
 	gap: var(--size-4-2);
 	max-height: 55vh;
 	overflow-y: auto;
+	overflow-x: hidden; /* 仅 overflow-y 会按规范把 overflow-x 也计算成 auto，卡片溢出将变成列表内横向滚动 */
 }
 
 /* 仓库卡片（新建表单卡片复用此样式） */
@@ -400,10 +401,10 @@
 	border-radius: var(--radius-m);
 }
 
-/* 当前绑定卡片：绿色描边 + 浅绿 tint（不支持 color-mix 时退回基础底色） */
+/* 当前绑定卡片：主题色描边 + 浅色 tint（不支持 color-mix 时退回卡片基础底色） */
 .pickpen-vault-card.is-current {
-	border-color: var(--color-green, #4caf50);
-	background: color-mix(in srgb, var(--color-green, #4caf50) 8%, var(--background-secondary));
+	border-color: var(--interactive-accent);
+	background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-secondary));
 }
 
 /* 头部行：名称 + 徽标组 */
@@ -414,7 +415,7 @@
 }
 
 .pickpen-vault-card-name {
-	flex: 1;
+	flex: 0 1 auto; /* 按内容宽度，让紧随其后的 revision 贴住名称；空间不足时才收缩出省略号 */
 	min-width: 0;
 	font-weight: 600;
 	white-space: nowrap;
@@ -424,6 +425,7 @@
 
 .pickpen-vault-badges {
 	flex: none;
+	margin-left: auto; /* 状态徽标靠右，与左侧的名称+revision 分开 */
 	display: flex;
 	gap: var(--size-4-2);
 }
@@ -443,23 +445,45 @@
 	color: var(--text-muted);
 }
 
+/* 当前绑定：实心主题色填充，与「已加密」的半透明填充区分开 */
 .pickpen-vault-badge.is-bound {
-	background: var(--background-modifier-hover); /* 降级底色（不支持 color-mix 时） */
-	color: var(--color-green, #4caf50);
-	background: color-mix(in srgb, var(--color-green, #4caf50) 18%, transparent);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
 }
 
-/* 底部行：revision 信息（左）+ 操作按钮组（右） */
+.pickpen-vault-badge.is-encrypted {
+	background: var(--background-modifier-hover);
+	color: var(--text-accent);
+	background: color-mix(in srgb, var(--text-accent) 18%, transparent);
+}
+
+/* 新建仓库表单里的端到端加密开关（与输入框、按钮同处一行） */
+.pickpen-vault-encrypt {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.pickpen-vault-encrypt-label {
+	cursor: default;
+}
+
+/* 底部行：操作按钮组（右对齐） */
 .pickpen-vault-card-foot {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	justify-content: flex-end;
+	flex-wrap: wrap; /* 窄窗口兜底：宁可换行，不要横向溢出被裁切 */
 	gap: var(--size-4-2);
 	margin-top: var(--size-4-2);
 }
 
 .pickpen-vault-meta {
-	flex: 1;
+	flex: none; /* 与名称、徽标同行：不参与伸缩，剩余空间全给名称 */
 	min-width: 0;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
@@ -472,6 +496,7 @@
 .pickpen-vault-actions {
 	flex: none;
 	display: flex;
+	flex-wrap: wrap; /* 窄窗口兜底 */
 	gap: var(--size-4-2);
 }
 
@@ -498,6 +523,7 @@
 .pickpen-vault-create {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap; /* 窄窗口兜底 */
 	gap: var(--size-4-2);
 	margin-bottom: var(--size-4-3);
 }
@@ -517,6 +543,130 @@
 
 .pickpen-vault-message.is-error {
 	color: var(--text-error);
+}
+
+/* ===== 仓库管理弹窗：移动端降级 =====
+   弹窗按桌面 620px 设计，手机视口 369px、卡片内可用仅 266px，需收小按钮并让各行换行 */
+
+/* 卡片头部：名称 + 徽标 + revision 同行，收紧间距把空间尽量留给名称 */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-card-head {
+	flex-wrap: wrap; /* 极窄屏兜底 */
+	gap: 6px;
+}
+
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-badges {
+	gap: 4px;
+}
+
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-badge {
+	padding: 1px 6px;
+}
+
+/* 底部行只剩按钮组：撑满整行，按钮自左排起 */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-card-foot {
+	flex-direction: column;
+	align-items: stretch;
+	gap: var(--size-4-1);
+}
+
+/* 操作按钮：字号与内边距收小后四个按钮回到单行（约 248px / 可用 266px） */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-actions {
+	gap: 6px;
+}
+
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-actions > button {
+	font-size: var(--font-ui-smaller);
+	padding: 4px 8px;
+	/* 高度不设：沿用 Obsidian 移动端 --input-height(44px) 的触控目标，只收窄不压扁 */
+}
+
+/* 顶部「刷新列表」按钮同样收小 */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-header > button {
+	font-size: var(--font-ui-smaller);
+	padding: 4px 8px;
+	/* 高度不设：沿用 Obsidian 移动端 --input-height(44px) 的触控目标，只收窄不压扁 */
+}
+
+/* 新建表单：输入框独占一行（原被开关与按钮挤到 47px），开关与按钮在第二行分列两端 */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-create {
+	justify-content: space-between;
+}
+
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-create > input {
+	flex: 1 1 100%;
+}
+
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-create > button {
+	font-size: var(--font-ui-smaller);
+	padding: 4px 8px;
+	/* 高度不设：沿用 Obsidian 移动端 --input-height(44px) 的触控目标，只收窄不压扁 */
+}
+
+/* 加密开关：整行都是可点区域（vault-manager.ts 在整行挂了点击切换） */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-encrypt {
+	min-height: 38px;
+	cursor: pointer;
+}
+
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-encrypt-label {
+	cursor: pointer;
+}
+
+/* 取消列表内滚动：卡片变高后由弹窗统一滚动，避免移动端嵌套滚动 */
+.pickpen-vault-manager-modal.is-mobile .pickpen-vault-list {
+	max-height: none;
+	overflow: visible;
+}
+
+/* 「查看密码」弹窗里的密码明文：等宽、可整体选中复制 */
+.pickpen-password-value {
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-medium);
+	text-align: center;
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+/* 密码输入行：眼睛图标内嵌在输入框内部右侧，点击切换明文（password-modal.ts） */
+.pickpen-password-field {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	/* 按钮内边距：移动端放大触控目标，输入框的右留白与它联动 */
+	--pickpen-toggle-pad: var(--size-2-2, 4px);
+}
+
+body.is-mobile .pickpen-password-field {
+	--pickpen-toggle-pad: var(--size-2-3, 6px);
+}
+
+/* 类名 + 元素名加权，压过 input[type='password'] 的基础 padding（与之同特异性、同为简写属性） */
+.pickpen-password-field input.pickpen-password-input {
+	width: 100%;
+	/* 给右侧图标让位，长密码不会被图标压住 */
+	padding-right: calc(
+		var(--size-4-1, 4px) + var(--icon-s, 16px) + 2 * var(--pickpen-toggle-pad) + var(--size-4-1, 4px)
+	);
+}
+
+/* 外观交给 Obsidian 的 .clickable-icon（透明底、无边框阴影、圆角、hover 反馈），这里只定位与配色 */
+.pickpen-password-field button.pickpen-password-toggle {
+	position: absolute;
+	right: var(--size-2-2, 4px);
+	top: 50%;
+	transform: translateY(-50%);
+	/* svg.svg-icon 按 --icon-size 取尺寸；覆盖 .clickable-icon 的 --icon-m 默认值 */
+	--icon-size: var(--icon-s, 16px);
+	padding: var(--pickpen-toggle-pad);
+	color: var(--text-muted);
+}
+
+.pickpen-password-field button.pickpen-password-toggle:hover {
+	color: var(--text-normal);
 }
 
 /* ===== 版本历史弹窗 ===== */

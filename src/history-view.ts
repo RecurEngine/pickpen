@@ -13,6 +13,7 @@ import {
 	ToggleComponent,
 } from "obsidian";
 
+import { openForLocal } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { FileVersionState, type FileVersionInfo } from "./gen/proto/sync/sync.ext_pb";
@@ -303,7 +304,9 @@ class HistoryModal extends Modal {
 		this.renderLoading(this.previewBodyEl, "正在加载版本内容…");
 		let content: Uint8Array;
 		try {
-			content = await this.plugin.remote.getBlob(v.contentHash, 0n, "", v.fileId);
+			// 历史版本内容同样以远端字节存放：加密仓库下载后须解密，
+			// 转换为加密之前产生的旧版本仍是明文（openForLocal 按密文标记自动区分）
+			content = await openForLocal(await this.plugin.remote.getBlob(v.contentHash, 0n, "", v.fileId), true);
 		} catch (err) {
 			if (!this.isCurrentSelection(v, generation)) return;
 			this.previewBodyEl.empty();
@@ -559,7 +562,7 @@ class HistoryModal extends Modal {
 		let content = cachedContent;
 		if (!content) {
 			try {
-				content = await this.plugin.remote.getBlob(v.contentHash, 0n, "", v.fileId);
+				content = await openForLocal(await this.plugin.remote.getBlob(v.contentHash, 0n, "", v.fileId), true);
 			} catch (err) {
 				this.restoring = false;
 				if (isUnauthenticated(err)) {

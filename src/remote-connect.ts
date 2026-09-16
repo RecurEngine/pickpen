@@ -7,7 +7,6 @@ import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import { Platform } from "obsidian";
 
 import { debugLog } from "./debug-log";
-import { DataService } from "./gen/proto/data/data_pb";
 import { SyncService } from "./gen/proto/sync/sync.ext_pb";
 import { SubscriptionService } from "./gen/proto/subscription/subscription_pb";
 import { UserService } from "./gen/proto/user/user.ext_pb";
@@ -36,6 +35,10 @@ export const ErrCode = {
 	VaultNameAlreadyExists: 12005,
 	InvalidHash: 12006,       // hash 非法 / PutBlob 声明 hash 与内容不符
 	ContentSizeMismatch: 12007,
+	E2EEUnsupportedClient: 12008, // 加密仓库拒绝未声明加密能力的客户端（插件版本过旧）
+	E2EEParamsInvalid: 12009,     // 仓库加密参数不符合协议约定
+	VaultNotEncrypted: 12010,     // 仓库未启用端到端加密
+	VaultAlreadyEncrypted: 12011, // 仓库已启用端到端加密
 	FileNotFound: 12012,      // Manifest 引用但远端存储对象不存在（GC 竞态，重传可恢复）
 	SnapshotChanged: 12015,   // SNAPSHOT_CHANGED：expected Head 失效，从新 Head 重试
 	FileDirConflict: 12016,   // file/dir 冲突（含 tombstone 带 children 重建）
@@ -102,12 +105,11 @@ const PUBLIC_AUTH_METHODS = new Set([
 	`${UserService.typeName}.${UserService.method.sendCode.name}`,
 	`${UserService.typeName}.${UserService.method.login.name}`,
 	`${UserService.typeName}.${UserService.method.refreshToken.name}`,
-	`${DataService.typeName}.${DataService.method.reportEvent.name}`,
 ]);
 
-// 公开方法不依赖 access token：SendCode/Login/RefreshToken 是登录前调用，ReportEvent 同理
-// （客户端事件发生在用户登录之前）。尤其 RefreshToken 必须旁路自动刷新，
-// 否则它自己的 11002 会再次触发 RefreshToken，形成递归请求风暴。
+// 公开方法不依赖 access token：SendCode/Login/RefreshToken 都是登录前调用。
+// 尤其 RefreshToken 必须旁路自动刷新，否则它自己的 11002 会再次触发 RefreshToken，
+// 形成递归请求风暴。
 function isPublicAuthMethod(req: { method: { name: string; parent: { typeName: string } } }): boolean {
 	return PUBLIC_AUTH_METHODS.has(`${req.method.parent.typeName}.${req.method.name}`);
 }
@@ -122,6 +124,9 @@ export function getClientOS(): "ios" | "android" | "macos" | "windows" | "linux"
 	return "unknown";
 }
 
+/** 本插件支持的端到端加密能力版本（随请求头 Client-E2EE-Version 声明） */
+export const CLIENT_E2EE_VERSION = 1;
+
 // createAuthInterceptor 单独导出便于验证刷新/重试状态机；不属于插件对外 API。
 export function createAuthInterceptor(getConfig: () => RemoteConfig): Interceptor {
 	const ACCESS_REFRESH_AHEAD_MS = 60_000;
@@ -130,6 +135,9 @@ export function createAuthInterceptor(getConfig: () => RemoteConfig): Intercepto
 		req.header.set("Plugin-Version", cfg.pluginVersion);
 		req.header.set("Client-Platform", "plugin");
 		req.header.set("Client-OS", getClientOS());
+		// 客户端声明的端到端加密能力版本：加密仓库据此拒绝不支持的客户端，
+		// 避免旧版插件把明文写进加密仓库、或把密文当成明文落到本地
+		req.header.set("Client-E2EE-Version", String(CLIENT_E2EE_VERSION));
 
 		if (isPublicAuthMethod(req)) {
 			req.header.delete("Authorization");
@@ -179,7 +187,6 @@ export class RemoteClient {
 	userClient: ReturnType<typeof createClient<typeof UserService>>;
 	syncClient: ReturnType<typeof createClient<typeof SyncService>>;
 	subscriptionClient: ReturnType<typeof createClient<typeof SubscriptionService>>;
-	dataClient: ReturnType<typeof createClient<typeof DataService>>;
 	private getConfig: () => RemoteConfig;
 	private currentBaseUrl = "";
 
@@ -189,7 +196,6 @@ export class RemoteClient {
 		this.userClient = createClient(UserService, transport);
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
-		this.dataClient = createClient(DataService, transport);
 	}
 
 	// rebuild baseUrl 变更时重建 transport 与客户端（插件初始化时调用）
@@ -201,7 +207,6 @@ export class RemoteClient {
 		this.userClient = createClient(UserService, transport);
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
-		this.dataClient = createClient(DataService, transport);
 		this.currentBaseUrl = baseUrl;
 		debugLog.info("[pickpen] 远端地址已更新");
 	}

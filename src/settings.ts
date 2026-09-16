@@ -4,6 +4,7 @@
 import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
 
 import { renderAboutAndFeedback } from "./about";
+import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { ErrCode, errorCode, isUnauthenticated } from "./remote-connect";
@@ -257,6 +258,9 @@ class PickpenSettingsView {
 				}
 				btn.onClick(() => openVaultManager(this.app, this.plugin, () => this.refreshIfActive()));
 			});
+
+		// 端到端加密仓库：解锁状态与「在本设备记住」
+		if (loggedIn && settings.vaultId && vaultKeys.isEncrypted()) this.renderEncryptionSection(accountSectionEl);
 
 		// 移动端交给官网移动收银台；其他平台在插件内显示二维码。
 		if (Platform.isMobile) {
@@ -520,6 +524,32 @@ class PickpenSettingsView {
 	}
 
 	// renderStatusCard 状态卡片：状态点、阶段进度和当前路径（class 由 deriveStatus 决定）
+	// renderEncryptionSection 加密仓库的状态区：只展示解锁状态与「在本设备记住」，
+	// 不提供锁定/解锁按钮——需要解锁时同步会主动弹窗。
+	// 仓库密码绝不写入设置项（data.json 会随 vault 被 iCloud 同步到其他设备）。
+	private renderEncryptionSection(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName("端到端加密")
+			.setDesc(
+				vaultKeys.isLocked()
+					? "未解锁：需要输入仓库密码后才能继续同步"
+					: "已解锁：内容在本机加解密，服务端只保存密文",
+			);
+		new Setting(containerEl)
+			.setName("在本设备记住仓库密码")
+			.setDesc(
+				"默认开启：重启本设备后自动解锁，并可在仓库管理中查看密码；关闭后每次重启都需要重新输入密码。" +
+					"密码与内容密钥只保存在设备本地，不会随 vault 同步到其他设备；" +
+					"共用该设备的他人可读取本地文件并解密仓库内容，请谨慎保留。",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(vaultKeys.remember).onChange((value) => {
+					this.plugin.setRememberVaultPassword(value);
+					if (value && vaultKeys.isLocked()) new Notice("将在下次解锁后记住");
+				}),
+			);
+	}
+
 	private renderStatusCard(containerEl: HTMLElement): void {
 		const card = containerEl.createDiv({ cls: "pickpen-status-card" });
 		this.statusCardEl = card;

@@ -21,6 +21,7 @@ Pickpen Sync is a network-connected service. Before using it, please note:
 
 - An account is required. Email verification is used for sign-in and registration.
 - The plugin connects to Pickpen Sync servers to authenticate, manage subscriptions, and upload/download vault data for synchronization and version history.
+- Vault contents are stored in plaintext at rest by default. You can enable **end-to-end encryption** per vault, so contents are encrypted on your device before upload and the service stores only ciphertext. The vault password never leaves your device and is not linked to your account — a forgotten password means the contents cannot be recovered by anyone, including us.
 - A limited free tier is available. Paid plans provide additional storage and capabilities; current terms are shown on the [Pickpen Sync website](https://www.pickpen.net/pricing) and at checkout.
 - The support section loads a contact QR image from `rrecurengine.com` only when that section is displayed.
 - The plugin does not include client-side analytics, advertising, self-updating code, or background telemetry. Its single outbound report is one anonymous event sent when the setup guide is displayed after you enable the plugin (event name and stage only — no email address, device identifier, vault information, or note content). Diagnostic details are added only to a local email draft after you click **Email feedback**; you can review or remove them before sending.
@@ -93,15 +94,17 @@ Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作
 - 并发修改无法安全合并时保留双方内容，避免静默覆盖。
 - 查看和恢复单个文件的历史版本。
 - 一个账号可管理多个远端仓库。
+- 可按仓库选择开启**端到端内容加密**：内容在本机加密后再上传，服务端只保存密文；仓库密码不上传、不与账号绑定。仓库密码默认在本设备记住（重启后自动解锁，可在解锁弹窗或设置里关闭），也可在仓库管理中查看已保存的密码；检测到仓库在别处启用了加密或修改了密码时，会主动弹出解锁窗。
 - 本地 Obsidian Vault 始终保留可直接使用的工作副本。
 
 ### 重要服务与数据说明
 
 - 使用 Pickpen Sync 必须登录账号，邮箱验证码用于登录和注册。
 - 插件会连接 Pickpen Sync 服务器，完成认证、订阅管理、Vault 数据上传下载和版本历史功能。
+- 未开启加密的仓库，内容在服务端以明文存储；开启端到端加密后，服务端只保存密文。仓库密码不会离开你的设备，也不与账号绑定——忘记密码后内容无法被任何人恢复，包括我们。
 - 服务提供有额度限制的免费方案；付费方案可获得更多存储空间与能力，具体条款以[官网价格页](https://www.pickpen.net/pricing)和结账页为准。
 - 打开“关于与反馈”区域时，插件会从 `rrecurengine.com` 加载客服二维码图片。
-- 插件不包含客户端统计分析、广告、自更新代码或后台遥测。唯一的对外上报是：在你启用插件后引导弹窗展示时，向服务端发送一次匿名事件（仅含事件名与阶段，不含邮箱、设备标识、仓库信息或笔记内容）。只有在你点击“邮件反馈”后，插件才会在本地邮件草稿中加入诊断信息；发送前可自行检查或删除。
+- 插件不包含客户端统计分析、广告、自更新代码或后台遥测，也不会上报任何事件。只有在你点击“邮件反馈”后，插件才会在本地邮件草稿中加入诊断信息；发送前可自行检查或删除。
 
 完整的数据处理说明见[隐私政策](PRIVACY.md)。
 
