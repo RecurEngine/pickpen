@@ -2,7 +2,7 @@
 
 [中文](#中文说明)
 
-Pickpen Sync is a local-first cloud sync plugin for Obsidian. It keeps notes available in your local vault while synchronizing changes across desktop and mobile devices, preserving version history, and retaining conflict copies when concurrent edits cannot be merged safely.
+Pickpen Sync is a local-first cloud sync plugin for Obsidian. It keeps notes available in your local vault while synchronizing changes across desktop and mobile devices, preserving version history, and retaining conflict copies when concurrent edits cannot be merged safely. End-to-end encryption can be enabled per vault, so contents are encrypted on your device before upload and the service stores only ciphertext.
 
 > Pickpen Sync is an independent service and is not affiliated with or endorsed by Obsidian.
 
@@ -24,7 +24,7 @@ Pickpen Sync is a network-connected service. Before using it, please note:
 - Vault contents are stored in plaintext at rest by default. You can enable **end-to-end encryption** per vault, so contents are encrypted on your device before upload and the service stores only ciphertext. The vault password never leaves your device and is not linked to your account — a forgotten password means the contents cannot be recovered by anyone, including us.
 - A limited free tier is available. Paid plans provide additional storage and capabilities; current terms are shown on the [Pickpen Sync website](https://www.pickpen.net/pricing) and at checkout.
 - The support section loads a contact QR image from `rrecurengine.com` only when that section is displayed.
-- The plugin does not include client-side analytics, advertising, self-updating code, or background telemetry. Its single outbound report is one anonymous event sent when the setup guide is displayed after you enable the plugin (event name and stage only — no email address, device identifier, vault information, or note content). Diagnostic details are added only to a local email draft after you click **Email feedback**; you can review or remove them before sending.
+- The plugin does not include client-side analytics, advertising, self-updating code, or background telemetry, and it does not report any events. Diagnostic details are added only to a local email draft after you click **Email feedback**; you can review or remove them before sending.
 
 For the complete data-handling description, see [Privacy Policy](PRIVACY.md).
 
@@ -83,7 +83,7 @@ Pickpen Sync is released under the [MIT License](LICENSE). Third-party software 
 
 ## 中文说明
 
-Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作副本始终保留在本地 Vault 中，插件负责在桌面端与移动端之间同步改动、保留文件版本历史，并在无法安全合并并发修改时保留冲突副本。
+Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作副本始终保留在本地 Vault 中，插件负责在桌面端与移动端之间同步改动、保留文件版本历史，并在无法安全合并并发修改时保留冲突副本。可按仓库启用端到端加密：内容在本机加密后再上传，服务端只保存密文。
 
 > Pickpen Sync 是独立服务，与 Obsidian 官方无隶属或背书关系。
 

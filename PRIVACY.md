@@ -15,7 +15,7 @@ To provide the service, Pickpen Sync processes:
 - Account and session data: email address, user identifier, access/refresh tokens, device identifier, and plugin version.
 - Sync data: remote vault identifiers and names; file paths, file contents, content hashes, timestamps, file identifiers, snapshot metadata, and retained version history.
 - Subscription data: plan, usage, storage limits, order identifiers, payment status, and related transaction metadata. Payment credentials are handled by the payment provider and are not entered into the plugin.
-- Operational server logs: source IP address, request method/path, plugin version, duration, result/error code, internal account/vault/order identifiers, and subscription/payment event metadata such as plan, amount, and status. Request/response bodies, authorization metadata, email addresses, synchronized file paths or contents, SQL statements/parameters, payment URLs, and raw error messages are not intentionally logged. The one exception is the setup-guide event described below, where the event name and stage are recorded. Rotated application logs are retained for up to 30 days.
+- Operational server logs: source IP address, request method/path, plugin version, duration, result/error code, internal account/vault/order identifiers, and subscription/payment event metadata such as plan, amount, and status. Request/response bodies, authorization metadata, email addresses, synchronized file paths or contents, SQL statements/parameters, payment URLs, and raw error messages are not intentionally logged. The one exception is the event name and stage that older plugin versions may have reported; the current version reports no events. Rotated application logs are retained for up to 30 days.
 
 ### Storage and transmission
 
@@ -43,7 +43,7 @@ Pickpen Sync uses infrastructure and service providers including Tencent Cloud O
 
 ### Analytics and diagnostics
 
-The plugin contains no client-side analytics, advertising, or automatic telemetry. The single outbound report is one anonymous event sent when the setup guide is displayed after you enable the plugin; it carries only the event name and the guide stage, with no email address, device identifier, vault information, or note content. When diagnostic logging is enabled, the plugin records only its own deliberately emitted, minimized logs in memory. It does not intercept global console output. Clicking **Email feedback** creates a local email draft containing account/device context and, if enabled, recent diagnostic logs. Nothing is sent until you review and send that email.
+The plugin contains no client-side analytics, advertising, or automatic telemetry, and it does not report any events. When diagnostic logging is enabled, the plugin records only its own deliberately emitted, minimized logs in memory. It does not intercept global console output. Clicking **Email feedback** creates a local email draft containing account/device context and, if enabled, recent diagnostic logs. Nothing is sent until you review and send that email.
 
 ### Retention, deletion, and contact
 
