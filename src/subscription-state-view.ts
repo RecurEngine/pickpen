@@ -67,6 +67,12 @@ export function subscriptionQuotaRows(
 	];
 }
 
+/** 当前订阅的来源标注：试用与邀请奖励需要让用户看出「这不是自己买的」。 */
+const SOURCE_SUFFIX: Record<string, string> = {
+	trial: "（试用）",
+	invite: "（邀请奖励）",
+};
+
 /** 在桌面和移动设置页统一展示当前档位、有效期与待生效订阅。 */
 export function renderSubscriptionState(
 	parent: HTMLElement,
@@ -78,8 +84,8 @@ export function renderSubscriptionState(
 ): void {
 	const card = parent.createDiv({ cls: "pickpen-subscription-card" });
 	if (current) {
-		const trial = current.source === "trial" ? "（试用）" : "";
-		card.createDiv({ cls: "pickpen-subscription-current", text: `当前：${planName(current.planId, plans)}${trial}` });
+		const suffix = SOURCE_SUFFIX[current.source] ?? "";
+		card.createDiv({ cls: "pickpen-subscription-current", text: `当前：${planName(current.planId, plans)}${suffix}` });
 		card.createDiv({ cls: "pickpen-subscription-meta", text: `有效期至 ${formatDate(current.endsAtMs)}` });
 	} else {
 		card.createDiv({ cls: "pickpen-subscription-current", text: "当前：Free" });

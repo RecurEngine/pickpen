@@ -165,7 +165,8 @@
 
 /* 一级标题下的内容统一放进一个背景框，并继续使用 Obsidian 主题变量。 */
 .pickpen-settings-section,
-.pickpen-subscription {
+.pickpen-subscription,
+.pickpen-invite {
 	/* 左右边界由 Obsidian 的设置内容区统一提供。 */
 	margin: 0 0 var(--size-4-6);
 	padding: 0 var(--size-4-4);
@@ -178,7 +179,8 @@
  * 外层分组是一张卡片。按钮、输入框、下拉框等控件仍保留 Obsidian 原生样式。
  */
 .pickpen-settings-section > .setting-item,
-.pickpen-subscription > .setting-item {
+.pickpen-subscription > .setting-item,
+.pickpen-invite > .setting-item {
 	padding: var(--setting-items-padding-y, var(--size-4-4)) 0;
 	margin-bottom: 0;
 	background: transparent;
@@ -192,13 +194,15 @@
  * 账号区的第一条 Setting 位于自定义状态行之后，因此也需要显示顶部分隔线。
  */
 .pickpen-settings-section > .setting-item:not(:first-child),
-.pickpen-subscription > :not(:first-child) {
+.pickpen-subscription > :not(:first-child),
+.pickpen-invite > .setting-item:not(:first-child) {
 	border-top: 1px solid var(--background-modifier-border);
 }
 
 /* 每组第一项不显示顶部边线。 */
 .pickpen-settings-section > .setting-item:first-child,
-.pickpen-subscription > .setting-item:first-child {
+.pickpen-subscription > .setting-item:first-child,
+.pickpen-invite > .setting-item:first-child {
 	border-top: 0;
 }
 
@@ -1268,4 +1272,131 @@ body.is-mobile .pickpen-password-field {
 
 .pickpen-dbg-line.is-info {
 	color: var(--text-normal);
+}
+
+/* ===== 邀请：设置页区块 + 邀请用户列表弹窗 ===== */
+
+.pickpen-invite-loading {
+	padding: var(--size-4-3) 0;
+	color: var(--text-muted);
+}
+
+.pickpen-invite-code {
+	font-family: var(--font-monospace);
+	letter-spacing: 0.16em;
+	width: 8em;
+}
+
+/* 邀请人数、邀请充值与「查看邀请用户」入口同处一行。 */
+.pickpen-invite-stats {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--size-4-6);
+	padding-bottom: var(--size-4-4);
+}
+
+.pickpen-invite-stat {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.pickpen-invite-stat-action {
+	margin-left: auto;
+}
+
+.pickpen-invite-stat-label {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.pickpen-invite-stat-value {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+}
+
+.pickpen-invite-modal {
+	width: min(560px, 90vw);
+}
+
+.pickpen-invite-summary {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.pickpen-invite-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-2);
+	max-height: 50vh;
+	overflow-y: auto;
+}
+
+.pickpen-invite-item {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+/* 邮箱与注册时间同行：邮箱过长时省略，时间保持完整。 */
+.pickpen-invite-item-meta {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-2);
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.pickpen-invite-item-email {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+
+.pickpen-invite-item-time {
+	flex: none;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.pickpen-invite-badge {
+	flex: none;
+	padding: 1px 8px;
+	border-radius: 999px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background: var(--background-modifier-border);
+}
+
+.pickpen-invite-badge.is-paid {
+	color: var(--text-on-accent);
+	background: var(--interactive-accent);
+}
+
+.pickpen-invite-load-more,
+.pickpen-invite-actions {
+	margin-top: var(--size-4-2);
+	text-align: center;
+}
+
+.pickpen-invite-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+}
+
+.pickpen-invite-load-error {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-4-2);
 }

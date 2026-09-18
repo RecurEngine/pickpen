@@ -7,6 +7,7 @@ import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import { Platform } from "obsidian";
 
 import { debugLog } from "./debug-log";
+import { InviteService } from "./gen/proto/invite/invite_pb";
 import { SyncService } from "./gen/proto/sync/sync.ext_pb";
 import { SubscriptionService } from "./gen/proto/subscription/subscription_pb";
 import { UserService } from "./gen/proto/user/user.ext_pb";
@@ -56,6 +57,8 @@ export const ErrCode = {
 	OrderExpired: 13004,
 	PaymentCreateFailed: 13005,
 	PaymentVerifyFailed: 13006,
+	InviteCodeInvalid: 15001,  // 邀请码无效（仅首次注册时校验）
+	InviteRequestInvalid: 15002, // 邀请查询参数非法（分页游标等）
 } as const;
 
 // errorCode 业务错误码（err.code 即业务码）
@@ -187,6 +190,7 @@ export class RemoteClient {
 	userClient: ReturnType<typeof createClient<typeof UserService>>;
 	syncClient: ReturnType<typeof createClient<typeof SyncService>>;
 	subscriptionClient: ReturnType<typeof createClient<typeof SubscriptionService>>;
+	inviteClient: ReturnType<typeof createClient<typeof InviteService>>;
 	private getConfig: () => RemoteConfig;
 	private currentBaseUrl = "";
 
@@ -196,6 +200,7 @@ export class RemoteClient {
 		this.userClient = createClient(UserService, transport);
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
+		this.inviteClient = createClient(InviteService, transport);
 	}
 
 	// rebuild baseUrl 变更时重建 transport 与客户端（插件初始化时调用）
@@ -207,6 +212,7 @@ export class RemoteClient {
 		this.userClient = createClient(UserService, transport);
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
+		this.inviteClient = createClient(InviteService, transport);
 		this.currentBaseUrl = baseUrl;
 		debugLog.info("[pickpen] 远端地址已更新");
 	}

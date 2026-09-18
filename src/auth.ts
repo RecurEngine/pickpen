@@ -50,12 +50,14 @@ export class AuthManager {
 	}
 
 	// login 邮箱验证码登录（登录即注册，服务端语义）；成功写双 token 落盘，失败抛错不写
-	async login(email: string, code: string): Promise<void> {
+	// inviteCode 仅在该邮箱首次注册时被服务端采纳，已注册用户填写会被忽略
+	async login(email: string, code: string, inviteCode = ""): Promise<void> {
 		const resp = await this.client.userClient.login({
 			loginType: LoginType.EMAIL,
 			email: email.trim().toLowerCase(),
 			code: code.trim(),
 			deviceId: this.settings.deviceId,
+			inviteCode: inviteCode.trim(),
 		});
 		this.settings.email = resp.email;
 		this.settings.userId = String(resp.userId);

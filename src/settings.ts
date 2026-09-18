@@ -7,6 +7,7 @@ import { renderAboutAndFeedback } from "./about";
 import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
 import type PickpenPlugin from "./index";
+import { renderInviteSection } from "./invite-view";
 import { ErrCode, errorCode, isUnauthenticated } from "./remote-connect";
 import { formatProgress, progressPercent } from "./sync/progress";
 import { StatusRefresh } from "./status-refresh";
@@ -127,6 +128,7 @@ class PickpenSettingsView {
 	// 调试日志面板的订阅清理（display 重建/视图 hide 时解除）
 	private debugCleanup: (() => void) | null = null;
 	private subscriptionCleanup: (() => void) | null = null;
+	private inviteCleanup: (() => void) | null = null;
 
 	constructor(app: App, plugin: PickpenPlugin, containerEl: HTMLElement) {
 		this.app = app;
@@ -139,6 +141,8 @@ class PickpenSettingsView {
 		this.statusRefresh.cancel();
 		this.subscriptionCleanup?.();
 		this.subscriptionCleanup = null;
+		this.inviteCleanup?.();
+		this.inviteCleanup = null;
 		const { containerEl } = this;
 		containerEl.empty();
 		this.debounceInputEl = null;
@@ -215,6 +219,21 @@ class PickpenSettingsView {
 					}
 				});
 			});
+			// 邀请码（选填，不持久化）：仅在该邮箱首次注册时被服务端采纳，已注册用户填写会被忽略
+			let inviteCode = "";
+			new Setting(accountSectionEl)
+				.setName("邀请码（选填）")
+				.setDesc("好友邀请你注册时填写；已有账号可留空")
+				.addText((text) => {
+					text.setPlaceholder("6 位数字").onChange((value) => {
+						inviteCode = value.replace(/\D/g, "").slice(0, 6);
+						// 过滤后可能与输入不同（例如粘贴带空格），回写保证界面与提交值一致
+						if (text.getValue() !== value) text.setValue(inviteCode);
+					});
+					text.inputEl.inputMode = "numeric";
+					text.inputEl.maxLength = 6;
+					text.inputEl.autocomplete = "off";
+				});
 			// 登录（登录即注册；loading 防重复提交，错误按网络/认证分类）
 			const loginSetting = new Setting(accountSectionEl).setName("登录").setDesc("账号不存在将自动注册（登录即注册）");
 			let busy = false;
@@ -228,7 +247,7 @@ class PickpenSettingsView {
 						loginSetting.setErrorMessage(null);
 						btn.setDisabled(true).setButtonText("登录中…");
 						try {
-							await this.plugin.auth.login(settings.email, code);
+							await this.plugin.auth.login(settings.email, code, inviteCode);
 							await this.plugin.afterLogin(() => this.refreshIfActive()); // 同账号重登沿用绑定；否则打开仓库管理
 							this.display();
 						} catch (err) {
@@ -261,6 +280,10 @@ class PickpenSettingsView {
 
 		// 端到端加密仓库：解锁状态与「在本设备记住」
 		if (loggedIn && settings.vaultId && vaultKeys.isEncrypted()) this.renderEncryptionSection(accountSectionEl);
+
+		// —— 邀请（与「账号和仓库」同级；未登录时只显示登录引导）
+		new Setting(containerEl).setHeading().setName("邀请");
+		this.inviteCleanup = renderInviteSection(containerEl, this.plugin);
 
 		// 移动端交给官网移动收银台；其他平台在插件内显示二维码。
 		if (Platform.isMobile) {
@@ -351,6 +374,8 @@ class PickpenSettingsView {
 		this.debugCleanup = null;
 		this.subscriptionCleanup?.();
 		this.subscriptionCleanup = null;
+		this.inviteCleanup?.();
+		this.inviteCleanup = null;
 		this.statusCardEl = null;
 		this.statusDotEl = null;
 		this.statusTextEl = null;
@@ -606,6 +631,9 @@ function loginErrorMessage(err: unknown): string {
 			return "登录失败：邮箱或验证码格式错误";
 		case ErrCode.InvalidOrExpiredCode:
 			return "登录失败：验证码错误或已过期";
+		case ErrCode.InviteCodeInvalid:
+			// 邀请码只在首次注册时校验；校验失败不会消费邮箱验证码，改对后可直接重试
+			return "登录失败：邀请码无效，请检查或清空后重试";
 		default:
 			return "登录失败：网络不可达或服务端异常";
 	}
