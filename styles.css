@@ -231,10 +231,10 @@
 }
 
 /*
- * 只有标题、没有说明的单行行（订阅档位 / 计费周期 / 支付方式）：控件本身已有高度，
- * 再叠原生 20px 上下内边距就显得空，这里收紧到 12px。
+ * 只有标题、没有说明的单行行（订阅档位 / 计费周期 / 支付方式，由订阅视图打上 pickpen-row-compact）：
+ * 控件本身已有高度，再叠原生 20px 上下内边距就显得空，这里收紧到 12px。
  */
-.mod-settings .setting-group .pickpen-subscription-plans > .setting-item:not(:has(.setting-item-description:not(:empty))) {
+.mod-settings .setting-group .setting-item.pickpen-row-compact {
 	padding-block: var(--size-4-3, 12px);
 }
 

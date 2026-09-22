@@ -204,14 +204,15 @@ export function renderSubscriptionSection(blocks: SubscriptionSlots, plugin: Pic
 			updatePrice();
 		};
 
-		new Setting(parent).setName("订阅档位").addDropdown((dropdown) => {
+		// 下面三行只有标题、没有说明：打上 pickpen-row-compact 收紧纵向内边距（见 styles.css）
+		new Setting(parent).setClass("pickpen-row-compact").setName("订阅档位").addDropdown((dropdown) => {
 			for (const plan of plans) dropdown.addOption(plan.id, plan.name);
 			dropdown.setValue(selectedPlan.id).onChange((id) => {
 				selectedPlan = plans.find((plan) => plan.id === id) ?? plans[0];
 				refreshQuantity();
 			});
 		});
-		new Setting(parent).setName("计费周期").addDropdown((dropdown) => {
+		new Setting(parent).setClass("pickpen-row-compact").setName("计费周期").addDropdown((dropdown) => {
 			dropdown.addOption("monthly", "月付");
 			dropdown.addOption("annual", "年付");
 			dropdown.setValue(billingCycle).onChange((value) => {
@@ -219,7 +220,7 @@ export function renderSubscriptionSection(blocks: SubscriptionSlots, plugin: Pic
 				refreshQuantity();
 			});
 		});
-		new Setting(parent).setName("支付方式").addDropdown((dropdown) => {
+		new Setting(parent).setClass("pickpen-row-compact").setName("支付方式").addDropdown((dropdown) => {
 			dropdown.addOption("wechat", "微信支付");
 			dropdown.addOption("alipay", "支付宝");
 			dropdown.setValue(paymentMethod).onChange((value) => {
