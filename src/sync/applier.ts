@@ -4,7 +4,7 @@
 //   重新标记 dirty 由下一轮 planner 处理（spec §9.1 步骤 12）
 // - 批量应用分批（25 文件或 50ms）checkpoint pending 并让出事件循环（§10.1）
 
-import { App, normalizePath, TAbstractFile } from "obsidian";
+import { App, normalizePath } from "obsidian";
 
 import { openForLocal, remoteHash } from "../crypto/vault-key-store";
 import { ProgressTracker, type ProgressCallback } from "./progress";
@@ -12,7 +12,7 @@ import { sha256Hex } from "./content-hash";
 import type { SnapshotRemote } from "./remote";
 import type { ApplyAction, ConflictCopy, DownloadItem } from "./types";
 import { createYieldControl, mapConcurrent, type YieldControl } from "./utils";
-import { copyLocalFile, ensureParentDirs, writeLocalFile } from "./vault-io";
+import { ensureParentDirs, writeLocalFile } from "./vault-io";
 
 export interface ApplyContext {
 	/** Session 开始时记录的目标路径 hash（write 目标内容 / trash 时当前文件 hash） */
@@ -166,7 +166,8 @@ export class Applier {
 							continue; // 读失败视为不存在，幂等跳过
 						}
 					}
-					await this.app.vault.trash(file, false);
+					// 走宿主的删除流程（尊重用户的「系统回收站 / 本地 .trash」偏好）
+					await this.app.fileManager.trashFile(file);
 					continue;
 				}
 

@@ -23,6 +23,15 @@ interface RemoteSnapshotConfig {
 	vaultId: string;
 }
 
+// ManifestJson：GetManifest 解压后的 JSON 结构（字段可缺失，逐项校验后才使用）
+interface ManifestJson {
+	schema_version?: number;
+	vault_id?: string;
+	revision?: string;
+	root_hash?: string;
+	entries?: Record<string, Entry>;
+}
+
 export interface RemoteHead {
 	/** 该响应所属仓库（服务端回显请求的 vault_id）：换绑期间据此丢弃在途的旧仓库响应 */
 	vaultId: string;
@@ -117,22 +126,18 @@ export class SnapshotRemote {
 			expectedRootHash,
 		});
 		const raw = await gunzip(resp.manifestJson);
-		let parsed: {
-			schema_version?: number;
-			vault_id?: string;
-			revision?: string;
-			root_hash?: string;
-			entries?: Record<string, Entry>;
-		};
+		let parsed: ManifestJson;
 		try {
-			parsed = JSON.parse(new TextDecoder().decode(raw));
+			// JSON.parse 的结果是 any：先落 unknown 再断言成协议结构，避免 any 扩散
+			const decoded: unknown = JSON.parse(new TextDecoder().decode(raw));
+			parsed = decoded as ManifestJson;
 		} catch {
 			throw new Error("manifest JSON 解析失败");
 		}
 		if (parsed.schema_version !== 2 || !parsed.entries) {
 			throw new Error("manifest 结构非法");
 		}
-		const { rootHash: computed } = buildTree(parsed.entries!);
+		const { rootHash: computed } = buildTree(parsed.entries);
 		const root = await computed;
 		if (root !== resp.rootHash) {
 			// 服务端返回的 Manifest 与声明的 root 不符：拒绝本轮同步（spec §7.6）
@@ -142,7 +147,7 @@ export class SnapshotRemote {
 			revision: resp.revision,
 			rootHash: resp.rootHash,
 			vaultId: parsed.vault_id ?? "",
-			entries: parsed.entries!,
+			entries: parsed.entries,
 		};
 	}
 

@@ -218,7 +218,6 @@ export class RemoteClient {
 	}
 
 	private buildTransport(baseUrl: string): Transport {
-		const self = this;
 		const loggingInterceptor: Interceptor = (next) => async (req) => {
 			const start = performance.now();
 			const method = `${req.method.parent.typeName}/${req.method.name}`;
@@ -236,7 +235,7 @@ export class RemoteClient {
 		};
 		return createGrpcWebTransport({
 			baseUrl,
-			interceptors: [loggingInterceptor, createAuthInterceptor(self.getConfig)],
+			interceptors: [loggingInterceptor, createAuthInterceptor(() => this.getConfig())],
 		});
 	}
 }

@@ -104,7 +104,7 @@ export async function wrapDekWithPassword(dek: Uint8Array, password: string): Pr
 	const nonce = crypto.getRandomValues(new Uint8Array(WRAP_NONCE_BYTES));
 	const kek = await deriveKek(password, salt, KDF_ITERATIONS);
 	const wrapped = await crypto.subtle.encrypt(
-		{ name: "AES-GCM", iv: nonce as Uint8Array<ArrayBuffer>, additionalData: WRAP_AAD as Uint8Array<ArrayBuffer> },
+		{ name: "AES-GCM", iv: nonce, additionalData: WRAP_AAD },
 		kek,
 		dek as Uint8Array<ArrayBuffer>,
 	);
@@ -139,7 +139,7 @@ export async function unwrapDek(password: string, params: VaultKeyParams): Promi
 			{
 				name: "AES-GCM",
 				iv: hexToBytes(params.wrapNonce) as Uint8Array<ArrayBuffer>,
-				additionalData: WRAP_AAD as Uint8Array<ArrayBuffer>,
+				additionalData: WRAP_AAD,
 			},
 			kek,
 			hexToBytes(params.wrappedKey) as Uint8Array<ArrayBuffer>,
@@ -169,7 +169,7 @@ export async function keyEpoch(dek: Uint8Array): Promise<string> {
 		{
 			name: "HKDF",
 			hash: "SHA-256",
-			salt: new Uint8Array(0) as Uint8Array<ArrayBuffer>,
+			salt: new Uint8Array(0),
 			info: new TextEncoder().encode("pickpen-key-epoch-v1"),
 		},
 		hkdfKey,
@@ -205,7 +205,7 @@ async function deriveBlobKey(dek: Uint8Array, seed: Uint8Array): Promise<CryptoK
 			name: "HKDF",
 			hash: "SHA-256",
 			salt: seed as Uint8Array<ArrayBuffer>,
-			info: BLOB_KEY_INFO as Uint8Array<ArrayBuffer>,
+			info: BLOB_KEY_INFO,
 		},
 		hkdfKey,
 		256,
@@ -228,7 +228,7 @@ export async function sealBlob(dek: Uint8Array, plaintext: Uint8Array): Promise<
 		{
 			name: "AES-GCM",
 			iv: seed.subarray(0, 12) as Uint8Array<ArrayBuffer>,
-			additionalData: header as Uint8Array<ArrayBuffer>,
+			additionalData: header,
 		},
 		key,
 		plaintext as Uint8Array<ArrayBuffer>,

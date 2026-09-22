@@ -42,9 +42,9 @@ export function createYieldControl(yieldFn: () => Promise<void> = yieldToEventLo
 
 export type YieldControl = ReturnType<typeof createYieldControl>;
 
-/** 让出一帧（setTimeout 0） */
+/** 让出一帧（window.setTimeout 0） */
 export function yieldToEventLoop(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 0));
+	return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 /** 随机退避毫秒（spec §10：指数退避 + ±10% 抖动，最大 5 分钟） */

@@ -1,7 +1,8 @@
 // 排除清单 + 路径规范化 + 动态套餐单文件上限过滤
 
-// 默认排除清单（FR-4，不可同步）；设置面板可追加 extraExcludes
-const DEFAULT_EXCLUDES = [".obsidian/", ".trash/", "*.tmp", "~$*", ".DS_Store", "Thumbs.db"];
+// 默认排除清单（FR-4，不可同步）；设置面板可追加 extraExcludes。
+// 配置目录不在此列：任何以 . 开头的路径段都由 isHidden 拦下（含用户自定义的配置目录名）。
+const DEFAULT_EXCLUDES = [".trash/", "*.tmp", "~$*", ".DS_Store", "Thumbs.db"];
 
 // normalize 路径统一为 / 分隔、无前导 /
 // 注意：不做小写化——大小写属于路径语义（spec §2.1），身份一律 NFC 原始大小写路径

@@ -3,8 +3,9 @@
 // 配置从 plugin/config/<env>.ts 加载，经 define 注入为 process.env.PICKPEN_* 编译期常量。
 import esbuild from "esbuild";
 import process from "process";
-import builtins from "builtin-modules";
 import { existsSync } from "node:fs";
+// node 内置模块清单（external 用）：直接用 node:module，不引入第三方清单包
+import { builtinModules } from "node:module";
 import { fileURLToPath } from "node:url";
 
 // ---- 环境判定与配置加载（node 侧，配置文件不进产物）----
@@ -58,7 +59,7 @@ const context = await esbuild.context({
 		"@lezer/common",
 		"@lezer/highlight",
 		"@lezer/lr",
-		...builtins,
+		...builtinModules,
 		"node:*",
 	],
 	// 编译期注入（define 文本替换）：代码中的 process.env.PICKPEN_* 变为字符串字面量，

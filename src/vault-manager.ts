@@ -200,7 +200,8 @@ class VaultManagerModal extends Modal {
 		this.renderCreateAction(bound);
 
 		if (vaultsResult.status === "rejected") {
-			const err = vaultsResult.reason;
+			// PromiseSettledResult.reason 是 any：显式落 unknown，避免 any 扩散到后续成员访问
+			const err: unknown = vaultsResult.reason;
 			if (isUnauthenticated(err)) {
 				loading.remove();
 				this.listEl.createDiv({ cls: "pickpen-vault-message is-error", text: "登录已失效，请重新登录" });
@@ -428,7 +429,7 @@ class VaultManagerModal extends Modal {
 		new ButtonComponent(actions).setButtonText("重命名").onClick(() => this.startRename(v, card));
 		const deleteButton = new ButtonComponent(actions)
 			.setButtonText("删除")
-			.setWarning();
+			.setDestructive();
 		if (isBound) {
 			deleteButton.setDisabled(true).setTooltip("当前绑定仓库不可删除");
 		} else {
@@ -555,7 +556,7 @@ class VaultManagerModal extends Modal {
 		edit.createDiv({ cls: "pickpen-vault-confirm-text", text: "确认删除？远端数据不可恢复！" });
 		new ButtonComponent(edit)
 			.setButtonText("确认删除")
-			.setWarning()
+			.setDestructive()
 			.setCta()
 			.onClick(() => void this.doDelete(v));
 		new ButtonComponent(edit).setButtonText("取消").onClick(() => void this.refresh());

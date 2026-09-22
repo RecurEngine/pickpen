@@ -356,7 +356,7 @@ class HistoryModal extends Modal {
 		});
 		new ButtonComponent(this.restoreRowEl)
 			.setButtonText("确认恢复")
-			.setWarning()
+			.setDestructive()
 			.setCta()
 			.onClick(() => void this.restore(v, this.selectedContent ?? undefined));
 		new ButtonComponent(this.restoreRowEl)
@@ -381,8 +381,7 @@ class HistoryModal extends Modal {
 			return;
 		}
 		if (!this.showDiff) {
-			const target = document.createElement("div");
-			target.addClass("markdown-preview-sizer", "markdown-preview-section");
+			const target = createDiv({ cls: ["markdown-preview-sizer", "markdown-preview-section"] });
 			const component = new Component();
 			component.load();
 			try {

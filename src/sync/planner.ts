@@ -161,7 +161,11 @@ export function plan(input: PlanInput): SyncPlan {
 		if (lChanged && !rChanged) {
 			// 仅 Local 变：接受 Local
 			if (l.state === "active") putLocal(p, l);
-			else deletes.push(p), (targetEntries[p] = { state: "deleted", kind: l.kind }); // Local 删除、Remote 未变 → 删除远端
+			else {
+				// Local 删除、Remote 未变 → 删除远端
+				deletes.push(p);
+				targetEntries[p] = { state: "deleted", kind: l.kind };
+			}
 			continue;
 		}
 		if (!lChanged && rChanged) {

@@ -1,14 +1,15 @@
 // 设置面板（Snapshot 同步 v2）：账号登录、仓库绑定、同步参数与诊断。
 // 防抖窗口客户端默认 10s，服务端可通过 GetVaultHead 动态下发；面板只读展示当前生效值。
 
-import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
 
 import { renderAboutAndFeedback } from "./about";
+import { copyText } from "./clipboard";
 import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { renderInviteSection } from "./invite-view";
-import { ErrCode, errorCode, isUnauthenticated } from "./remote-connect";
+import { ErrCode, errorCode } from "./remote-connect";
 import { formatProgress, progressPercent } from "./sync/progress";
 import { StatusRefresh } from "./status-refresh";
 import { syncState, type SyncState } from "./sync-state";
@@ -41,17 +42,83 @@ export class PickpenSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: PickpenPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
-		this.view = new PickpenSettingsView(app, plugin, this.containerEl);
+		this.view = new PickpenSettingsView(app, plugin);
 	}
 
-	display(): void {
-		this.view.display();
-		this.applyFocus();
+	/**
+	 * 声明式设置：一个分区一个原生分组。分区标题由宿主渲染在分组卡片外（与系统设置页一致），
+	 * 分区 UI 仍由原有渲染代码构建（render 回调），name/desc/aliases 供 Obsidian 1.13+ 的
+	 * 设置搜索检索——分区内的具体设置项收敛成所属分区的关键词。
+	 * 返回非空数组时 display() 不再被调用。
+	 */
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			this.sectionGroup("account", "账号和仓库", "登录、仓库绑定与端到端加密解锁状态", [
+				"登录", "退出登录", "邮箱", "验证码", "注册", "邀请码", "绑定仓库", "仓库管理", "加密", "密码", "解锁",
+			]),
+			this.sectionGroup("invite", "邀请", "邀请码、邀请人数与邀请奖励进度", [
+				"邀请码", "邀请人数", "邀请充值", "邀请用户",
+			]),
+			this.sectionGroup("subscription-status", "当前订阅", "当前套餐、容量与到期时间", [
+				"订阅", "当前订阅", "当前档位", "套餐", "容量", "存储空间", "到期", "版本历史",
+			]),
+			this.sectionGroup("subscription-plans", "订阅方案", "可选套餐、价格与购买入口", [
+				"订阅", "订阅方案", "套餐", "升级", "购买", "支付", "二维码", "价格", "折扣",
+			]),
+			this.sectionGroup("sync", "同步", "同步状态、排除项、冲突策略与变更防抖", [
+				"同步", "同步状态", "排除项", "排除清单", "冲突副本", "防抖", "同步间隔",
+			]),
+			this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与调试日志", [
+				"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "调试日志", "日志",
+			]),
+			this.sectionGroup("about", "关于与反馈", "产品简介、反馈入口与相关链接", [
+				"关于", "反馈", "版本", "隐私", "帮助",
+			]),
+		];
 	}
 
 	override hide(): void {
 		this.view.dispose();
 		super.hide();
+	}
+
+	/** 一个分区 = 一个原生分组：分组标题由宿主渲染，分组内一项承载该分区的自定义 UI */
+	private sectionGroup(
+		section: SettingsSection,
+		heading: string,
+		desc: string,
+		aliases: string[],
+	): SettingDefinitionGroup {
+		return {
+			type: "group",
+			heading,
+			items: [
+				{
+					// name/desc/aliases 只作设置搜索索引：render 会清空宿主渲染的信息区，标题由分组 heading 承担
+					name: heading,
+					desc,
+					aliases,
+					render: (setting) => {
+						// 行元素会被宿主复用：样式类每次渲染都要重新声明
+						setting.setClass("pickpen-declared-section");
+						this.view.render(section, setting.settingEl);
+						// 聚焦请求只可能落在账号区或订阅区：对应分区渲染完成后再高亮，
+						// 其余分区渲染时不动，避免反复触发滚动
+						if (this.focusOwner() === section) this.applyFocus();
+						return () => this.view.disposeSection(section);
+					},
+				},
+			],
+		};
+	}
+
+	/** focusOwner 当前聚焦请求所属分区；无请求或目标不落在这两个分区时为 null */
+	private focusOwner(): SettingsSection | null {
+		const target = this.focusRequest?.target;
+		if (target === "account") return "account";
+		// 订阅的聚焦目标是「订阅方案」块（.pickpen-subscription-plans）
+		if (target === "subscription") return "subscription-plans";
+		return null;
 	}
 
 	/** 从 Ribbon、引导弹窗等入口打开 Obsidian 系统设置，选中 Pickpen Sync 并聚焦指定区域；返回是否成功打开。 */
@@ -66,8 +133,8 @@ export class PickpenSettingTab extends PluginSettingTab {
 		return true;
 	}
 
-	// applyFocus 高亮目标区。display 与 openInSystemSettings 都会调用：前者覆盖「宿主重绘设置页
-	// 导致刚加上的高亮被换掉」（新建设置窗口时会发生），后者覆盖「设置页已打开、无需重绘」。
+	// applyFocus 高亮目标区。两个调用点：①分区渲染回调（覆盖「宿主重绘设置页导致刚加上的高亮
+	// 被换掉」，新建设置窗口时会发生）；②openInSystemSettings（覆盖「设置页已打开、无需重绘」）。
 	// 请求按有效期自然过期，不会在之后切换页签时反复高亮。
 	private applyFocus(): void {
 		const request = this.focusRequest;
@@ -77,7 +144,7 @@ export class PickpenSettingTab extends PluginSettingTab {
 			return;
 		}
 		const target = this.containerEl.querySelector<HTMLElement>(focusSelector(request.target));
-		if (!target) return; // 目标区尚未渲染：保留请求，等下次 display 重试
+		if (!target) return; // 目标区尚未渲染：保留请求，等对应分区渲染时重试
 		target.addClass("is-focused");
 		target.scrollIntoView({ behavior: "smooth", block: "start" });
 	}
@@ -100,13 +167,37 @@ export function openPluginSettings(app: App, pluginId: string): boolean {
 	return true;
 }
 
-/** 系统设置页的设置内容与状态订阅生命周期。 */
+/** 声明式设置的分区 id：与 PickpenSettingTab.getSettingDefinitions() 返回的项一一对应。 */
+export type SettingsSection =
+	| "account"
+	| "invite"
+	| "subscription-status"
+	| "subscription-plans"
+	| "sync"
+	| "diagnostics"
+	| "about";
+
+/**
+ * 订阅分区的两个分组共用同一份数据（一次请求出两块），因此按「分块」统一管理：
+ * status = 当前订阅，plans = 订阅方案。
+ */
+type SubscriptionPart = "status" | "plans";
+
+/** 分区 id → 订阅分块名；非订阅分区返回 null */
+function subscriptionPart(section: SettingsSection): SubscriptionPart | null {
+	if (section === "subscription-status") return "status";
+	if (section === "subscription-plans") return "plans";
+	return null;
+}
+
+/** 系统设置页的设置内容与状态订阅生命周期。每个分区由声明式渲染分配一个容器。 */
 class PickpenSettingsView {
 	private readonly app: App;
 	private readonly plugin: PickpenPlugin;
-	private readonly containerEl: HTMLElement;
+	// 分区容器：refreshIfActive 按分区就地重绘，宿主拆除行时用返回的清理函数解除订阅
+	private readonly sectionEls = new Map<SettingsSection, HTMLElement>();
 
-	// 状态卡片实时刷新：display 首次订阅、hide 取消订阅；onChange 只就地更新卡片 DOM
+	// 状态卡片实时刷新：首个分区渲染时订阅、hide 取消订阅；onChange 只就地更新卡片 DOM
 	// （绝不重绘整页，避免同步高频变更打断用户输入焦点）
 	private started = false;
 	private statusCardEl: HTMLElement | null = null;
@@ -125,33 +216,136 @@ class PickpenSettingsView {
 		this.refreshDebounceDisplay();
 	};
 	private active = false;
-	// 调试日志面板的订阅清理（display 重建/视图 hide 时解除）
+	// 各分区订阅清理（分区重建/被拆除时解除）
 	private debugCleanup: (() => void) | null = null;
-	private subscriptionCleanup: (() => void) | null = null;
 	private inviteCleanup: (() => void) | null = null;
+	// 订阅两块共用一份数据与一个加载器：容器按分块记录，重建合并到同一微任务
+	private readonly subscriptionEls = new Map<SubscriptionPart, HTMLElement>();
+	private subscriptionCleanup: (() => void) | null = null;
+	private subscriptionRebuildQueued = false;
 
-	constructor(app: App, plugin: PickpenPlugin, containerEl: HTMLElement) {
+	constructor(app: App, plugin: PickpenPlugin) {
 		this.app = app;
 		this.plugin = plugin;
-		this.containerEl = containerEl;
 	}
 
-	display(): void {
+	/** 渲染一个分区到宿主给的容器（重复调用即就地重建该分区） */
+	render(section: SettingsSection, containerEl: HTMLElement): void {
 		this.active = true;
+		this.disposeSection(section); // 重建前先解除该分区上一次的订阅
+		this.sectionEls.set(section, containerEl);
+		containerEl.empty();
 		this.statusRefresh.cancel();
+		const settings = this.plugin.settings;
+
+		switch (section) {
+			case "account":
+				this.renderAccount(containerEl, settings);
+				break;
+			case "invite":
+				// —— 邀请（与「账号和仓库」同级；未登录时只显示登录引导）——
+				this.inviteCleanup = renderInviteSection(containerEl, this.plugin);
+				break;
+			case "subscription-status":
+				// 订阅：移动端交给官网移动收银台；其他平台在插件内显示二维码。
+				// 「当前订阅 / 订阅方案」是两个分组，共用一份数据（见 queueSubscriptionRebuild）。
+				this.mountSubscriptionPart("status", containerEl);
+				break;
+			case "subscription-plans":
+				this.mountSubscriptionPart("plans", containerEl);
+				break;
+			case "sync":
+				this.renderSync(containerEl, settings);
+				break;
+			case "diagnostics":
+				this.renderDiagnostics(containerEl, settings);
+				break;
+			case "about":
+				renderAboutAndFeedback(containerEl, this.plugin);
+				break;
+		}
+
+		// 订阅状态变更（首个分区渲染时注册，hide 时取消；listener 保存固定引用以便 off 匹配）
+		if (!this.started) {
+			this.started = true;
+			syncState.onChange(this.statusListener);
+		}
+	}
+
+	/** 分区被重建或拆除时解除该分区的订阅与 DOM 引用（幂等） */
+	disposeSection(section: SettingsSection): void {
+		this.sectionEls.delete(section);
+		const part = subscriptionPart(section);
+		if (part) {
+			// 摘掉该分块后由 queueSubscriptionRebuild 决定重建还是只清理
+			this.subscriptionEls.delete(part);
+			this.queueSubscriptionRebuild();
+			return;
+		}
+		switch (section) {
+			case "invite":
+				this.inviteCleanup?.();
+				this.inviteCleanup = null;
+				break;
+			case "diagnostics":
+				this.debugCleanup?.();
+				this.debugCleanup = null;
+				break;
+			case "sync":
+				this.debounceInputEl = null;
+				break;
+			case "account":
+				// 状态卡片是唯一会持续刷新的分区
+				this.statusRefresh.cancel();
+				this.clearStatusCardRefs();
+				break;
+			default:
+				break;
+		}
+	}
+
+	// 订阅分块挂载：宿主给的声明行内套分区容器，并**同步**建好分块元素——聚焦高亮
+	// （.pickpen-subscription-plans）与后续重建都以它为锚点，不能推迟到微任务里创建。
+	private mountSubscriptionPart(part: SubscriptionPart, containerEl: HTMLElement): void {
+		const sectionEl = containerEl.createDiv({ cls: "pickpen-settings-section" });
+		this.subscriptionEls.set(part, sectionEl.createDiv({ cls: `pickpen-subscription pickpen-subscription-${part}` }));
+		this.queueSubscriptionRebuild();
+	}
+
+	// 两块由宿主在同一次渲染里同步挂载/拆除，这里用微任务合并成一次重建：
+	// 既保证只发一轮请求、两块数据同源，又避免先挂载的那块被后一块的清理连带拆掉。
+	private queueSubscriptionRebuild(): void {
+		if (this.subscriptionRebuildQueued) return;
+		this.subscriptionRebuildQueued = true;
+		queueMicrotask(() => {
+			this.subscriptionRebuildQueued = false;
+			this.rebuildSubscription();
+		});
+	}
+
+	private rebuildSubscription(): void {
 		this.subscriptionCleanup?.();
 		this.subscriptionCleanup = null;
-		this.inviteCleanup?.();
-		this.inviteCleanup = null;
-		const { containerEl } = this;
-		containerEl.empty();
-		this.debounceInputEl = null;
-		const settings = this.plugin.settings;
+		if (this.subscriptionEls.size === 0) return;
+		// 只挂上一块时另一块写进游离节点占位：内容不可见，等它挂载后这轮重建会再触发
+		const detached = createDiv();
+		const blocks = {
+			status: this.subscriptionEls.get("status") ?? detached,
+			plans: this.subscriptionEls.get("plans") ?? detached,
+		};
+		// 分块元素是复用锚点：重建前清空上一轮加载器写的内容
+		blocks.status.empty();
+		blocks.plans.empty();
+		this.subscriptionCleanup = Platform.isMobile
+			? renderMobileSubscriptionSection(blocks, this.plugin)
+			: renderSubscriptionSection(blocks, this.plugin);
+	}
+
+	/** 账号和仓库：同步状态卡片、登录 / 退出登录、仓库绑定与加密解锁 */
+	private renderAccount(containerEl: HTMLElement, settings: PluginSettings): void {
 		const loggedIn = !!settings.accessToken;
 
-		// —— 账号和仓库 ——
-		new Setting(containerEl).setHeading().setName("账号和仓库");
-		// pickpen-account-section 仅供跳转聚焦定位（.pickpen-settings-section 缺省即同步/诊断区样式）
+		// 分区标题由声明式分组提供；pickpen-account-section 仅供跳转聚焦定位
 		const accountSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section pickpen-account-section" });
 
 		// 同步状态卡片（实时状态和阶段进度，订阅 syncState 刷新）
@@ -166,7 +360,7 @@ class PickpenSettingsView {
 						.setButtonText("退出登录")
 						.onClick(async () => {
 							await this.plugin.logout(); // 退出登录 = 解绑（清 token + 仓库绑定）
-							this.display();
+							this.refreshIfActive();
 						}),
 				);
 		} else {
@@ -249,7 +443,7 @@ class PickpenSettingsView {
 						try {
 							await this.plugin.auth.login(settings.email, code, inviteCode);
 							await this.plugin.afterLogin(() => this.refreshIfActive()); // 同账号重登沿用绑定；否则打开仓库管理
-							this.display();
+							this.refreshIfActive();
 						} catch (err) {
 							debugLog.error(`[pickpen] 登录失败，错误码：${errorCode(err) ?? "unknown"}`);
 							const msg = loginErrorMessage(err);
@@ -280,26 +474,17 @@ class PickpenSettingsView {
 
 		// 端到端加密仓库：解锁状态与「在本设备记住」
 		if (loggedIn && settings.vaultId && vaultKeys.isEncrypted()) this.renderEncryptionSection(accountSectionEl);
+	}
 
-		// —— 邀请（与「账号和仓库」同级；未登录时只显示登录引导）
-		new Setting(containerEl).setHeading().setName("邀请");
-		this.inviteCleanup = renderInviteSection(containerEl, this.plugin);
-
-		// 移动端交给官网移动收银台；其他平台在插件内显示二维码。
-		if (Platform.isMobile) {
-			this.subscriptionCleanup = renderMobileSubscriptionSection(containerEl, this.plugin);
-		} else {
-			this.subscriptionCleanup = renderSubscriptionSection(containerEl, this.plugin);
-		}
-
-		// —— 同步 ——
-		new Setting(containerEl).setHeading().setName("同步");
+	/** 同步：排除项追加、冲突策略与变更防抖窗口 */
+	private renderSync(containerEl: HTMLElement, settings: PluginSettings): void {
+		// 分区标题由声明式分组提供
 		const syncSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section" });
 
 		// 排除项追加（默认清单 + 追加）
 		new Setting(syncSectionEl)
 			.setName("排除项追加")
-			.setDesc("每行一项；目录前缀 / 前缀* 为 basename 匹配 / *后缀 为后缀匹配。默认已排除 .obsidian/、.trash/、隐藏文件等")
+			.setDesc(`每行一项；目录前缀 / 前缀* 为 basename 匹配 / *后缀 为后缀匹配。默认已排除 ${this.app.vault.configDir}/、.trash/、隐藏文件等`)
 			.addTextArea((text) =>
 				text
 					.setPlaceholder("例如：\nprivate/\n*.drawio")
@@ -327,9 +512,11 @@ class PickpenSettingsView {
 				this.debounceInputEl = text.inputEl;
 				text.setValue(`${syncState.localDebounceMs / 1000}s`).setDisabled(true);
 			});
+	}
 
-		// —— 诊断 ——
-		new Setting(containerEl).setHeading().setName("诊断");
+	/** 诊断：远端地址、设备 / 构建信息与调试日志面板 */
+	private renderDiagnostics(containerEl: HTMLElement, settings: PluginSettings): void {
+		// 分区标题由声明式分组提供
 		const diagnosticsSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section" });
 
 		// 远端地址（构建期常量 BASE_URL 注入，固定不可改）
@@ -351,20 +538,12 @@ class PickpenSettingsView {
 
 		// 调试日志开关 + 开启后实时日志面板（仅插件主动写入的脱敏日志）
 		this.renderDebugSection(diagnosticsSectionEl);
-
-		// 订阅状态变更（首次 display 注册，hide 时取消；listener 保存固定引用以便 off 匹配）
-		if (!this.started) {
-			this.started = true;
-			syncState.onChange(this.statusListener);
-		}
-
-		// —— 关于与反馈 ——
-		renderAboutAndFeedback(containerEl, this.plugin);
 	}
 
 	// 系统设置页 hide：取消订阅防泄漏
 	dispose(): void {
 		this.active = false;
+		this.sectionEls.clear();
 		this.statusRefresh.cancel();
 		if (this.started) {
 			this.started = false;
@@ -372,10 +551,17 @@ class PickpenSettingsView {
 		}
 		this.debugCleanup?.();
 		this.debugCleanup = null;
+		this.subscriptionEls.clear();
 		this.subscriptionCleanup?.();
 		this.subscriptionCleanup = null;
 		this.inviteCleanup?.();
 		this.inviteCleanup = null;
+		this.clearStatusCardRefs();
+		this.debounceInputEl = null;
+	}
+
+	/** 状态卡片在重建 / 拆除后置空，避免持有已脱离文档的节点 */
+	private clearStatusCardRefs(): void {
 		this.statusCardEl = null;
 		this.statusDotEl = null;
 		this.statusTextEl = null;
@@ -384,19 +570,23 @@ class PickpenSettingsView {
 		this.statusBarFillEl = null;
 		this.statusPercentEl = null;
 		this.statusPathEl = null;
-		this.debounceInputEl = null;
 	}
 
 	private refreshDebounceDisplay(): void {
 		if (this.debounceInputEl) this.debounceInputEl.value = `${syncState.localDebounceMs / 1000}s`;
 	}
 
+	// refreshIfActive 就地重建当前已渲染的分区（登录 / 退出 / 仓库变更后刷新）；
+	// 未渲染或已从文档移除的分区跳过，等宿主下次渲染
 	private refreshIfActive(): void {
-		if (this.active) this.display();
+		if (!this.active) return;
+		for (const [section, containerEl] of [...this.sectionEls]) {
+			if (containerEl.isConnected) this.render(section, containerEl);
+		}
 	}
 
 	// renderDebugSection 调试日志：开关控制 data.json 持久化；开启后展示实时日志面板
-	// （面板只追加新条目、不整页重绘；display 重建与 dispose 时先解绑订阅防泄漏）
+	// （面板只追加新条目、不整页重绘；分区重建与 dispose 时先解绑订阅防泄漏）
 	private renderDebugSection(containerEl: HTMLElement): void {
 		this.debugCleanup?.();
 		this.debugCleanup = null;
@@ -466,7 +656,7 @@ class PickpenSettingsView {
 		};
 		renderAll();
 
-		// 复制当前筛选可见的日志：webview（移动端）navigator.clipboard 可能不可用，回退 textarea+execCommand
+		// 复制当前筛选可见的日志（移动端 WebView 不支持 Clipboard API 时提示手动复制）
 		new ButtonComponent(bar)
 			.setButtonText("复制")
 			.onClick(async () => {
@@ -476,25 +666,7 @@ class PickpenSettingsView {
 					return;
 				}
 				const text = entries.map((e) => `${e.time} [${e.level.toUpperCase()}] ${e.message}`).join("\n");
-				const ok = async (): Promise<boolean> => {
-					try {
-						await navigator.clipboard.writeText(text);
-						return true;
-					} catch {
-						return false;
-					}
-				};
-				const fallback = (): boolean => {
-					const ta = document.createElement("textarea");
-					ta.value = text;
-					ta.className = "pickpen-clipboard-fallback";
-					document.body.appendChild(ta);
-					ta.select();
-					const done = document.execCommand("copy");
-					document.body.removeChild(ta);
-					return done;
-				};
-				const copied = (await ok()) || fallback();
+				const copied = await copyText(text);
 				new Notice(copied ? `已复制 ${entries.length} 条日志` : "复制失败：请手动长按选择复制");
 			});
 
@@ -515,7 +687,7 @@ class PickpenSettingsView {
 			.addButton((btn) =>
 				btn.setButtonText("已超限").onClick(() => {
 					const n = new Notice("Pickpen Sync：云端存储已用满，笔记同步已暂停。升级后可自动恢复同步。", 0);
-					n.noticeEl?.addClass("pickpen-notice-alert");
+					n.messageEl.addClass("pickpen-notice-alert");
 				}),
 			)
 			.addButton((btn) =>

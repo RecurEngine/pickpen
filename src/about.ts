@@ -48,8 +48,7 @@ function openMailto(to: string, subject: string, body?: string): void {
 }
 
 export function renderAboutAndFeedback(containerEl: HTMLElement, plugin: PickpenPlugin): void {
-	new Setting(containerEl).setHeading().setName("关于与反馈");
-	// 与其他分组相同：标题位于顶层，子项统一放进缩进容器。
+	// 分区标题由声明式分组提供；子项统一放进容器，缩进与标题左边缘一致。
 	const root = containerEl.createDiv({ cls: "pickpen-about pickpen-settings-section" });
 
 	// 产品简介

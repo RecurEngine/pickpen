@@ -15,7 +15,7 @@ export class LocalHint {
 	private readonly session: ReconcileSession;
 	private readonly debounceMs: () => number;
 	private readonly registerEvent: (ref: EventRef) => void;
-	private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly pending = new Map<string, number>();
 	private registered = false;
 	/** 防抖窗口内出现过目录级 rename/delete → 触发时升级为 forceAudit
 	 * （目录事件影响整棵子树路径，子文件事件可能跨轮/丢失，增量刷新会快照失真；
@@ -74,7 +74,7 @@ export class LocalHint {
 
 	unload(): void {
 		this.registered = false;
-		for (const t of this.pending.values()) clearTimeout(t);
+		for (const t of this.pending.values()) window.clearTimeout(t);
 		this.pending.clear();
 		this.pendingForceAudit = false;
 	}
@@ -82,10 +82,10 @@ export class LocalHint {
 	/** 固定防抖窗口后请求 Session（同一路径重复事件在防抖窗口内自然合并）；
 	 * 窗口内任一目录级 rename/delete 事件 → 升级为 forceAudit */
 	private scheduleRequest(): void {
-		clearTimeout(this.pending.get("*"));
+		window.clearTimeout(this.pending.get("*"));
 		this.pending.set(
 			"*",
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.pending.delete("*");
 				const force = this.pendingForceAudit;
 				this.pendingForceAudit = false;

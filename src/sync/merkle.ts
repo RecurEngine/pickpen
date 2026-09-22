@@ -95,7 +95,8 @@ export async function leafHashHex(path: string, e: Entry): Promise<string> {
 	} else if (e.state === STATE_DELETED) {
 		parts.push(new Uint8Array([0x02]));
 	} else {
-		throw new Error(`invalid state: ${e.state}`);
+		// 状态枚举已穷尽（类型上 e.state 为 never）：走到这里说明上游数据越界
+		throw new Error(`invalid state: ${String(e.state)}`);
 	}
 	return sha256Hex(concatBytes(...parts));
 }

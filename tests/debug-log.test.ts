@@ -24,11 +24,11 @@ describe("debugLog", () => {
 		expect(debugLog.dump()).toHaveLength(0);
 	});
 
-	it("仅在用户开启后记录插件主动输出的日志", () => {
+	it("开启后只写诊断缓冲，不镜像到 console", () => {
 		const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 		debugLog.setEnabled(true);
 		debugLog.info("sync completed");
-		expect(info).toHaveBeenCalledWith("sync completed");
+		expect(info).not.toHaveBeenCalled();
 		expect(debugLog.dump()).toHaveLength(1);
 		expect(debugLog.dump()[0]?.message).toBe("sync completed");
 	});

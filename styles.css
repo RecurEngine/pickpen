@@ -1,11 +1,5 @@
 /* Pickpen Sync 设置与仓库管理：状态卡片、仓库卡片与诊断信息样式（跟随 Obsidian 主题变量） */
 
-.pickpen-clipboard-fallback {
-	position: fixed;
-	opacity: 0;
-	pointer-events: none;
-}
-
 .pickpen-status-card {
 	display: flex;
 	align-items: center;
@@ -163,25 +157,36 @@
 
 /* ===== 桌面订阅与支付宝付款 ===== */
 
-/* 一级标题下的内容统一放进一个背景框，并继续使用 Obsidian 主题变量。 */
+/*
+ * 分区容器：卡片底色 / 圆角 / 间距一律交给宿主的分组卡片（.setting-group .setting-items），
+ * 这里只提供与原生设置行一致的横向内边距，作为分区内所有内容（原生行与自定义块）的缩进来源，
+ * 从而与宿主渲染的分组标题（卡片外）左对齐。
+ * .pickpen-subscription 是订阅分区内的分节包裹层（外层已有 .pickpen-settings-section），
+ * 因此不再自带内边距。
+ */
 .pickpen-settings-section,
-.pickpen-subscription,
 .pickpen-invite {
-	/* 左右边界由 Obsidian 的设置内容区统一提供。 */
-	margin: 0 0 var(--size-4-6);
-	padding: 0 var(--size-4-4);
-	background: var(--background-secondary);
-	border-radius: var(--radius-l, var(--radius-m));
+	margin: 0;
+	padding: 0 var(--size-4-5, 20px);
+	background: transparent;
+	border-radius: 0;
+}
+
+.pickpen-subscription {
+	margin: 0;
+	padding: 0;
 }
 
 /*
- * 主题可能会给 setting-item 单独加底色或圆角；分组内统一清除，确保只有
- * 外层分组是一张卡片。按钮、输入框、下拉框等控件仍保留 Obsidian 原生样式。
+ * 分区内的行：横向内边距由容器统一提供（声明行已把 --setting-items-padding-x 置 0），
+ * 纵向沿用原生内边距。宿主的分组规则已做同样处理，这里作为兜底，
+ * 保证宿主规则缺失时（例如主题或未来版本改动）分区排版不塌回单行卡片样式。
+ * 按钮、输入框、下拉框等控件仍保留 Obsidian 原生样式。
  */
 .pickpen-settings-section > .setting-item,
 .pickpen-subscription > .setting-item,
 .pickpen-invite > .setting-item {
-	padding: var(--setting-items-padding-y, var(--size-4-4)) 0;
+	padding: var(--setting-items-padding-y, var(--size-4-5)) 0;
 	margin-bottom: 0;
 	background: transparent;
 	border: 0;
@@ -190,20 +195,47 @@
 }
 
 /*
- * 显式补齐系统设置同款分隔线，不依赖主题是否覆盖 Obsidian 默认规则。
- * 账号区的第一条 Setting 位于自定义状态行之后，因此也需要显示顶部分隔线。
+ * 分区内的子标题（订阅区的「当前订阅」「订阅方案」）：与行内容同列，
+ * 并补足卡片顶部 / 分节之间的内边距。选择器需压过宿主的分组标题规则。
  */
-.pickpen-settings-section > .setting-item:not(:first-child),
-.pickpen-subscription > :not(:first-child),
-.pickpen-invite > .setting-item:not(:first-child) {
+.mod-settings .setting-group .pickpen-settings-section > .setting-item-heading {
+	padding: var(--setting-items-padding-y, var(--size-4-5)) 0 0;
+}
+
+/*
+ * 声明式设置（getSettingDefinitions）里承载分区的 render 行：该行由宿主按
+ * .setting-item 创建，这里还原为块级容器并清零自身内边距，让分区内容与分组标题
+ * 同处一条左基准线。宿主的分组规则靠 --setting-items-padding-x/y 计算内边距，
+ * 因此把 x 置 0 后分区内的行不再二次缩进，原生分隔线也随之与原生几何一致。
+ */
+.mod-settings .setting-group .setting-item.pickpen-declared-section {
+	display: block;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	--setting-items-padding-x: 0;
+}
+
+.mod-settings .setting-group .setting-item.pickpen-declared-section::before {
+	content: none;
+}
+
+/*
+ * 分区内自定义块之间的分隔线（原生行之间的分隔线由宿主 ::before 提供，
+ * 这里排除 .setting-item 以免重复画线）。
+ */
+.pickpen-subscription > :not(.setting-item):not(:first-child),
+.pickpen-invite > :not(.setting-item):not(:first-child) {
 	border-top: 1px solid var(--background-modifier-border);
 }
 
-/* 每组第一项不显示顶部边线。 */
-.pickpen-settings-section > .setting-item:first-child,
-.pickpen-subscription > .setting-item:first-child,
-.pickpen-invite > .setting-item:first-child {
-	border-top: 0;
+/*
+ * 只有标题、没有说明的单行行（订阅档位 / 计费周期 / 支付方式）：控件本身已有高度，
+ * 再叠原生 20px 上下内边距就显得空，这里收紧到 12px。
+ */
+.mod-settings .setting-group .pickpen-subscription-plans > .setting-item:not(:has(.setting-item-description:not(:empty))) {
+	padding-block: var(--size-4-3, 12px);
 }
 
 .pickpen-subscription-loading {
@@ -456,7 +488,6 @@
 }
 
 .pickpen-vault-badge.is-encrypted {
-	background: var(--background-modifier-hover);
 	color: var(--text-accent);
 	background: color-mix(in srgb, var(--text-accent) 18%, transparent);
 }
@@ -1160,9 +1191,10 @@ body.is-mobile .pickpen-password-field {
 	font-size: 12px;
 }
 
-/* 提醒效果预览：“已超限”Notice 的警示配色（真实提醒接入后沿用） */
-.pickpen-notice-alert {
-	background: var(--background-modifier-error, #e5534b) !important;
+/* 提醒效果预览：“已超限”Notice 的警示配色（真实提醒接入后沿用）。
+   用 .notice 叠加提高选择器特异性做覆盖（Notice 根元素即带 .notice），不使用强制覆盖。 */
+.notice.pickpen-notice-alert {
+	background: var(--background-modifier-error, #e5534b);
 	color: var(--text-on-accent, #fff);
 }
 
@@ -1221,19 +1253,6 @@ body.is-mobile .pickpen-password-field {
 	word-break: break-all;
 }
 
-/* ===== 设置整页标题下移：高特异性 + !important，防被 Obsidian 主题 h2 规则覆盖 ===== */
-.pickpen-settings-heading {
-	/* 小屏/窄窗口明显下移，避开顶部导航/安全区；宽屏仅保留观感间隙 */
-	margin-top: calc(env(safe-area-inset-top, 0px) + var(--size-4-3)) !important;
-	scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 64px) !important;
-}
-
-@media (max-width: 1000px) {
-	.pickpen-settings-heading {
-		margin-top: calc(env(safe-area-inset-top, 0px) + 44px) !important;
-	}
-}
-
 .pickpen-debug-log-box {
 	max-height: 260px;
 	min-height: 140px; /* 无日志时也保留可读的默认高度 */
@@ -1287,13 +1306,14 @@ body.is-mobile .pickpen-password-field {
 	width: 8em;
 }
 
-/* 邀请人数、邀请充值与「查看邀请用户」入口同处一行。 */
+/* 邀请人数、邀请充值与「查看邀请用户」入口同处一行；内边距与原生设置行一致，
+ * 避免紧贴上方分隔线、并让卡片底部留白与原生分组相同。 */
 .pickpen-invite-stats {
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
 	gap: var(--size-4-6);
-	padding-bottom: var(--size-4-4);
+	padding: var(--setting-items-padding-y, var(--size-4-5)) 0;
 }
 
 .pickpen-invite-stat {

@@ -19,7 +19,7 @@ import { PendingStore } from "./pending-store";
 import { plan } from "./planner";
 import { SnapshotRemote } from "./remote";
 import { KIND_DIR } from "./types";
-import type { ApplyAction, Snapshot, SyncPlan } from "./types";
+import type { Snapshot, SyncPlan } from "./types";
 import { backoffMs, createYieldControl } from "./utils";
 
 /** 12023 连续次数达此值 → 抑制 rename hint 继承（强制新身份，切断复发） */
@@ -77,6 +77,8 @@ export class ReconcileSession {
 	private storageLimitConfirmed = false;
 	/** 本轮是否由用户操作触发（决定能否弹出需要输入的提示） */
 	private interactiveRequested = false;
+	/** 手动同步等待者：整段同步空闲（含续跑）时统一 resolve，供调用方给用户回执 */
+	private idleWaiters: Array<() => void> = [];
 	private applier: Applier;
 	/** 插件实例已卸载：在途轮次不再继续（卸载不会中断已启动的 Promise 链） */
 	private disposed = false;
@@ -116,6 +118,23 @@ export class ReconcileSession {
 			return;
 		}
 		void this.run();
+	}
+
+	/**
+	 * 用户主动同步（Ribbon / 「立即同步」命令）：返回「这一整段同步跑完」的 Promise，
+	 * 调用方据此给出结果回执；已有轮在跑时返回 null（本次并入下一轮，不新开 Session，
+	 * 与 requestRun 的合并语义一致）。
+	 */
+	requestManualRun(): Promise<void> | null {
+		if (this.disposed) return null;
+		if (this.running) {
+			this.rerunRequested = true;
+			return null;
+		}
+		this.interactiveRequested = true; // 加密仓库照常弹解锁窗
+		const idle = new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+		void this.run();
+		return idle;
 	}
 
 	isRunning(): boolean {
@@ -229,12 +248,16 @@ export class ReconcileSession {
 					// 多报一次会让随后的 finally 上报把它冲掉。循环继续时下一轮 beginPhase
 					// 立即带出错误，循环结束则 finally 上报，两种路径都不会漏。
 				}
-				await new Promise((r) => setTimeout(r, 0)); // 轮间让出事件循环
+				await new Promise((r) => window.setTimeout(r, 0)); // 轮间让出事件循环
 			} while (!this.disposed && (this.rerunRequested || this.nextDirtyPaths.size > 0));
 		} finally {
 			this.running = false;
 			this.clearProgress();
 			this.report();
+			// 整段同步（当前轮 + 已排队的续跑）结束：叫醒手动同步的等待者
+			const waiters = this.idleWaiters;
+			this.idleWaiters = [];
+			for (const resolve of waiters) resolve();
 		}
 	}
 
@@ -441,14 +464,14 @@ export class ReconcileSession {
 			debugLog.warn(`[pickpen] CommitSnapshot 12023（file_id 身份冲突，第 ${this.fileIDMovedStreak} 次），退避后重新对账`);
 			// 退避基数小（本地计划问题而非服务端争用，12015 才用 20s 基数）；指数上限 30s 防病态循环
 			this.beginPhase("waiting");
-			await new Promise((r) => setTimeout(r, backoffMs(this.fileIDMovedStreak, 2_000, 30_000)));
+			await new Promise((r) => window.setTimeout(r, backoffMs(this.fileIDMovedStreak, 2_000, 30_000)));
 			return;
 		}
 		if (commit === null) {
 			// SNAPSHOT_CHANGED：不应用临时文件、不写 Base、保留已上传 Blob，
 			// 随机退避后从新 Head 重新对账（§9.3）
 			this.beginPhase("waiting");
-			await new Promise((r) => setTimeout(r, backoffMs(this.consecutiveFailures)));
+			await new Promise((r) => window.setTimeout(r, backoffMs(this.consecutiveFailures)));
 			return;
 		}
 		this.consecutiveFailures = 0;

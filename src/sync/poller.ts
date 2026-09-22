@@ -31,8 +31,8 @@ export interface PollerDeps {
 
 export class Poller {
 	private readonly deps: PollerDeps;
-	private pollTimer: ReturnType<typeof setTimeout> | null = null;
-	private auditTimer: ReturnType<typeof setTimeout> | null = null;
+	private pollTimer: number | null = null;
+	private auditTimer: number | null = null;
 	private failures = 0;
 	private started = false;
 	private visible = true;
@@ -57,8 +57,8 @@ export class Poller {
 		if (!this.started) return;
 		this.started = false;
 		document.removeEventListener("visibilitychange", this.onVisibilityChange);
-		if (this.pollTimer) clearTimeout(this.pollTimer);
-		if (this.auditTimer) clearTimeout(this.auditTimer);
+		if (this.pollTimer) window.clearTimeout(this.pollTimer);
+		if (this.auditTimer) window.clearTimeout(this.auditTimer);
 		this.pollTimer = null;
 		this.auditTimer = null;
 	}
@@ -79,18 +79,18 @@ export class Poller {
 
 	private scheduleNext(): void {
 		if (!this.started) return;
-		if (this.pollTimer) clearTimeout(this.pollTimer);
+		if (this.pollTimer) window.clearTimeout(this.pollTimer);
 		const base = this.serverIntervalMs ?? POLL_INTERVAL[Platform.isMobile ? "mobile" : "desktop"];
 		const delay = Math.round(base * (0.9 + Math.random() * 0.2)); // ±10% 抖动
-		this.pollTimer = setTimeout(() => {
+		this.pollTimer = window.setTimeout(() => {
 			void this.tick().finally(() => this.scheduleNext());
 		}, delay);
 	}
 
 	private scheduleAudit(): void {
 		if (!this.started) return;
-		if (this.auditTimer) clearTimeout(this.auditTimer);
-		this.auditTimer = setTimeout(() => {
+		if (this.auditTimer) window.clearTimeout(this.auditTimer);
+		this.auditTimer = window.setTimeout(() => {
 			// 前台空闲期间到达低频完整审计周期（§9.2 场景 5）
 			if (document.visibilityState === "visible") {
 				this.deps.session.requestRun({ forceAudit: true });
@@ -124,7 +124,7 @@ export class Poller {
 				debugLog.warn(`[pickpen] 轮询失败（第 ${this.failures} 次）`, err);
 			}
 			// 失败退避：由 scheduleNext 的定时器继续；这里主动延迟下一 tick 起点
-			await new Promise((r) => setTimeout(r, backoffMs(this.failures)));
+			await new Promise((r) => window.setTimeout(r, backoffMs(this.failures)));
 		}
 	}
 }

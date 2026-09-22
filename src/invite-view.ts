@@ -3,6 +3,7 @@
 
 import { ButtonComponent, Modal, Notice, Platform, Setting } from "obsidian";
 
+import { copyText } from "./clipboard";
 import { debugLog } from "./debug-log";
 import type { Invitee } from "./gen/proto/invite/invite_pb";
 import type PickpenPlugin from "./index";
@@ -112,23 +113,6 @@ function renderInfo(
 	}
 	const action = new ButtonComponent(stats).setButtonText("查看邀请用户").onClick(() => new InviteesModal(plugin).open());
 	action.buttonEl.addClass("pickpen-invite-stat-action");
-}
-
-// copyText 复制文本：webview（移动端）navigator.clipboard 可能不可用，回退 textarea + execCommand
-async function copyText(value: string): Promise<boolean> {
-	try {
-		await navigator.clipboard.writeText(value);
-		return true;
-	} catch {
-		const area = document.createElement("textarea");
-		area.value = value;
-		area.className = "pickpen-clipboard-fallback";
-		document.body.appendChild(area);
-		area.select();
-		const done = document.execCommand("copy");
-		document.body.removeChild(area);
-		return done;
-	}
 }
 
 class InviteesModal extends Modal {

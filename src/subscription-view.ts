@@ -65,13 +65,21 @@ export function clampPurchaseQuantity(quantity: bigint, range: { min: bigint; ma
 	return quantity;
 }
 
-/** 渲染桌面设置页订阅区域，并返回异步回写的清理函数。 */
-export function renderSubscriptionSection(containerEl: HTMLElement, plugin: PickpenPlugin): () => void {
+/**
+ * 订阅两块各自的渲染目标（对应「当前订阅」「订阅方案」两个分组）。
+ * 元素由设置页同步创建并复用（聚焦高亮以 .pickpen-subscription-plans 为锚点），
+ * 加载器只负责往里面写内容。
+ */
+export interface SubscriptionSlots {
+	readonly status: HTMLElement;
+	readonly plans: HTMLElement;
+}
+
+/** 渲染桌面设置页订阅区域（两个分组共用一次请求），并返回异步回写的清理函数。 */
+export function renderSubscriptionSection(blocks: SubscriptionSlots, plugin: PickpenPlugin): () => void {
 	let disposed = false;
-	new Setting(containerEl).setHeading().setName("当前订阅");
-	const statusRoot = containerEl.createDiv({ cls: "pickpen-subscription pickpen-subscription-status" });
-	new Setting(containerEl).setHeading().setName("订阅方案");
-	const plansRoot = containerEl.createDiv({ cls: "pickpen-subscription pickpen-subscription-plans" });
+	const statusRoot = blocks.status;
+	const plansRoot = blocks.plans;
 
 	if (!plugin.settings.accessToken) {
 		new Setting(statusRoot).setName("登录后查看订阅").setDesc("请先在上方完成账号登录");

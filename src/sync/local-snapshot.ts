@@ -46,8 +46,7 @@ export interface LocalScanResult {
 	blockedPaths: string[];
 }
 
-/** 移动端：stat 6 并发、hash 1 并发；桌面端：stat 24、hash 4（spec §10.1） */
-const STAT_CONCURRENCY = { desktop: 24, mobile: 6 } as const;
+/** hash 并发：移动端 1、桌面端 4（spec §10.1） */
 const HASH_CONCURRENCY = { desktop: 4, mobile: 1 } as const;
 
 export class LocalSnapshotBuilder {
@@ -98,7 +97,6 @@ export class LocalSnapshotBuilder {
 	private async fullAudit(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<string[]> {
 		const files = ctx.vault.getFiles();
 		const disk = new Map<string, TFile>();
-		const statConcurrency = STAT_CONCURRENCY[ctx.isMobile ? "mobile" : "desktop"];
 		const hashConcurrency = HASH_CONCURRENCY[ctx.isMobile ? "mobile" : "desktop"];
 
 		// 1. 过滤排除/超限，收集有效路径（TFile.stat 同步，无 Adapter I/O）

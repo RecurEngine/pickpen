@@ -3,7 +3,7 @@
 // → onLayoutReady：注册 vault 事件 → pending 检查 → 启动轮询 → requestRun({forceAudit:true})
 // 启动、切回前台、定时轮询、本地 dirty hint 都只请求运行同一个串行 Session。
 
-import { addIcon, Notice, Platform, Plugin, setIcon } from "obsidian";
+import { addIcon, Notice, Platform, Plugin, setIcon, setTooltip } from "obsidian";
 
 import pickpenIconSvg from "./assets/pickpen.svg";
 import { AuthManager } from "./auth";
@@ -19,6 +19,7 @@ import { isSyncRibbonMenuItem, ribbonIcon, ribbonLabel, RIBBON_SYNC_TITLE, updat
 import { PickpenSettingTab } from "./settings";
 import { setupStage, SetupGuideModal, type SetupStage } from "./setup-guide";
 import { localDateKey, StorageLimitModal } from "./storage-limit-alert";
+import { syncResultMessage } from "./sync-result";
 import { syncState } from "./sync-state";
 import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings, type VaultInfo } from "./types";
 import { createRemoteVault, enableRemoteVaultEncryption, fetchVaults, openVaultManager, updateRemoteVaultKey } from "./vault-manager";
@@ -39,6 +40,16 @@ const PICKPEN_ICON_SVG = pickpenIconSvg.replace(/^\s*<svg[^>]*>/, "").replace(/<
 
 // 启动提醒延迟：等工作区与 ribbon 渲染完再提示，避免与宿主启动界面、其他插件通知抢注意力
 const STARTUP_REMINDER_DELAY_MS = 1500;
+
+// LegacyDataJson：data.json 的读取视图——正常设置字段（Partial<PluginSettings>）
+// 叠加历史残留字段（旧版本写入、现已不再使用，读取时一律剥离）。
+interface LegacyDataJson extends Partial<PluginSettings> {
+	baseUrl?: unknown;
+	debounceMs?: unknown;
+	username?: unknown;
+	token?: unknown;
+	expiresAtMs?: unknown;
+}
 
 // createLocalKV 探测 localStorage 可用性；不可用（隐私模式/禁用站点存储）→ 调用方降级为仅内存，
 // 本次运行可登录但不跨重启，且会告警一次
@@ -71,8 +82,10 @@ export default class PickpenPlugin extends Plugin {
 	private storageLimitModal: StorageLimitModal | null = null;
 	private guideModal: SetupGuideModal | null = null;
 	// startupReminderTimer 启动提醒定时器；setupGuideShown 本会话是否已展示过引导弹窗
-	private startupReminderTimer: ReturnType<typeof setTimeout> | null = null;
+	private startupReminderTimer: number | null = null;
 	private setupGuideShown = false;
+	/** 已卸载：在途的异步收尾（如手动同步回执）不再打扰用户 */
+	private unloaded = false;
 	private settingTab!: PickpenSettingTab;
 	// accountBinding 本次会话的绑定记忆（账号 + vault_id）：登录后判定「同账号重登沿用绑定」vs「走选择流程」
 	private accountBinding: { email: string; vaultId: string } | null = null;
@@ -82,7 +95,13 @@ export default class PickpenPlugin extends Plugin {
 	// localKeyOp 本机正在执行的密钥操作计数（新建加密仓库/转换/改密码）：期间不让在途 Head 触发自动弹窗
 	private localKeyOp = 0;
 
-	async onload(): Promise<void> {
+	// Obsidian 的 onload 是同步接口（返回 void 值）：异步初始化整体收进 startup()，
+	// 首个 await 之前的注册逻辑（图标、会话装配）仍在 onload 调用栈内同步完成，时序不变。
+	onload(): void {
+		void this.startup();
+	}
+
+	private async startup(): Promise<void> {
 		// 模块可能在 Obsidian 内热重载：未收到新 Head 前始终从客户端默认防抖值开始。
 		syncState.localDebounceMs = DEBOUNCE_MS;
 		// 品牌图标：P 字母轮廓叠加书写笔，使用 currentColor 自动跟随 Obsidian 主题。
@@ -97,7 +116,10 @@ export default class PickpenPlugin extends Plugin {
 		syncState.update({ storageLimitExceeded: this.sessionStore.storageLimitAlertActive });
 
 		// 历史残留字段剥离（baseUrl/debounceMs/username/token/expiresAtMs）
-		const loaded = (await this.loadData()) ?? {};
+		// data.json 由本插件自身写入，读取时按「可能残留旧字段」的宽松结构声明：
+		// 先落到 unknown 再断言，避免反序列化结果以 any 形式扩散到后续成员访问
+		const raw: unknown = (await this.loadData()) ?? {};
+		const loaded = raw as LegacyDataJson;
 		delete loaded.baseUrl;
 		delete loaded.debounceMs;
 		delete loaded.username;
@@ -107,10 +129,10 @@ export default class PickpenPlugin extends Plugin {
 		// 迁移判定：data.json 若仍带会话（旧版本曾把会话写进 data.json，可能已被 iCloud 复制到多端）
 		// → 老用户首迁：token 族导入设备本地，deviceId 强制重生成（旧值离线无法证明唯一，沿用会继续互顶）；
 		// localStorage 已有会话 → 权威，data.json 残留会话键仅做剔除；全新 → 仅生成 deviceId
-		const dataJsonHasSession = !!(loaded as Record<string, unknown>).accessToken;
+		const dataJsonHasSession = !!loaded.accessToken;
 		const action = planLegacyMigration(dataJsonHasSession, this.sessionStore.hasToken());
 		if (action === "import") {
-			const legacy = loaded as Partial<PluginSettings>;
+			const legacy = loaded;
 			this.sessionStore.captureFrom({
 				email: legacy.email ?? "",
 				userId: legacy.userId ?? "",
@@ -305,7 +327,7 @@ export default class PickpenPlugin extends Plugin {
 	// 未绑定仓库）时提示，不落任何持久化标记。延迟到工作区渲染之后再弹，且到点才读取当前状态
 	// ——延迟期间用户已登录 / 已绑定则静默跳过。
 	private scheduleStartupSetupReminder(): void {
-		this.startupReminderTimer = setTimeout(() => {
+		this.startupReminderTimer = window.setTimeout(() => {
 			this.startupReminderTimer = null;
 			// 本会话已给过引导（例如「启用」那一刻刚弹过并被关掉）就不补弹第二次
 			if (this.setupGuideShown) return;
@@ -318,7 +340,7 @@ export default class PickpenPlugin extends Plugin {
 	// clearStartupReminder 清掉尚未触发的启动提醒
 	private clearStartupReminder(): void {
 		if (this.startupReminderTimer === null) return;
-		clearTimeout(this.startupReminderTimer);
+		window.clearTimeout(this.startupReminderTimer);
 		this.startupReminderTimer = null;
 	}
 
@@ -371,8 +393,25 @@ export default class PickpenPlugin extends Plugin {
 			openVaultManager(this.app, this);
 			return;
 		}
-		// 用户主动同步：加密仓库会先弹出解锁窗
-		this.session.requestRun({ interactive: true });
+		// 用户主动同步：加密仓库会先弹出解锁窗；同步结束时给一条结果回执。
+		// 有内容变化 / 远端落地的轮次结束都会原子写 Base，所以 Base 根哈希变了就是「同步到了东西」。
+		const beforeRoot = this.baseStore?.getBase()?.base_root_hash ?? "";
+		const done = this.session.requestManualRun();
+		if (!done) {
+			new Notice("同步进行中…"); // 已有同步在跑：本次并入下一轮
+			return;
+		}
+		await done;
+		if (this.unloaded) return; // 卸载途中不再提示
+		new Notice(
+			syncResultMessage({
+				pausedReason: syncState.pausedReason,
+				lastError: syncState.lastError,
+				storageLimitExceeded: syncState.storageLimitExceeded,
+				blockedCount: syncState.blockedPaths.length,
+				changed: (this.baseStore?.getBase()?.base_root_hash ?? "") !== beforeRoot,
+			}),
+		);
 	}
 
 	private updateRibbon(): void {
@@ -387,8 +426,9 @@ export default class PickpenPlugin extends Plugin {
 			lastSyncAt: syncState.lastSyncAt,
 			allSynced: syncState.allSynced,
 		});
-		this.ribbonEl.setAttribute("aria-label", label);
-		this.ribbonEl.setAttribute("title", label);
+		// 提示只走 aria-label（Obsidian 自绘提示读它，与原生 Ribbon 按钮同款：右侧 + 300ms 延迟）。
+		// 不要再写 title：那会额外弹出一个浏览器原生提示，鼠标悬停时两个提示叠在一起。
+		setTooltip(this.ribbonEl, label, { placement: "right", delay: 300 });
 		const icon = ribbonIcon(storageLimitExceeded);
 		if (this.ribbonEl.dataset.pickpenIcon !== icon) {
 			setIcon(this.ribbonEl, icon);
@@ -408,7 +448,7 @@ export default class PickpenPlugin extends Plugin {
 			const menuItems = new Set<HTMLElement>();
 			for (const mutation of mutations) {
 				for (const added of mutation.addedNodes) {
-					if (!(added instanceof HTMLElement)) continue;
+					if (!added.instanceOf(HTMLElement)) continue;
 					const containingItem = added.matches(".menu-item")
 						? added
 						: added.closest<HTMLElement>(".menu-item");
@@ -865,7 +905,13 @@ export default class PickpenPlugin extends Plugin {
 		await this.saveSettings();
 	}
 
-	async onunload(): Promise<void> {
+	// 同 onload：onunload 也是同步接口，异步收尾收进 shutdown()，清理顺序与原先一致。
+	onunload(): void {
+		void this.shutdown();
+	}
+
+	private async shutdown(): Promise<void> {
+		this.unloaded = true;
 		delete (window as unknown as Record<string, unknown>).__pickpenDebug;
 		// 卸载不会中断已启动的 Promise 链：必须显式停掉，否则旧实例会在「禁用→启用」
 		// 或插件更新后与新实例并存——并发同步同一仓库，并继续消耗两边共享的 refresh token

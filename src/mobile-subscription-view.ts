@@ -5,6 +5,7 @@ import { openExternal } from "./external-link";
 import type PickpenPlugin from "./index";
 import { renderPricingLink } from "./subscription-pricing-link";
 import { renderSubscriptionState } from "./subscription-state-view";
+import type { SubscriptionSlots } from "./subscription-view";
 import { CHECKOUT_URL } from "./types";
 
 const MOBILE_CHECKOUT_ENTRY = "obsidian-mobile";
@@ -15,13 +16,11 @@ export function mobileCheckoutUrl(checkoutURL = CHECKOUT_URL): string {
 	return url.toString();
 }
 
-/** 渲染移动端订阅入口：交给官网选择方案并走 WAP 支付。 */
-export function renderMobileSubscriptionSection(containerEl: HTMLElement, plugin: PickpenPlugin): () => void {
+/** 渲染移动端订阅入口：交给官网选择方案并走 WAP 支付（两个分组共用一次方案请求）。 */
+export function renderMobileSubscriptionSection(blocks: SubscriptionSlots, plugin: PickpenPlugin): () => void {
 	let disposed = false;
-	new Setting(containerEl).setHeading().setName("当前订阅");
-	const statusRoot = containerEl.createDiv({ cls: "pickpen-subscription pickpen-subscription-status" });
-	new Setting(containerEl).setHeading().setName("订阅方案");
-	const plansRoot = containerEl.createDiv({ cls: "pickpen-subscription pickpen-subscription-plans" });
+	const statusRoot = blocks.status;
+	const plansRoot = blocks.plans;
 	let plansRequest: ReturnType<typeof plugin.client.subscriptionClient.listPlans> | undefined;
 	const requestPlans = () => {
 		if (plansRequest) return plansRequest;
@@ -114,7 +113,6 @@ export function renderMobileSubscriptionSection(containerEl: HTMLElement, plugin
 	void loadStatus();
 	return () => {
 		disposed = true;
-		statusRoot.remove();
-		plansRoot.remove();
+		// 分块元素由设置页持有并复用：这里只停掉异步回写，内容交给下一次重建清空
 	};
 }

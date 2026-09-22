@@ -209,3 +209,66 @@ describe("ReconcileSession 串行保证", () => {
 		expect(session.isRunning()).toBe(false);
 	});
 });
+
+// 手动同步（Ribbon / 「立即同步」命令）的结果回执依赖这两个语义
+describe("ReconcileSession 手动同步回执", () => {
+	it("空闲时 requestManualRun 返回的 Promise 在整段同步结束后 resolve", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		let settled = false;
+		const idle = session.requestManualRun();
+		expect(idle).not.toBeNull();
+		void idle?.then(() => {
+			settled = true;
+		});
+		expect(settled).toBe(false); // 同步还在跑，回执不能提前
+		for (let i = 0; i < 20 && !settled; i++) await tick();
+		expect(settled).toBe(true);
+		expect(session.isRunning()).toBe(false);
+	});
+
+	it("按用户操作触发（interactive=true：加密仓库照常弹解锁窗）", async () => {
+		const preflight = vi.fn(async () => false); // 前置检查拒绝 → 本轮不跑（等价于未解锁）
+		const { deps } = fakeDeps();
+		(deps as { preflight?: (interactive: boolean) => Promise<boolean> }).preflight = preflight;
+		const session = new ReconcileSession(deps as never);
+		const idle = session.requestManualRun();
+		await idle;
+		expect(preflight).toHaveBeenCalledWith(true);
+	});
+
+	it("运行中 requestManualRun 返回 null，不新开 Session", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		let runCount = 0;
+		const pollHead = deps.remote.pollHead as ReturnType<typeof vi.fn>;
+		pollHead.mockImplementation(async () => {
+			runCount++;
+			await tick();
+			return {
+				revision: 1n,
+				rootHash: "r1",
+				unchanged: true,
+				syncIntervalMs: 0n,
+				maxFileSizeBytes: 30n * 1024n * 1024n,
+				localDebounceMs: 0n,
+			};
+		});
+
+		const first = session.requestManualRun();
+		expect(first).not.toBeNull();
+		expect(session.requestManualRun()).toBeNull(); // 已有同步在跑：调用方提示「同步进行中…」
+		await first;
+		expect(runCount).toBeLessThanOrEqual(3); // 合并成同一段 Session（初始轮 + 至多一次 rerun）
+		expect(session.isRunning()).toBe(false);
+	});
+
+	it("dispose 后 requestManualRun 不开新轮", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		session.dispose();
+		expect(session.requestManualRun()).toBeNull();
+		await tick();
+		expect(deps.remote.pollHead).not.toHaveBeenCalled();
+	});
+});

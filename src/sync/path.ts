@@ -10,6 +10,15 @@ export function pathByteLen(path: string): number {
 	return textEncoder.encode(path).length;
 }
 
+/** 协议禁用字符：反斜杠与 NUL / CR / LF（等价于原先的字符类写法，改为显式判断以避免正则出现控制字符转义） */
+function hasIllegalChar(path: string): boolean {
+	for (const ch of path) {
+		const code = ch.charCodeAt(0);
+		if (ch === "\\" || code === 0x00 || code === 0x0a || code === 0x0d) return true;
+	}
+	return false;
+}
+
 /**
  * NFC 规范化 + 相对路径校验：禁绝对路径、反斜杠、控制字符、空 segment、. 与 ..。
  * 返回规范化后的路径；非法返回 null。
@@ -19,7 +28,7 @@ export function nfcPath(path: string): string | null {
 		path === "" ||
 		pathByteLen(path) > MAX_PATH_LEN ||
 		path.startsWith("/") ||
-		/[\\\x00\r\n]/.test(path)
+		hasIllegalChar(path)
 	) {
 		return null;
 	}

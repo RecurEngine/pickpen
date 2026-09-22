@@ -19,12 +19,25 @@ function pad(n: number, w = 2): string {
 }
 
 function formatValue(value: unknown): string {
-	if (typeof value === "string") return value;
-	if (value instanceof Error) return `[${value.name}]`;
-	if (value === null) return "null";
+	switch (typeof value) {
+		case "string":
+			return value;
+		case "number":
+		case "bigint":
+		case "boolean":
+			return String(value);
+		case "symbol":
+			return value.toString();
+		case "function":
+			return "[Function]";
+		default:
+			break;
+	}
 	if (value === undefined) return "undefined";
-	if (typeof value === "object") return `[${value.constructor?.name ?? "Object"}]`;
-	return String(value);
+	if (value === null) return "null";
+	if (value instanceof Error) return `[${value.name}]`;
+	// 只记录对象/数组的类型名，不序列化其中的敏感值
+	return `[${value.constructor?.name ?? "Object"}]`;
 }
 
 class DebugLog {
@@ -74,9 +87,11 @@ class DebugLog {
 		const message = args.map(formatValue).join(" ");
 		if (!message) return;
 
+		// 开启后只写插件内日志视图（设置面板可查看/复制），不镜像到 console：
+		// 真实错误无论开关都仍走 console.error，便于排查启动期问题。
 		if (this.enabled) {
 			this.append(level, message);
-			console[level](message);
+			if (level === "error") console.error(message);
 			return;
 		}
 
