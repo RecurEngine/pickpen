@@ -60,6 +60,28 @@
 	white-space: normal;
 }
 
+/* 同步回执里的冲突副本入口 */
+.pickpen-notice-link {
+	display: inline-block;
+	margin-top: 4px;
+	color: var(--text-accent);
+	cursor: pointer;
+}
+
+/* 冲突副本入口：与状态副行同字号，用链接色点出可点击 */
+.pickpen-status-conflict {
+	display: inline-block;
+	margin-top: 4px;
+	font-size: var(--font-ui-small);
+	color: var(--text-accent);
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.pickpen-status-conflict[hidden] {
+	display: none;
+}
+
 /* 状态和路径允许在移动端换行。 */
 .pickpen-status-text {
 	flex: 1;

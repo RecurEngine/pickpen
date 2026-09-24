@@ -1,6 +1,6 @@
 // 设置面板（Snapshot 同步 v2）：账号登录、仓库绑定、同步范围（选择性同步）、已删除的文件入口与诊断。
 
-import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting, TFile, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
 
 import { renderAboutAndFeedback } from "./about";
 import { copyText } from "./clipboard";
@@ -157,6 +157,7 @@ export class PickpenSettingTab extends PluginSettingTab {
 interface ObsidianSettingsController {
 	open(): void;
 	openTabById(id: string): void;
+	close(): void;
 }
 
 /** Obsidian 尚未公开声明设置控制器类型；集中封装并保留缺失接口时的安全降级。 */
@@ -169,6 +170,15 @@ export function openPluginSettings(app: App, pluginId: string): boolean {
 	setting.open();
 	setting.openTabById(pluginId);
 	return true;
+}
+
+/**
+ * 关闭设置页。设置页是模态窗：从设置里跳去别处（打开文件）时不先关掉，
+ * 目标会在它背后打开，用户看不到跳转结果。接口缺失时静默降级——跳转本身仍应发生。
+ */
+export function closePluginSettings(app: App): void {
+	const setting = (app as App & { setting?: Partial<ObsidianSettingsController> }).setting;
+	if (typeof setting?.close === "function") setting.close();
 }
 
 /** 声明式设置的分区 id：与 PickpenSettingTab.getSettingDefinitions() 返回的项一一对应。 */
@@ -212,6 +222,8 @@ class PickpenSettingsView {
 	private statusBarFillEl: HTMLElement | null = null;
 	private statusPercentEl: HTMLElement | null = null;
 	private statusPathEl: HTMLElement | null = null;
+	/** 冲突副本入口：有存量时才显示（点开第一个，处理入口不在设置页） */
+	private statusConflictEl: HTMLAnchorElement | null = null;
 	private readonly statusRefresh = new StatusRefresh(() => this.refreshStatusCard());
 	private statusListener = () => {
 		const status = deriveStatus(this.plugin.settings, syncState);
@@ -860,7 +872,29 @@ class PickpenSettingsView {
 		this.statusBarFillEl = metrics.createDiv({ cls: "pickpen-status-bar" }).createDiv({ cls: "pickpen-status-bar-fill" });
 		this.statusPercentEl = metrics.createDiv({ cls: "pickpen-status-percent" });
 		this.statusPathEl = content.createDiv({ cls: "pickpen-status-path" });
+		// 冲突副本入口。href="#" + preventDefault：链接天然可聚焦、可回车触发，
+		// 不必再用 tabIndex + role 手工补齐无障碍语义
+		this.statusConflictEl = content.createEl("a", { cls: "pickpen-status-conflict", href: "#" });
+		this.statusConflictEl.addEventListener("click", (evt) => {
+			evt.preventDefault();
+			this.openFirstConflictCopy();
+		});
 		this.refreshStatusCard();
+	}
+
+	/** 打开第一个待处理冲突副本（v1 不做列表视图，逐个处理即可） */
+	private openFirstConflictCopy(): void {
+		const path = syncState.conflictCopyPaths[0];
+		if (!path) return;
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return;
+		// 先关设置页再打开文件，否则文件开在模态窗背后，用户看不到跳转结果。
+		// 延后一拍是照 Obsidian 自己的用法（app.js 里关闭设置后同样用 setTimeout 接后续动作）：
+		// 关闭过程本身要收尾，同一拍里接着做事会与它的焦点恢复打架
+		closePluginSettings(this.app);
+		window.setTimeout(() => {
+			void this.app.workspace.getLeaf(false).openFile(file);
+		}, 0);
 	}
 
 	// refreshStatusCard 就地更新卡片 DOM（订阅回调；绝不重绘整页）
@@ -882,10 +916,13 @@ class PickpenSettingsView {
 		}
 		this.statusPathEl!.textContent = progress?.path ?? "";
 		this.statusPathEl!.hidden = !progress?.path;
+		const conflicts = syncState.conflictCopyPaths.length;
+		this.statusConflictEl!.textContent = conflicts > 0 ? `查看冲突副本（${conflicts}）` : "";
+		this.statusConflictEl!.hidden = conflicts === 0;
 	}
 }
 
-// deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 受阻 → 同步中 → 已全部同步）
+// deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 受阻 → 同步中 → 冲突副本 → 已全部同步）
 export function deriveStatus(settings: PluginSettings, state: SyncState): { mod: string; text: string } {
 	if (!settings.accessToken) return { mod: "yellow", text: "未登录：登录后开始同步" };
 	if (state.pausedReason) return { mod: "yellow", text: `已暂停：${state.pausedReason}` };
@@ -893,6 +930,9 @@ export function deriveStatus(settings: PluginSettings, state: SyncState): { mod:
 	if (state.lastError) return { mod: "red", text: `同步出错：${state.lastError}` };
 	if (state.blockedPaths.length > 0) return { mod: "yellow", text: `同步受阻：${state.blockedPaths.length} 个文件被阻塞（超限/冲突）` };
 	if (state.sessionRunning) return { mod: "syncing", text: "同步中：正在准备同步" };
+	// 冲突副本不是同步失败（两边内容都在），所以排在「同步中」之后、完成态之前：黄色提醒而非红色
+	if (state.conflictCopyPaths.length > 0)
+		return { mod: "yellow", text: `同步完成，有 ${state.conflictCopyPaths.length} 个冲突副本待处理` };
 	return { mod: "green", text: "已全部同步" };
 }
 

@@ -10,10 +10,18 @@ import type { BaseStore } from "../src/sync/base-store";
 import type { PendingStore } from "../src/sync/pending-store";
 import type { SnapshotRemote } from "../src/sync/remote";
 
+type VerifyProgress = { completed: number; total: number | null; activePaths: string[] };
 type VerifyFn = (
 	plan: SyncPlan,
 	expectedHashes: Map<string, string>,
-	onProgress: (progress: { completed: number; total: number | null; activePaths: string[] }) => void,
+	onProgress: (progress: VerifyProgress) => void,
+) => Promise<boolean>;
+/** 带 mergedPaths 的原始签名：内容级合并产出的 put 走另一套校验基线 */
+type VerifyRawFn = (
+	plan: SyncPlan,
+	expectedHashes: Map<string, string>,
+	mergedPaths: Set<string>,
+	onProgress: (progress: VerifyProgress) => void,
 ) => Promise<boolean>;
 
 function plan(overrides: Partial<SyncPlan> = {}): SyncPlan {
@@ -25,9 +33,15 @@ function plan(overrides: Partial<SyncPlan> = {}): SyncPlan {
 }
 
 /** 只用到 deps.app 的私有方法：以最小依赖直调，避免驱动整轮会话 */
-function verifier(adapter: Record<string, unknown>): VerifyFn {
+function verifierRaw(adapter: Record<string, unknown>): VerifyRawFn {
 	const session = new ReconcileSession({ app: { vault: { adapter } } } as never);
-	return (session as unknown as { verifyLocalUnchanged: VerifyFn }).verifyLocalUnchanged.bind(session);
+	return (session as unknown as { verifyLocalUnchanged: VerifyRawFn }).verifyLocalUnchanged.bind(session);
+}
+
+/** 非合并路径的用例：mergedPaths 恒为空 */
+function verifier(adapter: Record<string, unknown>): VerifyFn {
+	const raw = verifierRaw(adapter);
+	return (plan, expectedHashes, onProgress) => raw(plan, expectedHashes, new Set(), onProgress);
 }
 
 function fakeDeps() {
@@ -139,6 +153,32 @@ describe("verifying 阶段逐文件进度", () => {
 		await expect(
 			verifier({ exists: broken, readBinary: vi.fn() })(plan({ deletes: ["空目录"], target_entries: entries }), new Map(), vi.fn()),
 		).rejects.toThrow("读盘失败");
+	});
+
+	it("合并产出的 put 以本地快照 hash 为基线，而非 put 的合并结果 hash", async () => {
+		const localText = "1\n2-本地\n3\n4\n5\n";
+		const mergedText = "1\n2-本地\n3\n4-远端\n5\n";
+		const content = new TextEncoder().encode(localText);
+		const localHash = await sha256Hex(content);
+		const mergedHash = await sha256Hex(new TextEncoder().encode(mergedText));
+		const verify = verifierRaw({ readBinary: vi.fn(async () => content.buffer) });
+		const mergedPaths = new Set(["x.md"]);
+		const put = { path: "x.md", content_hash: mergedHash, size: String(content.byteLength), file_id: "f", kind: KIND_FILE };
+
+		// 磁盘仍是合并前的本地内容、put 是合并结果 —— 二者不等但本轮合法，不得判为「用户改过」
+		expect(await verify(plan({ puts: [put] }), new Map([["x.md", localHash]]), mergedPaths, vi.fn())).toBe(true);
+		// 用户确实在提交前改过（磁盘 hash 与快照基线不符）→ 放弃
+		expect(await verify(plan({ puts: [put] }), new Map([["x.md", "0".repeat(64)]]), mergedPaths, vi.fn())).toBe(false);
+		// 无写动作（合并结果与本地一致）时基线退化为 put hash
+		expect(await verify(plan({ puts: [put] }), new Map(), mergedPaths, vi.fn())).toBe(false);
+		expect(
+			await verify(
+				plan({ puts: [{ ...put, content_hash: localHash }] }),
+				new Map(),
+				mergedPaths,
+				vi.fn(),
+			),
+		).toBe(true);
 	});
 });
 

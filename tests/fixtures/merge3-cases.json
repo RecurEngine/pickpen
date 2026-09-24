@@ -1,0 +1,1218 @@
+{
+	"generator": "tmp/d3/gen-fixture.mjs（确定性种子 20260924）",
+	"oracle": "git merge-file -p --diff3",
+	"note": "expected 仅在有干净合并结果时存在；conflict 用例只断言 clean=false。语义对齐见 src/sync/merge3.ts 头注释。",
+	"cases": [
+		{
+			"name": "全空",
+			"base": "",
+			"ours": "",
+			"theirs": "",
+			"clean": true,
+			"expected": ""
+		},
+		{
+			"name": "base 空我方新增",
+			"base": "",
+			"ours": "a\n",
+			"theirs": "",
+			"clean": true,
+			"expected": "a\n"
+		},
+		{
+			"name": "无尾换行",
+			"base": "a",
+			"ours": "a",
+			"theirs": "a",
+			"clean": true,
+			"expected": "a"
+		},
+		{
+			"name": "我方去掉尾换行",
+			"base": "a\n",
+			"ours": "a",
+			"theirs": "a\n",
+			"clean": true,
+			"expected": "a"
+		},
+		{
+			"name": "双方去掉尾换行",
+			"base": "a\n",
+			"ours": "a",
+			"theirs": "a",
+			"clean": true,
+			"expected": "a"
+		},
+		{
+			"name": "CRLF 同增",
+			"base": "a\r\nb\r\n",
+			"ours": "a\r\nb\r\nX\r\n",
+			"theirs": "a\r\nb\r\nX\r\n",
+			"clean": true,
+			"expected": "a\r\nb\r\nX\r\n"
+		},
+		{
+			"name": "CRLF 各增",
+			"base": "a\r\nb\r\n",
+			"ours": "a\r\nb\r\nX\r\n",
+			"theirs": "a\r\nb\r\nY\r\n",
+			"clean": false
+		},
+		{
+			"name": "中间两处插入相隔",
+			"base": "a\nb\nc\n",
+			"ours": "a\nX\nb\nc\n",
+			"theirs": "a\nb\nY\nc\n",
+			"clean": true,
+			"expected": "a\nX\nb\nY\nc\n"
+		},
+		{
+			"name": "相邻两处替换",
+			"base": "a\nb\nc\n",
+			"ours": "a\nX\nc\n",
+			"theirs": "a\nb\nY\n",
+			"clean": false
+		},
+		{
+			"name": "末尾各增一行",
+			"base": "1\n2\n3\n4\n5\n",
+			"ours": "1\n2\n3\n4\n5\nX\n",
+			"theirs": "1\n2\n3\n4\n5\nY\n",
+			"clean": false
+		},
+		{
+			"name": "隔一行各改",
+			"base": "1\n2\n3\n4\n5\n",
+			"ours": "1\n2-改\n3\n4\n5\n",
+			"theirs": "1\n2\n3\n4-改\n5\n",
+			"clean": true,
+			"expected": "1\n2-改\n3\n4-改\n5\n"
+		},
+		{
+			"name": "相邻行各改",
+			"base": "1\n2\n3\n4\n5\n",
+			"ours": "1\n2-改\n3\n4\n5\n",
+			"theirs": "1\n2\n3-改\n4\n5\n",
+			"clean": false
+		},
+		{
+			"name": "一方删一方改同一行",
+			"base": "1\n2\n3\n",
+			"ours": "1\n3\n",
+			"theirs": "1\n2-改\n3\n",
+			"clean": false
+		},
+		{
+			"name": "一方多行追加一方改",
+			"base": "1\n2\n3\n",
+			"ours": "1\n2\n3\n4\n5\n",
+			"theirs": "1\n2-改\n3\n",
+			"clean": true,
+			"expected": "1\n2-改\n3\n4\n5\n"
+		},
+		{
+			"name": "单行各追加",
+			"base": "x\n",
+			"ours": "x\ny\n",
+			"theirs": "x\nz\n",
+			"clean": false
+		},
+		{
+			"name": "rand-000",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"theirs": "L0\nL1\nL2\nL3\nN29\nL5\nC22\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nN29\nL5\nC22\nL7\nL8\nL9\nL10\nL11\nL12\n"
+		},
+		{
+			"name": "rand-001",
+			"base": "L0\nL1\n",
+			"ours": "L0\n",
+			"theirs": "N7\nL0\nL1\nN22\n",
+			"clean": false
+		},
+		{
+			"name": "rand-002",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L1\nL2\nL3\nL4\nL5\nC9\nL7\nL8\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL7\nL8\n",
+			"clean": false
+		},
+		{
+			"name": "rand-003",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nL2\nC17\nL4\nL5\nL6\nN2\nL7\nL8\n",
+			"theirs": "L0\nL1\nC10\nL3\nN29\nL5\nL6\nL7\nL8\n",
+			"clean": false
+		},
+		{
+			"name": "rand-004",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL2\nL3\nL4\nL5\nN38\nL6\nL7\nL8\nL9\nL10\nL11\nN1\nN20\nL12\n",
+			"theirs": "L0\nL1\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nN7\nL11\nL12\n",
+			"clean": false
+		},
+		{
+			"name": "rand-005",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7",
+			"ours": "C23\nL2\nL3\nL4\nL5\nL6\nL7",
+			"theirs": "L0\nL2\nL3\nL4\nL5\nC7\nL6\nL7",
+			"clean": false
+		},
+		{
+			"name": "rand-006",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL8\nL9\nL10\nL11\nC18",
+			"theirs": "L0\nL1\nL2\nL3\nL5\nN18\nL6\nL7\nL9\nL10\nL11\nL12",
+			"clean": false
+		},
+		{
+			"name": "rand-007",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nC35",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nN15\nL10",
+			"clean": false
+		},
+		{
+			"name": "rand-008",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nL1\nL2\nN7\nL3\nN36\nL4\nL5\nL6\nL7\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nC13\nN16\n",
+			"clean": false
+		},
+		{
+			"name": "rand-009",
+			"base": "L0\nL1\nL2\nL3\n",
+			"ours": "C1\nL2\n",
+			"theirs": "C23\nN34\nL2\nL3\nN21\n",
+			"clean": false
+		},
+		{
+			"name": "rand-010",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"ours": "C7\nL1\nL2\nN20\nL3\nL4\nL5\nL6\nC17\nL8\nL9\nL10\nN8\nL11\nL12\nL13\nL14\n",
+			"theirs": "L0\nL1\nL2\nL4\nL5\nL6\nL7\nL8\nL9\nN29\nL10\nL11\nL12\nL13\nL14\n",
+			"clean": false
+		},
+		{
+			"name": "rand-011",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5",
+			"ours": "C14\nL0\nL1\nN2\nL2\nL3\nL4\nN26\nL5",
+			"theirs": "N7\nL0\nC21\nL2\nN12\nL3\nL4\nL5",
+			"clean": false
+		},
+		{
+			"name": "rand-012",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5",
+			"ours": "L0\nC9\nL3\nL5",
+			"theirs": "L0\nL1\nC28\nN17\nL3\nL5",
+			"clean": false
+		},
+		{
+			"name": "rand-013",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\n",
+			"ours": "L0\r\nL2\r\nL3\r\nL4\r\nN27\r\nL5\r\nL6\r\nL7\r\n",
+			"theirs": "L0\r\nL1\r\nC9\r\nL3\r\nL4\r\nL5\r\nN26\r\nL7\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-014",
+			"base": "L0\nL1\nL2\nL3\n",
+			"ours": "L0\nL1\nN11\nL3\nN3\n",
+			"theirs": "L0\nL1\nC9\n",
+			"clean": false
+		},
+		{
+			"name": "rand-015",
+			"base": "L0\nL1\nL2\n",
+			"ours": "N15\nN13\nL1\nL2\n",
+			"theirs": "L0\nN35\nL1\nC18\nN39\nN13\n",
+			"clean": false
+		},
+		{
+			"name": "rand-016",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL1\nL2\nN30\nC24\nL4\nL6\nL7\n",
+			"theirs": "C39\nL1\nL2\nL3\nL4\nL5\nL6\nN3\n",
+			"clean": true,
+			"expected": "C39\nL1\nL2\nN30\nC24\nL4\nL6\nN3\n"
+		},
+		{
+			"name": "rand-017",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL3\nL4\nL5\nC20\nL7\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nL1\nN10\nL2\nL3\nL4\nL6\nL7\nL8\nL9\nL10\n",
+			"clean": false
+		},
+		{
+			"name": "rand-018",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nC22\nL4\nL5\nL6\nL7\nL8\nC9\nL10\nL11\nL12\n",
+			"theirs": "N17\nL0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nC9\nL12\n",
+			"clean": true,
+			"expected": "N17\nL0\nC22\nL4\nL5\nL6\nL7\nL8\nC9\nL10\nC9\nL12\n"
+		},
+		{
+			"name": "rand-019",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nN30\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL6\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nL6\nL8\nN30\nL9\nL10\nL11\nL12\nL13\nL14\n"
+		},
+		{
+			"name": "rand-020",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4",
+			"ours": "L0\r\nL1\r\nL2\r\nN19\r\nL4",
+			"theirs": "L0\r\nC18\r\nL2\r\nL3",
+			"clean": false
+		},
+		{
+			"name": "rand-021",
+			"base": "L0\r\nL1\r\nL2\r\n",
+			"ours": "L0\r\nN39\r\nL1\r\nL2\r\n",
+			"theirs": "L1\r\nL2\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-022",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL1\nL2\nL3\nN14\nL4\nC25\nN3\nL6\nC33\n",
+			"theirs": "L1\nC9\nL3\nL4\nL5\nL6\nL7\n",
+			"clean": true,
+			"expected": "L1\nC9\nL3\nN14\nL4\nC25\nN3\nL6\nC33\n"
+		},
+		{
+			"name": "rand-023",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN25\nL8\nL9\nL10\n",
+			"theirs": "N39\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nN11\n",
+			"clean": true,
+			"expected": "N39\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN25\nL8\nL9\nL10\nN11\n"
+		},
+		{
+			"name": "rand-024",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\n",
+			"ours": "L2\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL10\r\nL11\r\nL12\r\n",
+			"theirs": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nC7\r\nL7\r\nC12\r\nL9\r\nL10\r\nL11\r\nL12\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-025",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nN25\nL5\nL7\nL8\nL9\nL11\nL12\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nN25\nL5\nL7\nL8\nL9\nL11\nL12\n"
+		},
+		{
+			"name": "rand-026",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL6\nL7\nL8\nL9",
+			"theirs": "L1\nL2\nL3\nC36\nL5\nL6\nL7\nL8\nN26\nL9",
+			"clean": false
+		},
+		{
+			"name": "rand-027",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL2\nL3\nL4\nL5\nL6\nL7\nN2\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nC28\nL6\nL7\nL9\nL10\nL11\n",
+			"clean": false
+		},
+		{
+			"name": "rand-028",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL1\nN17\nN16\nN6\nL2\nL3\nL4\nL5\nL6\nN15\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"theirs": "N34\nC36\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"clean": true,
+			"expected": "N34\nC36\nL1\nN17\nN16\nN6\nL2\nL3\nL4\nL5\nL6\nN15\nL7\nL8\nL9\nL10\nL11\nL12\n"
+		},
+		{
+			"name": "rand-029",
+			"base": "L0\nL1\nL2\nL3\n",
+			"ours": "L0\nC28\n",
+			"theirs": "L1\nL2\nC33\nN20\n",
+			"clean": false
+		},
+		{
+			"name": "rand-030",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nN2\n",
+			"clean": false
+		},
+		{
+			"name": "rand-031",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nN35\nL6\nL7\nL8",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nC29\nL6\nL7\nL8\nL9",
+			"clean": false
+		},
+		{
+			"name": "rand-032",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL3\nC34\nL5\nL6\nL7\nL8\nL10\nL11\n",
+			"theirs": "N3\nL0\nL1\nN16\nL2\nL3\nL4\nL5\nL6\nL7\nC7\nL9\nL10\nL11\n",
+			"clean": false
+		},
+		{
+			"name": "rand-033",
+			"base": "L0\r\nL1\r\nL2\r\nL3",
+			"ours": "N16\r\nL0\r\nL1\r\nL2\r\nC31",
+			"theirs": "N34\r\nL0\r\nL1\r\nL2\r\nL3",
+			"clean": false
+		},
+		{
+			"name": "rand-034",
+			"base": "L0\nL1\n",
+			"ours": "N28\nN5\nC1\n",
+			"theirs": "C9\n",
+			"clean": false
+		},
+		{
+			"name": "rand-035",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\nL14\r\nL15\r\n",
+			"ours": "L0\r\nL1\r\nC0\r\nL3\r\nL4\r\nL5\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\nL14\r\nL15\r\n",
+			"theirs": "L0\r\nL1\r\nL2\r\nL3\r\nL5\r\nL6\r\nL8\r\nL9\r\nL10\r\nL12\r\nL13\r\nL14\r\nL15\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-036",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nC18\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"theirs": "L0\nN1\nL1\nC8\nL3\nL4\nL5\nL6\nN8\nL7\nN27\n",
+			"clean": false
+		},
+		{
+			"name": "rand-037",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nN26\nL1\nL2\nL3\nL4\nL5\nL6\nN16\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nL1\nN18\nL2\nL3\nL4\nL5\nL6\nL7\nN26\nL8\nL9\nC30\nL11\n",
+			"clean": false
+		},
+		{
+			"name": "rand-038",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L1\nL2\nL3\nN16\nL4\nL5\nC31\nL8\nL9\nL10\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL9\nL10\n",
+			"clean": false
+		},
+		{
+			"name": "rand-039",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "C1\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"theirs": "C30\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL10\nC28\n",
+			"clean": false
+		},
+		{
+			"name": "rand-040",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5",
+			"ours": "L0\nC26\nL2\nL3\nL4\nL5",
+			"theirs": "C18\nL1\nL2\nL3\nC39",
+			"clean": false
+		},
+		{
+			"name": "rand-041",
+			"base": "L0\n",
+			"ours": "L0\n",
+			"theirs": "N2\nL0\n",
+			"clean": true,
+			"expected": "N2\nL0\n"
+		},
+		{
+			"name": "rand-042",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\n",
+			"ours": "L0\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\n",
+			"theirs": "L1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL10\r\nN5\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-043",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL2\nL3\nL4\nN5\nL6\nL7\n",
+			"theirs": "L0\nL1\nL2\nL3\nC14\nL5\nL6\nL7\nN8\n",
+			"clean": false
+		},
+		{
+			"name": "rand-044",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nN8\nN37\nL9\n",
+			"theirs": "L0\nL1\nC32\nN26\nL3\nL4\nL5\nL6\nL7\nL9\nN31\n",
+			"clean": false
+		},
+		{
+			"name": "rand-045",
+			"base": "L0\r\n",
+			"ours": "N11\r\nN36\r\nN11\r\nL0\r\n",
+			"theirs": "N31\r\nN20\r\nL0\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-046",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nN37\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN11\nL9\nL10\nL11\n",
+			"clean": true,
+			"expected": "L0\nN37\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN11\nL9\nL10\nL11\n"
+		},
+		{
+			"name": "rand-047",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\n",
+			"ours": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nC39\r\nL9\r\nL10\r\nC31\r\nL12\r\n",
+			"theirs": "L0\r\nC19\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nC29\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-048",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13",
+			"ours": "L0\nL2\nL3\nL4\nL5\nL6\nL7\nL10\nL11\nL12\nL13",
+			"theirs": "L0\nL1\nL2\nC38\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13",
+			"clean": true,
+			"expected": "L0\nL2\nC38\nL4\nL5\nL6\nL7\nL10\nL11\nL12\nL13"
+		},
+		{
+			"name": "rand-049",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\n",
+			"ours": "L0\r\nL1\r\nN35\r\nC25\r\nL3\r\n",
+			"theirs": "C2\r\nL0\r\nL1\r\nL2\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-050",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nN36\nL5\nL6\nL7\nL8\nN39\nL9\nL10\nL11\nL12\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nN36\nL5\nL6\nL7\nL8\nN39\nL9\nL10\nL11\nL12\n"
+		},
+		{
+			"name": "rand-051",
+			"base": "L0\nL1\nL2\n",
+			"ours": "L0\nL1\nL2\n",
+			"theirs": "L0\nL1\nL2\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\n"
+		},
+		{
+			"name": "rand-052",
+			"base": "L0\n",
+			"ours": "",
+			"theirs": "C7\nN29\n",
+			"clean": false
+		},
+		{
+			"name": "rand-053",
+			"base": "L0\nL1\nL2\nL3\nL4\n",
+			"ours": "L0\nL2\nC17\nL4\n",
+			"theirs": "L1\nL2\nL3\nL4\n",
+			"clean": false
+		},
+		{
+			"name": "rand-054",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\n",
+			"ours": "N21\nL0\nL1\nL2\nL3\nL4\nN22\nL5\n",
+			"theirs": "C0\nL2\nL3\nL4\nL5\nN27\n",
+			"clean": false
+		},
+		{
+			"name": "rand-055",
+			"base": "L0\nL1\nL2\nL3\n",
+			"ours": "N4\nL0\nL2\nC29\n",
+			"theirs": "N14\nL0\nL1\n",
+			"clean": false
+		},
+		{
+			"name": "rand-056",
+			"base": "L0\nL1\nL2\n",
+			"ours": "L1\nC22\n",
+			"theirs": "N9\nL0\n",
+			"clean": false
+		},
+		{
+			"name": "rand-057",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nC26\nC39\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nN14\nL6\nL7\nL8\nL9\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nN14\nL6\nL7\nC26\nC39\n"
+		},
+		{
+			"name": "rand-058",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\n",
+			"ours": "L0\nL3\nL4\nL5\n",
+			"theirs": "L0\nC38\nL2\nL3\nN29\nL4\nL5\n",
+			"clean": false
+		},
+		{
+			"name": "rand-059",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nC6\nL8\nL9\nN29\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL8\nL9\n",
+			"clean": false
+		},
+		{
+			"name": "rand-060",
+			"base": "L0\nL1\n",
+			"ours": "L0\nC7\n",
+			"theirs": "C12\n",
+			"clean": false
+		},
+		{
+			"name": "rand-061",
+			"base": "L0\nL1\nL2\nL3\nL4",
+			"ours": "C20\nL2\nL3\nL4",
+			"theirs": "L0\nL1\nL2\nL3\nN34\nL4",
+			"clean": true,
+			"expected": "C20\nL2\nL3\nN34\nL4"
+		},
+		{
+			"name": "rand-062",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\n",
+			"ours": "L0\nL1\nL2\nL3\nL5\n",
+			"theirs": "L0\nN31\nN9\nC21\nL1\nL2\nL3\nL4\nL5\n",
+			"clean": true,
+			"expected": "L0\nN31\nN9\nC21\nL1\nL2\nL3\nL5\n"
+		},
+		{
+			"name": "rand-063",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL1\nL2\nL3\nC36\nL7\n",
+			"theirs": "C6\nL2\nN27\nL3\nC39\nL5\nL6\nL7\n",
+			"clean": false
+		},
+		{
+			"name": "rand-064",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nN8\nN35\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nL1\nN34\nL2\nL3\nL4\nL5\nN19\nL6\nL7\nL8\nN12\nL9\nL10\nC24\n",
+			"clean": true,
+			"expected": "L0\nN8\nN35\nL1\nN34\nL2\nL3\nL4\nL5\nN19\nL6\nL7\nL8\nN12\nL9\nL10\nC24\n"
+		},
+		{
+			"name": "rand-065",
+			"base": "L0\nL1\nL2\nL3\nL4\n",
+			"ours": "L0\nL1\nL2\nL3\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nN14\n",
+			"clean": false
+		},
+		{
+			"name": "rand-066",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL7\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nN6\nL1\nL2\nL3\nL5\nL6\nL7\nC21\nL9\nL10\nL11\n",
+			"clean": true,
+			"expected": "L0\nN6\nL1\nL2\nL3\nL5\nL7\nC21\nL9\nL10\nL11\n"
+		},
+		{
+			"name": "rand-067",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\n",
+			"ours": "N4\r\nL0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\n",
+			"theirs": "N2\r\nL0\r\nL2\r\nL3\r\nL6\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-068",
+			"base": "L0\nL1\nL2\n",
+			"ours": "L0\nN36\nL1\nL2\n",
+			"theirs": "L0\nN27\nL2\n",
+			"clean": false
+		},
+		{
+			"name": "rand-069",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\nL14\r\n",
+			"ours": "L0\r\nL1\r\nN27\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\nL14\r\n",
+			"theirs": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\n",
+			"clean": true,
+			"expected": "L0\r\nL1\r\nN27\r\nL2\r\nL3\r\nL4\r\nL5\r\nL7\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\n"
+		},
+		{
+			"name": "rand-070",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10",
+			"ours": "L0\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10",
+			"theirs": "L0\nN27\nN1\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nC4\nN34\nL9\nL10",
+			"clean": false
+		},
+		{
+			"name": "rand-071",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nC33\nN34\nL9\nL10\nN35\nL11\n",
+			"theirs": "L0\nL1\nL2\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL4\nL5\nL6\nL7\nC33\nN34\nL9\nL10\nN35\nL11\n"
+		},
+		{
+			"name": "rand-072",
+			"base": "L0\nL1\nL2\n",
+			"ours": "N30\nL0\nL1\nC8\n",
+			"theirs": "N32\nL0\nL1\nL2\nN29\n",
+			"clean": false
+		},
+		{
+			"name": "rand-073",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nC5\nL6\nL7\n",
+			"theirs": "L0\nL1\nL2\nC8\nL4\nL6\n",
+			"clean": false
+		},
+		{
+			"name": "rand-074",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nC4\nC20\n",
+			"theirs": "L1\nN17\nL2\nL3\nL4\nL5\nN19\nL6\nL7\nL8\n",
+			"clean": true,
+			"expected": "L1\nN17\nL2\nL3\nL4\nL5\nN19\nL6\nC4\nC20\n"
+		},
+		{
+			"name": "rand-075",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"theirs": "N16\nL0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL9\nL11\nL12\n",
+			"clean": true,
+			"expected": "N16\nL0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL9\nL11\nL12\n"
+		},
+		{
+			"name": "rand-076",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nC39\nL3\nL4\nL5\nL7\n",
+			"theirs": "L0\nL1\nL2\nL3\nL5\nL6\nC37\n",
+			"clean": false
+		},
+		{
+			"name": "rand-077",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL4\nL5\nL6\nL7\nN20\nL8\nL9\nL10\nC15\n",
+			"theirs": "L1\nL2\nN8\nL3\nL4\nC11\nL6\nL7\nL8\nL9\nC17\nL11\n",
+			"clean": false
+		},
+		{
+			"name": "rand-078",
+			"base": "L0\n",
+			"ours": "C6\n",
+			"theirs": "L0\n",
+			"clean": true,
+			"expected": "C6\n"
+		},
+		{
+			"name": "rand-079",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"ours": "L0\nL1\nL2\nN0\nL3\nL4\nL5\nC3\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"theirs": "L0\nL1\nL2\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL14\n",
+			"clean": false
+		},
+		{
+			"name": "rand-080",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\n",
+			"ours": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL8\r\nL9\r\nL10\r\nL11\r\n",
+			"theirs": "L0\r\nL1\r\nC28\r\nL3\r\nL4\r\nL5\r\nL6\r\nN1\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-081",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL7\nL8\nL9\nN13\nL10\nC13\nL12\nL13\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nL7\nL8\nL9\nN13\nL10\nC13\nL12\nL13\n"
+		},
+		{
+			"name": "rand-082",
+			"base": "L0\r\n",
+			"ours": "",
+			"theirs": "L0\r\n",
+			"clean": true,
+			"expected": ""
+		},
+		{
+			"name": "rand-083",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL1\nN21\nL2\nL3\nL4\nL5\nN3\nL6\nL7\n",
+			"theirs": "L0\nL1\nL2\nN11\nL3\nL4\nL5\nN6\nL6\nC32\n",
+			"clean": false
+		},
+		{
+			"name": "rand-084",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nC15\nC10\nL10\nN30\n",
+			"theirs": "C9\nL1\nN30\nL2\nL3\nL4\nL5\nL6\nC36\nC13\nL9\nL10\n",
+			"clean": false
+		},
+		{
+			"name": "rand-085",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\n",
+			"ours": "L0\nL1\nL2\nL3\nL6\n",
+			"theirs": "N19\nL0\nL1\nL2\nL3\nL4\nL5\nL6\n",
+			"clean": true,
+			"expected": "N19\nL0\nL1\nL2\nL3\nL6\n"
+		},
+		{
+			"name": "rand-086",
+			"base": "L0\n",
+			"ours": "N18\nN0\nC5\n",
+			"theirs": "C20\n",
+			"clean": false
+		},
+		{
+			"name": "rand-087",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL3\nL5\nL6\nL7\nL8\nL9\nL10\nC23\n",
+			"theirs": "C19\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"clean": true,
+			"expected": "C19\nL1\nL2\nL3\nL5\nL6\nL7\nL8\nL9\nL10\nC23\n"
+		},
+		{
+			"name": "rand-088",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "C26\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"theirs": "L1\nL2\nL3\nC16\nL5\nL6\nN28\nN18\nL7\n",
+			"clean": false
+		},
+		{
+			"name": "rand-089",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10",
+			"ours": "L0\nL1\nL2\nL4\nC19\nL6\nL7\nL8\nL10",
+			"theirs": "L0\nL1\nL2\nL3\nN31\nL4\nL5\nL6\nL7\nL8\nL9\nL10",
+			"clean": false
+		},
+		{
+			"name": "rand-090",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\n",
+			"ours": "L0\r\nL1\r\nC33\r\nL3\r\nL4\r\nL5\r\nN24\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nC18\r\n",
+			"theirs": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-091",
+			"base": "L0\nL1\nL2\n",
+			"ours": "C13\nN11\nL1\nL2\n",
+			"theirs": "L0\nL1\nL2\n",
+			"clean": true,
+			"expected": "C13\nN11\nL1\nL2\n"
+		},
+		{
+			"name": "rand-092",
+			"base": "L0\r\nL1\r\n",
+			"ours": "N24\r\nL0\r\nN1\r\nL1\r\n",
+			"theirs": "N16\r\nL0\r\nL1\r\nN13\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-093",
+			"base": "L0\nL1\nL2\n",
+			"ours": "L0\nN14\nC28\n",
+			"theirs": "L1\nL2\nN3\n",
+			"clean": false
+		},
+		{
+			"name": "rand-094",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\n",
+			"ours": "L2\r\nL3\r\nL5\r\nN37\r\n",
+			"theirs": "N21\r\nL0\r\nL1\r\nC24\r\nL3\r\nL4\r\nN35\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-095",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L0\nL1\nL2\nL3\nN9\nL4\nC11\nL6\nL7\nL8\nL9\nL10\n",
+			"theirs": "N37\nL0\nL1\nL2\nL3\nL4\nL5\nL7\nL8\nL9\nL10\n",
+			"clean": false
+		},
+		{
+			"name": "rand-096",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13",
+			"ours": "L0\nL1\nN35\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nC38\nC9\nL11\nC33\nL13",
+			"theirs": "C1\nL1\nL2\nC9\nL5\nL6\nL7\nL8\nL9\nC15\nL11\nL12\nL13",
+			"clean": false
+		},
+		{
+			"name": "rand-097",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\n",
+			"ours": "L1\nL3\nL4\nL6\n",
+			"theirs": "L0\nL1\nC4\nC9\nL4\nL5\nL6\n",
+			"clean": false
+		},
+		{
+			"name": "rand-098",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\n",
+			"ours": "L0\nL1\nN2\nL2\nL3\nC11\nL5\n",
+			"theirs": "L0\nL1\nC31\nL3\nL4\nL5\n",
+			"clean": false
+		},
+		{
+			"name": "rand-099",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\nL15\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nC12\nL10\nN29\nL11\nL12\nL13\nL14\nL15\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nN0\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\nL15\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nN0\nL7\nL8\nC12\nL10\nN29\nL11\nL12\nL13\nL14\nL15\n"
+		},
+		{
+			"name": "rand-100",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"ours": "L0\nL1\nL2\nC14\nL4\nL5\nL6\nL7\nL8\nC14\nL10\nL11\nL12\nL13\nL14\n",
+			"theirs": "L0\nL1\nL2\nL3\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\n",
+			"clean": false
+		},
+		{
+			"name": "rand-101",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n",
+			"ours": "L1\nN6\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n",
+			"theirs": "L0\nN20\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN25\nL8\nL9\n",
+			"clean": false
+		},
+		{
+			"name": "rand-102",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\n",
+			"ours": "C6\r\nL1\r\nL2\r\nL3\r\nN21\r\nL4\r\nL5\r\nN0\r\n",
+			"theirs": "L0\r\nC38\r\nL2\r\nL3\r\nL4\r\nL5\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-103",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\n",
+			"ours": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nN13\r\nC27\r\nC38\r\n",
+			"theirs": "L1\r\nL2\r\nL3\r\nL4\r\nL6\r\nL7\r\nL8\r\nL9\r\n",
+			"clean": true,
+			"expected": "L1\r\nL2\r\nL3\r\nL4\r\nL6\r\nL7\r\nN13\r\nC27\r\nC38\r\n"
+		},
+		{
+			"name": "rand-104",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\n",
+			"ours": "L0\nL1\nL2\nL3\nL5\nL6\n",
+			"theirs": "N38\nC9\nL1\nL2\nL3\nL4\nL5\nL6\n",
+			"clean": true,
+			"expected": "N38\nC9\nL1\nL2\nL3\nL5\nL6\n"
+		},
+		{
+			"name": "rand-105",
+			"base": "L0\nL1\nL2\n",
+			"ours": "L0\nL1\nL2\n",
+			"theirs": "L0\nL2\nN20\nN29\nN26\n",
+			"clean": true,
+			"expected": "L0\nL2\nN20\nN29\nN26\n"
+		},
+		{
+			"name": "rand-106",
+			"base": "L0\nL1\nL2\nL3\nL4\n",
+			"ours": "N11\nL0\nC30\nL2\nL3\nL4\n",
+			"theirs": "L0\nL1\nC10\nL3\nL4\n",
+			"clean": false
+		},
+		{
+			"name": "rand-107",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\n",
+			"ours": "L0\r\nL1\r\nN7\r\nN39\r\nL2\r\nL3\r\nL4\r\nL6\r\n",
+			"theirs": "L0\r\nC19\r\nL3\r\nN9\r\nL4\r\nL5\r\nL6\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-108",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L1\nL2\nN11\nL3\nN14\nL4\nL5\nL6\nL7\n",
+			"theirs": "L0\nL2\nL4\nL6\nN4\nL7\n",
+			"clean": false
+		},
+		{
+			"name": "rand-109",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\nL15\n",
+			"ours": "L0\nL1\nL2\nL3\nC4\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nC7\n",
+			"theirs": "L1\nL2\nL3\nL4\nL5\nL6\nL7\nN32\nL8\nL9\nL10\nL11\nL12\nL13\nL14\nL15\n",
+			"clean": true,
+			"expected": "L1\nL2\nL3\nC4\nL6\nL7\nN32\nL8\nL9\nL10\nL11\nL12\nL13\nC7\n"
+		},
+		{
+			"name": "rand-110",
+			"base": "L0\r\n",
+			"ours": "C21\r\n",
+			"theirs": "",
+			"clean": false
+		},
+		{
+			"name": "rand-111",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nN33\nL7\nL8\nL9\n",
+			"theirs": "L1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nN23\n",
+			"clean": true,
+			"expected": "L1\nL2\nL3\nL4\nL5\nL6\nN33\nL7\nL8\nL9\nN23\n"
+		},
+		{
+			"name": "rand-112",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nC14\nL6\nL7\nL8\n",
+			"theirs": "L0\nL1\nL2\nL3\nC23\nL5\nL6\nL7\nL8\n",
+			"clean": false
+		},
+		{
+			"name": "rand-113",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nN24\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL6\nL7\nL8\nL9\nL10\nL11\nN19\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nN24\nL3\nL4\nL6\nL7\nL8\nL9\nL10\nL11\nN19\n"
+		},
+		{
+			"name": "rand-114",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "L0\nL1\nL2\nL3\nN6\nL4\nL5\nL6\nL7\nL8\nL9\nC13\nL11\n",
+			"theirs": "L0\nL1\nL2\nL3\nC28\nL5\nL6\nL7\nL8\nN23\nL9\nL10\nL11\n",
+			"clean": false
+		},
+		{
+			"name": "rand-115",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "C13\nC31\nL2\nC36\nC9\nL5\nL6\nL7\n",
+			"theirs": "L0\nC24\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"clean": false
+		},
+		{
+			"name": "rand-116",
+			"base": "L0\nL1\nL2\n",
+			"ours": "C4\nN3\nL1\nC35\n",
+			"theirs": "L0\nN28\nL1\nN38\nL2\n",
+			"clean": false
+		},
+		{
+			"name": "rand-117",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\n",
+			"ours": "L0\r\nL1\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\n",
+			"theirs": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL7\r\nL9\r\nL10\r\nL11\r\nL12\r\n",
+			"clean": true,
+			"expected": "L0\r\nL1\r\nL3\r\nL4\r\nL5\r\nL7\r\nL9\r\nL10\r\nL11\r\nL12\r\n"
+		},
+		{
+			"name": "rand-118",
+			"base": "L0\nL1\nL2\nL3\n",
+			"ours": "N39\nL0\nL1\nL2\n",
+			"theirs": "C0\nN21\nL1\nC9\n",
+			"clean": false
+		},
+		{
+			"name": "rand-119",
+			"base": "L0\n",
+			"ours": "N6\nL0\nN18\nN4\nN7\n",
+			"theirs": "",
+			"clean": false
+		},
+		{
+			"name": "rand-120",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12",
+			"ours": "L0\nN10\nL1\nL2\nC39\nN12\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12",
+			"theirs": "L0\nL1\nL2\nL4\nL5\nL6\nL8\nL9\nL10\nL12",
+			"clean": false
+		},
+		{
+			"name": "rand-121",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10",
+			"ours": "N1\nL0\nC26\nC12\nL3\nL4\nL5\nL6\nL7\nL8\nL10",
+			"theirs": "C27\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL9\nL10",
+			"clean": false
+		},
+		{
+			"name": "rand-122",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\n",
+			"ours": "L0\r\nL1\r\nL2\r\nL3\r\nN10\r\nL4\r\nL5\r\nL6\r\n",
+			"theirs": "L0\r\nL1\r\nC6\r\nL5\r\nL6\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-123",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L0\nL1\nL2\nL3\nC5\nL5\nN29\nL6\nL7\nL8\nL9\nL10\n",
+			"theirs": "L0\nL1\nL2\nN34\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nN34\nL3\nC5\nL5\nN29\nL6\nL7\nL8\nL9\nL10\n"
+		},
+		{
+			"name": "rand-124",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9",
+			"ours": "L0\nL1\nN32\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8",
+			"clean": true,
+			"expected": "L0\nL1\nN32\nL2\nL3\nL4\nL5\nL6\nL7\nL8"
+		},
+		{
+			"name": "rand-125",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL1\nL3\nC13\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"theirs": "C31\nL1\nL2\nL3\nL4\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nN24\n",
+			"clean": false
+		},
+		{
+			"name": "rand-126",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L1\nL2\nL3\nL4\nL5\nL6\nC6\nL8\nL9\nL10\n",
+			"theirs": "L0\nL1\nL2\nC26\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"clean": true,
+			"expected": "L1\nL2\nC26\nL4\nL5\nL6\nC6\nL8\nL9\nL10\n"
+		},
+		{
+			"name": "rand-127",
+			"base": "L0\nL1",
+			"ours": "L0\nC22",
+			"theirs": "C19",
+			"clean": false
+		},
+		{
+			"name": "rand-128",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\n",
+			"ours": "L0\r\nN23\r\nL1\r\nL2\r\nL5\r\nL6\r\n",
+			"theirs": "C30\r\nL1\r\nN2\r\nL2\r\nL3\r\nL4\r\nL5\r\n",
+			"clean": false
+		},
+		{
+			"name": "rand-129",
+			"base": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\n",
+			"ours": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\n",
+			"theirs": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\n",
+			"clean": true,
+			"expected": "L0\r\nL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL8\r\nL9\r\nL10\r\nL11\r\nL12\r\nL13\r\n"
+		},
+		{
+			"name": "rand-130",
+			"base": "L0\nL1\nL2\nL3\nL4\n",
+			"ours": "L0\nL2\nL3\nC6\n",
+			"theirs": "L0\nL1\nL2\nL3\n",
+			"clean": false
+		},
+		{
+			"name": "rand-131",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nC5\nL8\nL9\nL10\nL11\nL12\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL11\nL12\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nC5\nL8\nL9\nL11\nL12\n"
+		},
+		{
+			"name": "rand-132",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nL1\nL2\nC11\nL4\nL5\nL6\nL7\nL8\nN10\n",
+			"theirs": "N1\nL0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"clean": true,
+			"expected": "N1\nL0\nL1\nL2\nC11\nL4\nL5\nL6\nL7\nL8\nN10\n"
+		},
+		{
+			"name": "rand-133",
+			"base": "L0\nL1\nL2\n",
+			"ours": "L0\n",
+			"theirs": "C20\nL1\nL2\nC37\n",
+			"clean": false
+		},
+		{
+			"name": "rand-134",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L0\nL2\nL3\nL4\nL5\nL6\nL8\nL9\nL10\n",
+			"theirs": "L0\nL1\nL2\nC23\nL5\nL6\nL7\nL8\nC39\nL10\n",
+			"clean": true,
+			"expected": "L0\nL2\nC23\nL5\nL6\nL8\nC39\nL10\n"
+		},
+		{
+			"name": "rand-135",
+			"base": "L0\r\n",
+			"ours": "L0\r\n",
+			"theirs": "N9\r\nC31\r\n",
+			"clean": true,
+			"expected": "N9\r\nC31\r\n"
+		},
+		{
+			"name": "rand-136",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8",
+			"ours": "L0\nL2\nL3\nL4\nL5\nL6\nN16\nL7\nL8",
+			"theirs": "L1\nL2\nN28\nL3\nL5\nL6\nL7\nL8\nN16",
+			"clean": false
+		},
+		{
+			"name": "rand-137",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nN4\nL1\nC37\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL8\n",
+			"clean": true,
+			"expected": "L0\nN4\nL1\nC37\nL3\nL4\nL5\nL6\nL8\n"
+		},
+		{
+			"name": "rand-138",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\n",
+			"ours": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nN14\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN24\nL8\n",
+			"clean": true,
+			"expected": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nN24\nL8\nN14\n"
+		},
+		{
+			"name": "rand-139",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\nL14\nL15\n",
+			"ours": "L0\nL1\nL2\nL3\nC2\nL5\nL6\nL7\nL8\nL9\nL10\nN2\nL11\nC17\nC15\nL14\nL15\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nC0\nL11\nL12\nL13\nL14\nL15\n",
+			"clean": false
+		},
+		{
+			"name": "rand-140",
+			"base": "L0\n",
+			"ours": "",
+			"theirs": "N36\nC37\nL0\nN22\n",
+			"clean": false
+		},
+		{
+			"name": "rand-141",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nN16\nL1\nL2\nL3\nN35\nL4\nL5\nL6\nN27\nL7\n",
+			"theirs": "L0\nN12\nL1\nL3\nL4\nL5\nC7\nL7\n",
+			"clean": false
+		},
+		{
+			"name": "rand-142",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"ours": "C16\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\nL13\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nC27\nL10\nL11\nC15\nL13\n",
+			"clean": true,
+			"expected": "C16\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nC27\nL10\nL11\nC15\nL13\n"
+		},
+		{
+			"name": "rand-143",
+			"base": "L0\nL1\n",
+			"ours": "L0\n",
+			"theirs": "L1\nN19\n",
+			"clean": false
+		},
+		{
+			"name": "rand-144",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\nL12\n",
+			"ours": "L0\nL1\nL2\nL3\nC31\nN38\nL5\nL6\nC37\nL8\nL9\nL10\nL12\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nN33\nL11\nL12\n",
+			"clean": false
+		},
+		{
+			"name": "rand-145",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\n",
+			"ours": "L0\nL1\nL2\nL3\nC19\nN14\nL5\nL6\nL7\n",
+			"theirs": "L0\nL1\nN33\nL2\nL3\nL4\nN33\nL5\nL6\nC34\n",
+			"clean": false
+		},
+		{
+			"name": "rand-146",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\nL11\n",
+			"ours": "N36\nL1\nL2\nL3\nL4\nL5\nL7\nL8\nL9\nN8\nL10\nL11\n",
+			"theirs": "L0\nL1\nL2\nL3\nL4\nL5\nN0\nL6\nL8\nN29\nL9\nN21\nL10\nL11\n",
+			"clean": false
+		},
+		{
+			"name": "rand-147",
+			"base": "L0\n",
+			"ours": "",
+			"theirs": "N6\nN25\n",
+			"clean": false
+		},
+		{
+			"name": "rand-148",
+			"base": "L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\nL10\n",
+			"ours": "L0\nL1\nC25\nC14\nL4\nL6\nL7\nC15\nL9\nL10\n",
+			"theirs": "L0\nL1\nN39\nL2\nL3\nL4\nL6\nL7\nL8\nC7\nL10\n",
+			"clean": false
+		},
+		{
+			"name": "rand-149",
+			"base": "L0\nL1\nL2\n",
+			"ours": "N5\nL2\n",
+			"theirs": "C22\nL1\nN31\nL2\n",
+			"clean": false
+		}
+	]
+}

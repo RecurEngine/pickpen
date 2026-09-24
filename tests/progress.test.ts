@@ -48,6 +48,23 @@ describe("进度展示", () => {
 		expect(state.progress?.completed).toBe(1);
 	});
 
+	it("冲突副本是提醒不是失败：黄色提示压过完成态，但不参与 allSynced", () => {
+		const settings = { accessToken: "token" } as PluginSettings;
+		const state = new SyncState();
+		state.update({ conflictCopyPaths: ["a (conflict abcdef 2026-08-28T12-00-00-000Z).md"] });
+		const status = deriveStatus(settings, state);
+		expect(status.mod).toBe("yellow");
+		expect(status.text).toBe("同步完成，有 1 个冲突副本待处理");
+		// 同步本身是完整的：副本等用户核对，不该把全局状态判成「没同步完」
+		expect(state.allSynced).toBe(true);
+		// 阻塞（本轮没同步完）优先于冲突副本
+		state.update({ blockedPaths: ["大文件"] });
+		expect(deriveStatus(settings, state).text).toContain("同步受阻");
+		// 清掉副本后回到完成态
+		state.update({ blockedPaths: [], conflictCopyPaths: [] });
+		expect(deriveStatus(settings, state)).toEqual({ mod: "green", text: "已全部同步" });
+	});
+
 	it("百分比向下取整，未全部完成不显示 100%，总量未知或为空不显示进度条", () => {
 		const at = (completed: number, total: number | null) => progressPercent({ phase: "uploading", completed, total, activePaths: [] });
 		expect(at(12, 40)).toBe(30);

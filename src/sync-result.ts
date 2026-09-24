@@ -6,6 +6,8 @@ export interface SyncResultInput {
 	lastError: string;
 	storageLimitExceeded: boolean;
 	blockedCount: number;
+	/** 待处理的冲突副本数（存量）。同步本身已完成，只是有副本等用户核对 */
+	conflictCount: number;
 	changed: boolean; // 本轮是否真的同步到了内容（远端落地或本地提交）
 }
 
@@ -18,7 +20,11 @@ export function syncResultMessage(input: SyncResultInput): string {
 	if (input.pausedReason) return `同步已暂停：${input.pausedReason}`;
 	if (input.storageLimitExceeded) return "同步已暂停：云端存储已满";
 	if (input.lastError) return `同步失败：${failureReason(input.lastError)}`;
-	if (input.blockedCount > 0) return `同步完成，但有 ${input.blockedCount} 个文件被阻塞`;
+	// 被阻塞是「本轮没同步完」，冲突副本是「同步完了但有事要处理」：两类都报，不互相顶掉
+	const notes: string[] = [];
+	if (input.blockedCount > 0) notes.push(`${input.blockedCount} 个文件被阻塞`);
+	if (input.conflictCount > 0) notes.push(`${input.conflictCount} 个冲突副本待处理`);
+	if (notes.length > 0) return `同步完成，但有 ${notes.join("、")}`;
 	if (input.changed) return "同步完成";
 	return "已全部同步（无变化）";
 }

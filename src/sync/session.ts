@@ -5,7 +5,7 @@
 
 import { App, Platform, normalizePath } from "obsidian";
 
-import { remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
+import { openForLocal, remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
 import { isFileIDMoved, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
@@ -14,9 +14,10 @@ import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgre
 import { Applier } from "./applier";
 import { BaseStore } from "./base-store";
 import { LocalSnapshotBuilder } from "./local-snapshot";
+import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
 import { buildTree } from "./merkle";
 import { PendingStore } from "./pending-store";
-import { entriesEqual, plan } from "./planner";
+import { entriesEqual, isConflictCopyPath, plan } from "./planner";
 import { SnapshotRemote } from "./remote";
 import { createSyncFilter, type SyncFilter } from "./selective";
 import { KIND_DIR, KIND_FILE } from "./types";
@@ -48,11 +49,19 @@ function sameEntriesExcept(
 	return true;
 }
 
+/** vault 内全部文件路径。测试以最小 deps 直调私有方法时 vault 可能没有索引方法 */
+function vaultPaths(app: App): string[] {
+	const v = app.vault as unknown as { getFiles?: () => Array<{ path: string }> };
+	return (v.getFiles?.() ?? []).map((f) => f.path);
+}
+
 export interface SyncStatus {
 	progress: SyncProgress | null;
 	running: boolean;
 	lastError: string;
 	blockedPaths: string[];
+	/** 磁盘上待处理的冲突副本（存量）：仅提示，不参与 allSynced */
+	conflictCopyPaths: string[];
 	/** 「最后同步」时间戳（毫秒）；0 表示本次运行内还没有完成过一轮同步 */
 	lastSyncAt: number;
 	storageLimitExceeded: boolean;
@@ -101,6 +110,8 @@ export class ReconcileSession {
 	/** 12023 连续触发后的 rename hint 抑制：fileIDFor 退化为新 UUID，保证重试产生不同 plan */
 	private suppressRenameHints = false;
 	private blockedPaths: string[] = [];
+	/** 待处理冲突副本存量（每轮扫描后刷新；仅提示用） */
+	private conflictCopyPaths: string[] = [];
 	private lastError = "";
 	/** 「最后同步」时间：最近一轮无异常收尾的同步（仅供展示，不参与对账判定） */
 	private lastSyncAt = 0;
@@ -233,6 +244,7 @@ export class ReconcileSession {
 			progress: this.progress,
 			lastError: this.lastError,
 			blockedPaths: [...this.blockedPaths],
+			conflictCopyPaths: [...this.conflictCopyPaths],
 			lastSyncAt: this.lastSyncAt,
 			storageLimitExceeded: this.storageLimitExceeded,
 			storageLimitConfirmed,
@@ -374,6 +386,9 @@ export class ReconcileSession {
 		this.renameHints.clear(); // 本轮 hint 已消费
 		const local = localRes.snapshot;
 		this.blockedPaths = localRes.blockedPaths;
+		// 冲突副本存量：取自 vault 索引而非同步快照——被排除/被阻塞的路径也要计入，
+		// 用户是在文件列表里看到它们、并从这里去处理的（配置目录内的副本不进 vault 索引，不计）
+		this.conflictCopyPaths = vaultPaths(app).filter(isConflictCopyPath);
 
 		// 5. Head 未变且 L == B → 结束（§9.1 步骤 5）。
 		// 被排除路径不进 L（扫描时已过滤）而可能仍留在 B，直接比 root 会永远不相等：
@@ -415,6 +430,16 @@ export class ReconcileSession {
 			blockedPaths: this.blockedPaths,
 			filter,
 		});
+		// 7b. 内容级合并（§8.2 扩展）：把能在内容层干净合并的冲突副本就地消解。
+		// 必须早于 target_root_hash 计算与 expectedHashes 采集——两者都读改写后的 plan
+		const mergePass = await this.runMergePass({
+			plan: planResult,
+			base,
+			remote: remoteSnap,
+			filter,
+			expectedRevision: head.revision,
+			expectedRootHash: head.rootHash,
+		});
 		planResult.target_root_hash = await (buildTree(planResult.target_entries)).rootHash;
 		const hasWork =
 			planResult.puts.length > 0 ||
@@ -453,8 +478,9 @@ export class ReconcileSession {
 
 		// 8. 下载 Target 需要、本地尚无的 Remote Blob（§9.1 步骤 8）：下载即写插件私有临时区，
 		//    计数到齐即临时区就绪（避免「已完成 N/N 却仍在写盘」）
+		// 合并产物已在临时区就绪（服务端尚未有该内容），不走下载
 		const downloads = planResult.apply_actions
-			.filter((a) => a.kind === "write")
+			.filter((a) => a.kind === "write" && !mergePass.stagedHashes.has(a.content_hash))
 			.map((a) => ({ path: a.path, content_hash: a.content_hash, size: a.size }));
 		const yc = createYieldControl();
 		await this.applier.fetchBlobs(
@@ -471,7 +497,7 @@ export class ReconcileSession {
 		}
 
 		// 9. 提交前重新 stat/hash 复查（§9.1 步骤 9）：变化则放弃本轮，不应用已下载临时文件
-		if (!(await this.verifyLocalUnchanged(planResult, expectedHashes, this.beginPhase("verifying")))) {
+		if (!(await this.verifyLocalUnchanged(planResult, expectedHashes, mergePass.mergedPaths, this.beginPhase("verifying")))) {
 			return;
 		}
 
@@ -490,6 +516,15 @@ export class ReconcileSession {
 		const uploadTracker = new ProgressTracker(uploads.length, uploadProgress);
 		for (const [hash, srcPath] of uploads) {
 			await uploadTracker.track(srcPath, async () => {
+				if (mergePass.stagedHashes.has(hash)) {
+					// 合并产物：临时区里已是「密封后」的字节（其 SHA-256 即计划声明的 hash）。
+					// 绝不能按源文件重新密封——磁盘上仍是合并前的本地内容，会算出另一个地址
+					const sealedBytes = new Uint8Array(
+						await app.vault.adapter.readBinary(normalizePath(`${this.tmpDir}/${hash}`)),
+					);
+					await remote.putBlob(hash, sealedBytes);
+					return;
+				}
 				const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
 				// 上传统一出口：加密仓库在这里转成密文。
 				// 声明哈希用计划里的 hash 而不是重算值：文件若在上传期间被改动，服务端重算
@@ -672,6 +707,47 @@ export class ReconcileSession {
 		return out;
 	}
 
+	/**
+	 * 内容级合并（spec §8.2 扩展）：对 planner 产出的冲突副本逐个尝试 Base/Local/Remote
+	 * 三方合并，能干净合并的路径直接从 plan 中消解——原路径落合并结果，不再产生副本。
+	 * 任何一步失败都降级为保留冲突副本，不中断本轮。
+	 */
+	private async runMergePass(args: {
+		plan: SyncPlan;
+		base: Snapshot | null;
+		remote: Snapshot;
+		filter: SyncFilter;
+		expectedRevision: bigint;
+		expectedRootHash: string;
+	}): Promise<MergePassResult> {
+		if (args.plan.conflict_copies.length === 0) {
+			return { mergedPaths: new Set(), stagedHashes: new Set() };
+		}
+		const { app, remote } = this.deps;
+		return resolveConflictsByMerge({
+			plan: args.plan,
+			base: args.base,
+			remote: args.remote,
+			isConfigPath: (path) => args.filter.isConfigPath(path),
+			deps: {
+				readLocal: async (path) => new Uint8Array(await app.vault.adapter.readBinary(path)),
+				// Base 版本走历史通道（history_file_id 非空即免 expected Head 校验），
+				// 因此这里不传 Head；转换加密前遗留的明文历史版本允许按明文读回
+				readBase: async (hash, fileId) => openForLocal(await remote.getBlob(hash, 0n, "", fileId), true),
+				readRemote: async (hash) =>
+					openForLocal(await remote.getBlob(hash, args.expectedRevision, args.expectedRootHash)),
+				seal: async (content) => {
+					const sealed = await sealForRemote(content);
+					return { hash: sealed.hash, bytes: sealed.bytes };
+				},
+				// 与下载产物同一临时区布局：后续 temp_path 推导与 applier 读取都无需特殊处理
+				stage: async (hash, bytes) =>
+					this.applier.writeTemp(app, normalizePath(`${this.tmpDir}/${hash}`), bytes),
+				onNote: (path, message) => debugLog.info(`[pickpen] 内容合并 ${path}：${message}`),
+			},
+		});
+	}
+
 	/** 本地内容的远端寻址哈希：加密仓库为密文哈希（与提交给服务端的一致） */
 	private async hashContent(content: ArrayBuffer): Promise<string> {
 		return remoteHash(content);
@@ -699,6 +775,7 @@ export class ReconcileSession {
 	private async verifyLocalUnchanged(
 		planResult: SyncPlan,
 		expectedHashes: Map<string, string>,
+		mergedPaths: Set<string>,
 		onProgress: ProgressCallback,
 	): Promise<boolean> {
 		const { app } = this.deps;
@@ -713,7 +790,13 @@ export class ReconcileSession {
 			let verified = false;
 			try {
 				const content = await app.vault.adapter.readBinary(srcPath);
-				if ((await this.hashContent(content)) !== p.content_hash) return false;
+				// 内容级合并产出的 put：磁盘上仍是合并前的本地内容，put 的 hash 是合并结果，
+				// 二者本就不等——这里要校验的是「用户没在提交前改动」，基线取 Session 快照时的
+				// 本地 hash（合并结果与本地一致时无写动作、也就没有基线，退回按 put hash 比对）
+				const expected = mergedPaths.has(p.path)
+					? (expectedHashes.get(p.path) ?? p.content_hash)
+					: p.content_hash;
+				if ((await this.hashContent(content)) !== expected) return false;
 				verified = true;
 			} catch {
 				return false; // 源文件消失：放弃

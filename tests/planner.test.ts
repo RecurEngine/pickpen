@@ -1,7 +1,7 @@
 // 三方对账 Planner 表驱动测试（spec §8.2 裁决矩阵 12 行 + §8.4 Bootstrap 6 行）。
 // planner 输入不含 mtime → 设备时钟差异不影响冲突结果（§16.3）。
 import { describe, expect, it } from "vitest";
-import { entriesEqual, nextConflictCopyName, plan } from "../src/sync/planner";
+import { entriesEqual, isConflictCopyPath, nextConflictCopyName, plan } from "../src/sync/planner";
 import { createSyncFilter, defaultSelectiveSettings } from "../src/sync/selective";
 import type { Entry, Snapshot } from "../src/sync/types";
 
@@ -272,6 +272,23 @@ describe("冲突副本命名（§8.2）", () => {
 		expect(n1).toBe("daily/note (conflict abcdef 2026-08-28T12-00-00-000Z).md");
 		const n2 = nextConflictCopyName("daily/note.md", "abcdef-1234", now, new Set([n1]));
 		expect(n2).toBe("daily/note (conflict abcdef 2026-08-28T12-00-00-000Z 2).md");
+	});
+
+	it("isConflictCopyPath 认得自己生成的命名（含重名序号），不误伤近形文名", () => {
+		const now = new Date("2026-08-28T12:00:00.000Z");
+		const n1 = nextConflictCopyName("daily/note.md", "abcdef-1234", now, new Set());
+		const n2 = nextConflictCopyName("daily/note.md", "abcdef-1234", now, new Set([n1]));
+		expect(isConflictCopyPath(n1)).toBe(true);
+		expect(isConflictCopyPath(n2)).toBe(true);
+		// 子目录、无扩展名、其他设备的短码都要认得
+		expect(isConflictCopyPath("a/b/c (conflict 9f3a1c 2026-01-02T03-04-05-006Z).canvas")).toBe(true);
+		expect(isConflictCopyPath("note (conflict abcdef 2026-08-28T12-00-00-000Z)")).toBe(true);
+		// Obsidian 官方的冲突副本命名与本插件无关；普通笔记、只像一半的名字都不算
+		expect(isConflictCopyPath("note (Conflicted copy 2026-08-28).md")).toBe(false);
+		expect(isConflictCopyPath("note.md")).toBe(false);
+		expect(isConflictCopyPath("note (conflict abcdef).md")).toBe(false);
+		expect(isConflictCopyPath("note (conflict abcdef 2026-08-28).md")).toBe(false);
+		expect(isConflictCopyPath("conflict abcdef 2026-08-28T12-00-00-000Z.md")).toBe(false);
 	});
 
 	it("entriesEqual 只比较 state+content_hash+size，忽略 local_* 快路径字段", () => {

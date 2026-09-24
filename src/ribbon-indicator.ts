@@ -33,6 +33,8 @@ export interface RibbonLabelInput {
 	pausedReason: string;
 	lastError: string;
 	blockedCount: number;
+	/** 待处理的冲突副本数（存量）：有它时不显示「已全部同步」——那会把待处理的事盖掉 */
+	conflictCount: number;
 	lastSyncAt: number;
 	allSynced: boolean;
 }
@@ -53,6 +55,7 @@ export function ribbonLabel(input: RibbonLabelInput): string {
 	} else if (input.pausedReason || input.lastError) {
 		parts.push(input.pausedReason || "有错误");
 	}
+	if (input.conflictCount > 0) parts.push(`${input.conflictCount} 个冲突副本待处理`);
 	if (input.blockedCount > 0) parts.push(`${input.blockedCount} 个文件被阻塞`);
 	if (input.stage === null && input.allSynced && parts.length === 0) parts.push("已全部同步");
 	if (input.lastSyncAt) {

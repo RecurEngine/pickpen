@@ -11,6 +11,10 @@ export class SyncState {
 	pausedReason = ""; // 非空即同步暂停（如「令牌失效」「请选择要绑定的仓库」）
 	skippedLargeFiles: string[] = []; // 被当前套餐单文件上限阻塞的文件
 	blockedPaths: string[] = []; // 被阻塞路径（超限/读失败/大小写冲突/file-dir 冲突）
+	/** 磁盘上待处理的冲突副本（存量，含其他设备产生的）。
+	 * 只用于提示，**不参与 allSynced 判定**：冲突副本是「两边内容都在」的提醒，不是同步失败，
+	 * 否则只要有未清理的副本，Ribbon 就永远不会显示「已全部同步」。 */
+	conflictCopyPaths: string[] = [];
 	storageLimitExceeded = false; // 用户总存储已满；成功完成一次同步后清除
 	sessionRunning = false;
 	progress: SyncProgress | null = null;

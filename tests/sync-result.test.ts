@@ -8,6 +8,7 @@ const base: SyncResultInput = {
 	lastError: "",
 	storageLimitExceeded: false,
 	blockedCount: 0,
+	conflictCount: 0,
 	changed: false,
 };
 
@@ -25,6 +26,19 @@ describe("手动同步回执文案", () => {
 	it("有文件被阻塞时在完成文案里点明数量", () => {
 		expect(syncResultMessage(input({ changed: true, blockedCount: 2 }))).toBe("同步完成，但有 2 个文件被阻塞");
 		expect(syncResultMessage(input({ blockedCount: 1 }))).toBe("同步完成，但有 1 个文件被阻塞");
+	});
+
+	it("有冲突副本时单独报，且与被阻塞并存时两者都报", () => {
+		expect(syncResultMessage(input({ changed: true, conflictCount: 1 }))).toBe("同步完成，但有 1 个冲突副本待处理");
+		// 无变化也要报：副本是存量，不该因为没有新变更就被吞掉
+		expect(syncResultMessage(input({ conflictCount: 3 }))).toBe("同步完成，但有 3 个冲突副本待处理");
+		expect(syncResultMessage(input({ changed: true, blockedCount: 2, conflictCount: 1 }))).toBe(
+			"同步完成，但有 2 个文件被阻塞、1 个冲突副本待处理",
+		);
+	});
+
+	it("错误态优先于阻塞与冲突副本", () => {
+		expect(syncResultMessage(input({ lastError: "网络失败", blockedCount: 2, conflictCount: 1 }))).toBe("同步失败：网络失败");
 	});
 
 	it("暂停原因优先于其它状态（如未解锁）", () => {

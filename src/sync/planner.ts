@@ -312,6 +312,17 @@ export function plan(input: PlanInput): SyncPlan {
 	};
 }
 
+/**
+ * 冲突副本命名判定：nextConflictCopyName 的逆运算，用于统计「待处理的冲突副本」。
+ * 只认本插件生成的形状 `<stem> (conflict <设备短码> <UTC ISO>)[ N].<ext>`：
+ * 不匹配 Obsidian 官方的 `(Conflicted copy …)`，也尽量不误伤用户自己的同名文件。
+ */
+const CONFLICT_COPY_RE = / \(conflict [^()/]+ \d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?: \d+)?\)(?:\.[^/]*)?$/;
+
+export function isConflictCopyPath(path: string): boolean {
+	return CONFLICT_COPY_RE.test(path);
+}
+
 /** 冲突副本命名：<stem> (conflict <device 短码> <UTC 时间>).<ext>；重名追加递增序号（spec §8.2） */
 export function nextConflictCopyName(
 	path: string,

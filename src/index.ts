@@ -3,7 +3,7 @@
 // → onLayoutReady：注册 vault 事件 → pending 检查 → 启动轮询 → requestRun({forceAudit:true})
 // 启动、切回前台、定时轮询、本地 dirty hint 都只请求运行同一个串行 Session。
 
-import { addIcon, Notice, Platform, Plugin, setIcon, setTooltip } from "obsidian";
+import { addIcon, Notice, Platform, Plugin, setIcon, setTooltip, TFile } from "obsidian";
 
 import pickpenIconSvg from "./assets/pickpen.svg";
 import { AuthManager } from "./auth";
@@ -249,6 +249,7 @@ export default class PickpenPlugin extends Plugin {
 					progress: s.progress,
 					lastError: s.lastError,
 					blockedPaths: s.blockedPaths,
+					conflictCopyPaths: s.conflictCopyPaths,
 					lastSyncAt: s.lastSyncAt,
 					storageLimitExceeded: s.storageLimitExceeded,
 				});
@@ -417,15 +418,48 @@ export default class PickpenPlugin extends Plugin {
 		}
 		await done;
 		if (this.unloaded) return; // 卸载途中不再提示
-		new Notice(
+		this.noticeSyncResult(
 			syncResultMessage({
 				pausedReason: syncState.pausedReason,
 				lastError: syncState.lastError,
 				storageLimitExceeded: syncState.storageLimitExceeded,
 				blockedCount: syncState.blockedPaths.length,
+				conflictCount: syncState.conflictCopyPaths.length,
 				changed: (this.baseStore?.getBase()?.base_root_hash ?? "") !== beforeRoot,
 			}),
 		);
+	}
+
+	/**
+	 * 同步结果回执。有冲突副本时在回执里附一个入口——副本是普通文件，
+	 * 不给入口的话用户只能自己在文件列表里认出那个 `(conflict …)` 名字。
+	 * v1 只跳第一个：处理入口不在这里，逐个打开即可。
+	 */
+	private noticeSyncResult(message: string): void {
+		const conflicts = syncState.conflictCopyPaths;
+		if (conflicts.length === 0) {
+			new Notice(message);
+			return;
+		}
+		let notice: Notice;
+		const frag = createFragment((el) => {
+			el.createDiv({ text: message });
+			el.createEl("a", { cls: "pickpen-notice-link", text: "查看冲突副本", href: "#" }).addEventListener(
+				"click",
+				(evt) => {
+					evt.preventDefault();
+					notice.hide();
+					this.openPath(conflicts[0]);
+				},
+			);
+		});
+		notice = new Notice(frag, 8000);
+	}
+
+	/** 在编辑区打开指定路径（冲突副本跳转用） */
+	private openPath(path: string): void {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (file instanceof TFile) void this.app.workspace.getLeaf(false).openFile(file);
 	}
 
 	private updateRibbon(): void {
@@ -437,6 +471,7 @@ export default class PickpenPlugin extends Plugin {
 			pausedReason: syncState.pausedReason,
 			lastError: syncState.lastError,
 			blockedCount: syncState.blockedPaths.length,
+			conflictCount: syncState.conflictCopyPaths.length,
 			lastSyncAt: syncState.lastSyncAt,
 			allSynced: syncState.allSynced,
 		});
