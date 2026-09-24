@@ -4,9 +4,13 @@
 // rename 语义 = delete(oldPath) + put(newPath, 同 file_id)：身份由 file_id 承载，
 // local-snapshot 通过 renameHints 继承旧路径 file_id，planner 原样透传（§8.3 扩展）。
 // 对账后统一做 file_id 身份冲突修复（§8.3 扩展）：非法身份复用（服务端 12023）改新 UUID。
+//
+// 选择性同步：被排除路径整体跳过（不 put/不 delete/不下载），目标树保留远端状态；
+// 配置文件（配置目录内）参与对账，但冲突时以远端为准、本地留不参与同步的副本。
 
 import { KIND_DIR, KIND_FILE } from "./types";
 import type { Entry, PutMutation, Snapshot, SyncPlan } from "./types";
+import type { SyncFilter } from "./selective";
 import { newUUID } from "./utils";
 
 export interface PlanInput {
@@ -16,6 +20,8 @@ export interface PlanInput {
 	deviceId: string;
 	/** 本地被阻塞路径（超限/读失败/大小写冲突）：保留 Base/Remote 原状态，禁止提交 delete（§9.2） */
 	blockedPaths?: string[];
+	/** 选择性同步过滤（类型/排除文件夹/配置分类）：被排除路径本轮完全无操作 */
+	filter?: SyncFilter;
 	now?: Date; // 测试注入
 }
 
@@ -40,6 +46,15 @@ export function plan(input: PlanInput): SyncPlan {
 	const { base, local, remote, deviceId } = input;
 	const now = input.now ?? new Date();
 	const blockedSet = new Set(input.blockedPaths ?? []);
+	// 被排除路径（类型关闭 / 排除文件夹 / 配置分类关闭 / pickpen 自身目录）本轮完全无操作。
+	// 目录按结构判定（类型白名单不适用于目录），因此先按三方条目取 kind
+	const excluded = (path: string): boolean => {
+		const f = input.filter;
+		if (!f) return false;
+		const kind = local.entries[path]?.kind ?? remote.entries[path]?.kind ?? base?.entries[path]?.kind;
+		return f.isExcluded(path, (kind ?? KIND_FILE) === KIND_DIR);
+	};
+	const isConfigPath = (path: string): boolean => input.filter?.isConfigPath(path) ?? false;
 
 	const puts: PutMutation[] = [];
 	const deletes: string[] = [];
@@ -98,6 +113,12 @@ export function plan(input: PlanInput): SyncPlan {
 			content_hash: l.content_hash!,
 			size: l.size!,
 		});
+		// 配置文件（配置目录内）的冲突副本只落本地、不参与同步：副本名不在官方分类覆盖范围内，
+		// 上传出去只会给其他设备留下一份永远无人处理的孤儿；原路径仍按远端胜
+		if (isConfigPath(path)) {
+			applyRemote(path, r);
+			return;
+		}
 		puts.push({ path: copyPath, content_hash: l.content_hash!, size: l.size!, file_id: copyFileId, kind: KIND_FILE });
 		targetEntries[copyPath] = { state: "active", content_hash: l.content_hash, size: l.size, kind: KIND_FILE, file_id: copyFileId };
 		// 原路径写回 Remote 状态（保持 X / trash 原文件）：磁盘必须与 target_entries 一致，
@@ -112,6 +133,11 @@ export function plan(input: PlanInput): SyncPlan {
 		...(base ? Object.keys(base.entries) : []),
 	]);
 	for (const p of candidate) {
+		if (excluded(p)) {
+			// 被排除路径本轮完全无操作：目标树沿用 R 的状态（targetEntries 初值即 R 的拷贝），
+			// 既不提交 put/delete，也不下载，且不计入 blocked（用户主动排除，不是异常）
+			continue;
+		}
 		if (blockedSet.has(p)) {
 			// 本地状态未知：保留 Base/Remote 原状态，禁止提交 delete/put（§9.2）
 			const keep = base?.entries[p] ?? remote.entries[p];
@@ -236,11 +262,15 @@ export function plan(input: PlanInput): SyncPlan {
 	// 统一物化下主路径靠 dir 行 tombstone 收敛，此处兜底 rmdir 被 skip 后的重试与交错残留；
 	// pending 重放幂等（applier 对不存在目录短路成功）
 	const rmdirSeen = new Set(applyActions.filter((a) => a.kind === "rmdir").map((a) => a.path));
+	const configRoot = input.filter?.configDir ?? "";
 	for (const a of [...applyActions]) {
 		if (a.kind !== "trash") continue;
 		const slash = a.path.lastIndexOf("/");
 		if (slash <= 0) continue; // 根级文件无父目录
 		const parent = a.path.slice(0, slash);
+		// 配置目录及其子目录不参与 rmdir 兜底：它在 vault 索引之外、也不由同步物化，
+		// 远端删一个配置文件不该连带动到 .obsidian 本身
+		if (configRoot !== "" && (parent === configRoot || parent.startsWith(configRoot + "/"))) continue;
 		if (rmdirSeen.has(parent)) continue;
 		const tp = targetEntries[parent];
 		if (tp && tp.state === "active") continue; // 父行 active（含 file 行）：用户保留的目录不删

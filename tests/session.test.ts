@@ -3,7 +3,7 @@
 // - rerun 合并：运行期间的请求合并为一次 rerun
 // - 运行期间的 dirty 事件进入下一轮集合，不混入本轮
 import { describe, expect, it, vi } from "vitest";
-import { ReconcileSession } from "../src/sync/session";
+import { ReconcileSession, type SyncStatus } from "../src/sync/session";
 import { LocalSnapshotBuilder } from "../src/sync/local-snapshot";
 import type { BaseStore } from "../src/sync/base-store";
 import type { PendingStore } from "../src/sync/pending-store";
@@ -48,7 +48,7 @@ function fakeDeps(overrides: {
 				},
 				workspace: { getLeavesOfType: () => [] },
 			},
-			getSettings: () => ({ accessToken: "t", vaultId: "42", deviceId: "dev-1", extraExcludes: [] }),
+			getSettings: () => ({ accessToken: "t", vaultId: "42", deviceId: "dev-1" }),
 			baseStore: {
 				getBase,
 				saveBase: vi.fn(async () => {}),
@@ -270,5 +270,39 @@ describe("ReconcileSession 手动同步回执", () => {
 		expect(session.requestManualRun()).toBeNull();
 		await tick();
 		expect(deps.remote.pollHead).not.toHaveBeenCalled();
+	});
+});
+
+// 「最后同步」时间的写入点：该字段曾只读不写，关于面板/Ribbon 提示/调试快照因此恒为 0
+describe("ReconcileSession 最后同步时间", () => {
+	const lastStatus = (onStatus: ReturnType<typeof vi.fn>): SyncStatus => onStatus.mock.calls.at(-1)?.[0] as SyncStatus;
+
+	it("一轮无异常收尾后记录时间（无变化的空轮次也算一次同步）", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
+		const before = Date.now();
+		await session.requestManualRun();
+		const status = lastStatus(onStatus);
+		expect(status.running).toBe(false);
+		expect(status.lastSyncAt).toBeGreaterThanOrEqual(before);
+		expect(status.lastSyncAt).toBeLessThanOrEqual(Date.now());
+	});
+
+	it("本轮失败只上报错误，不更新时间戳", async () => {
+		const { deps } = fakeDeps({
+			remote: {
+				pollHead: vi.fn(async () => {
+					throw new Error("网络不可达");
+				}),
+			},
+		});
+		const session = new ReconcileSession(deps as never);
+		const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
+		await session.requestManualRun();
+		const status = lastStatus(onStatus);
+		expect(status.running).toBe(false);
+		expect(status.lastError).not.toBe("");
+		expect(status.lastSyncAt).toBe(0);
 	});
 });

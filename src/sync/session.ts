@@ -16,20 +16,45 @@ import { BaseStore } from "./base-store";
 import { LocalSnapshotBuilder } from "./local-snapshot";
 import { buildTree } from "./merkle";
 import { PendingStore } from "./pending-store";
-import { plan } from "./planner";
+import { entriesEqual, plan } from "./planner";
 import { SnapshotRemote } from "./remote";
-import { KIND_DIR } from "./types";
-import type { Snapshot, SyncPlan } from "./types";
+import { createSyncFilter, type SyncFilter } from "./selective";
+import { KIND_DIR, KIND_FILE } from "./types";
+import type { Entry, Snapshot, SyncPlan } from "./types";
 import { backoffMs, createYieldControl } from "./utils";
 
 /** 12023 连续次数达此值 → 抑制 rename hint 继承（强制新身份，切断复发） */
 const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
+
+/**
+ * L 与 B 是否在「排除项之外」逐条一致。
+ * 被排除路径不进 L（扫描时已过滤）却可能仍留在 B，直接比 root 会永远不相等；
+ * 只有排除项之外的条目全部相等，才能安全跳过本轮（不写 Base、不动远端）。
+ */
+function sameEntriesExcept(
+	filter: SyncFilter,
+	local: Record<string, Entry>,
+	base: Record<string, Entry>,
+): boolean {
+	const isDir = (e: Entry | undefined): boolean => (e?.kind ?? KIND_FILE) === KIND_DIR;
+	for (const [path, be] of Object.entries(base)) {
+		if (filter.isExcluded(path, isDir(be))) continue;
+		if (!entriesEqual(local[path], be)) return false;
+	}
+	for (const [path, le] of Object.entries(local)) {
+		if (filter.isExcluded(path, isDir(le))) continue;
+		if (!(path in base)) return false;
+	}
+	return true;
+}
 
 export interface SyncStatus {
 	progress: SyncProgress | null;
 	running: boolean;
 	lastError: string;
 	blockedPaths: string[];
+	/** 「最后同步」时间戳（毫秒）；0 表示本次运行内还没有完成过一轮同步 */
+	lastSyncAt: number;
 	storageLimitExceeded: boolean;
 	/** 本轮确实收到 12025；用于跨日提醒前先向服务端确认，避免升级后的启动误报。 */
 	storageLimitConfirmed: boolean;
@@ -48,8 +73,12 @@ export interface SessionDeps {
 	 * interactive = 本轮由用户操作触发，允许弹出需要用户输入的提示 */
 	preflight?: (interactive: boolean) => Promise<boolean>;
 	pluginDir: string;
+	/** 插件 id（manifest.id）：配置目录下同名插件目录（含自身同步状态文件）永不进入同步范围 */
+	pluginId: string;
 	caseInsensitive: boolean;
 	initialStorageLimitExceeded?: boolean;
+	/** 配置目录内的文件被写盘后的提示回调（宿主负责弹 Notice；不自动重载） */
+	notifyConfigReload?: () => void;
 	onStatus?: (status: SyncStatus) => void;
 }
 
@@ -73,6 +102,8 @@ export class ReconcileSession {
 	private suppressRenameHints = false;
 	private blockedPaths: string[] = [];
 	private lastError = "";
+	/** 「最后同步」时间：最近一轮无异常收尾的同步（仅供展示，不参与对账判定） */
+	private lastSyncAt = 0;
 	private storageLimitExceeded: boolean;
 	private storageLimitConfirmed = false;
 	/** 本轮是否由用户操作触发（决定能否弹出需要输入的提示） */
@@ -155,6 +186,7 @@ export class ReconcileSession {
 		this.fileIDMovedStreak = 0;
 		this.suppressRenameHints = false;
 		this.lastError = "";
+		this.lastSyncAt = 0; // 换绑后旧仓库的「最后同步」不再适用
 		this.storageLimitExceeded = false;
 		this.deps.localBuilder.reset();
 		this.report();
@@ -201,11 +233,22 @@ export class ReconcileSession {
 			progress: this.progress,
 			lastError: this.lastError,
 			blockedPaths: [...this.blockedPaths],
+			lastSyncAt: this.lastSyncAt,
 			storageLimitExceeded: this.storageLimitExceeded,
 			storageLimitConfirmed,
 			allSynced:
 				!this.running && !this.lastError && !this.storageLimitExceeded && this.blockedPaths.length === 0 && !pending,
 		});
+	}
+
+	/**
+	 * 一轮同步无异常收尾：清错误并记下「最后同步」时间。
+	 * 只在真正跑完一轮的对账收尾点调用——未登录/未绑定的守卫返回、本轮放弃（本地文件已变）
+	 * 与 12015/12023 退避重试都不算同步过，不更新时间戳。
+	 */
+	private finishRound(): void {
+		this.lastError = "";
+		this.lastSyncAt = Date.now();
 	}
 
 	private async run(): Promise<void> {
@@ -268,10 +311,23 @@ export class ReconcileSession {
 		return (base.key_epoch ?? "") !== vaultKeys.getEpoch();
 	}
 
+	/** 建本轮的选择性同步过滤（同一批次内只建一次，扫描与对账共用） */
+	private buildFilter(settings: PluginSettings): SyncFilter {
+		return createSyncFilter({
+			selective: settings.selective,
+			configDir: this.deps.app.vault.configDir,
+			selfDir: this.deps.pluginDir,
+			selfId: this.deps.pluginId,
+		});
+	}
+
 	private async runOnce(forceAudit: boolean, interactive: boolean, rehashAll: boolean): Promise<void> {
 		const { app, baseStore, pendingStore, localBuilder, remote } = this.deps;
 		const settings = this.deps.getSettings();
 		if (!settings.accessToken || !settings.vaultId) return;
+
+		// 本轮的选择性同步过滤：扫描与对账必须共用同一实例，否则中途改设置会让两侧口径错位
+		const filter = this.buildFilter(settings);
 
 		// 0. 同步前置检查（加密仓库未解锁时不能读盘算哈希，本轮整体不运行）
 		if (this.deps.preflight && !(await this.deps.preflight(interactive))) return;
@@ -309,7 +365,7 @@ export class ReconcileSession {
 			renameHints: this.suppressRenameHints ? undefined : this.renameHints, // 12023 抑制期不继承身份
 			forceAudit,
 			rehashAll,
-			extraExcludes: settings.extraExcludes,
+			filter,
 			caseInsensitive: this.deps.caseInsensitive,
 			isMobile: Platform.isMobile,
 			maxFileSizeBytes,
@@ -319,12 +375,14 @@ export class ReconcileSession {
 		const local = localRes.snapshot;
 		this.blockedPaths = localRes.blockedPaths;
 
-		// 5. Head 未变且 L == B → 结束（§9.1 步骤 5）
+		// 5. Head 未变且 L == B → 结束（§9.1 步骤 5）。
+		// 被排除路径不进 L（扫描时已过滤）而可能仍留在 B，直接比 root 会永远不相等：
+		// 改用「排除项之外逐条一致」的等价判定，避免每轮都白跑一次全量 plan + saveBase
 		this.beginPhase("planning");
 		const localTree = buildTree(local.entries);
 		const localRoot = await localTree.rootHash;
-		if (head.unchanged && base && localRoot === base.base_root_hash) {
-			this.lastError = "";
+		if (head.unchanged && base && (localRoot === base.base_root_hash || sameEntriesExcept(filter, local.entries, base.entries))) {
+			this.finishRound(); // 无变化的空轮次也是一次完成的同步
 			return;
 		}
 
@@ -355,6 +413,7 @@ export class ReconcileSession {
 			remote: remoteSnap,
 			deviceId: settings.deviceId,
 			blockedPaths: this.blockedPaths,
+			filter,
 		});
 		planResult.target_root_hash = await (buildTree(planResult.target_entries)).rootHash;
 		const hasWork =
@@ -365,6 +424,15 @@ export class ReconcileSession {
 
 		// 记录 Session 快照时的目标路径 hash（覆盖前用户改动检测）
 		const expectedHashes = this.captureExpectedHashes(planResult, local);
+
+		// 本轮未校验过磁盘内容的路径（被排除 / 被阻塞）：Base 不得为其记 local_* 快路径字段，
+		// 否则下一轮快路径会拿旧 hash 冒充实测值，把期间的本地改动永久漏掉
+		const blockedNow = new Set(this.blockedPaths);
+		const unverified = (path: string): boolean => {
+			if (blockedNow.has(path)) return true;
+			const e = planResult.target_entries[path];
+			return filter.isExcluded(path, (e?.kind ?? KIND_FILE) === KIND_DIR);
+		};
 
 		if (!hasWork) {
 			// L 与 R 已一致（或仅 blocked 差异）：确认 Base 收敛
@@ -377,9 +445,9 @@ export class ReconcileSession {
 					base_revision: String(head.revision),
 					base_root_hash: head.rootHash,
 					entries: planResult.target_entries,
-				});
+				}, unverified);
 			}
-			this.lastError = "";
+			this.finishRound();
 			return;
 		}
 
@@ -410,7 +478,12 @@ export class ReconcileSession {
 		// 10. PutBlob 预上传服务端缺失的内容 Blob（§9.1 步骤 10）
 		const putHashes = new Map<string, string>(); // hash → 本地源路径
 		for (const p of planResult.puts) if (p.content_hash) putHashes.set(p.content_hash, p.path); // dir 无内容，跳过
-		for (const cc of planResult.conflict_copies) putHashes.set(cc.content_hash, cc.source_path);
+		// 冲突副本预上传：配置文件（配置目录内）的副本只落本地、不进 target（见 planner），
+		// 白传一次 Blob 没有意义
+		for (const cc of planResult.conflict_copies) {
+			if (filter.isConfigPath(cc.path)) continue;
+			putHashes.set(cc.content_hash, cc.source_path);
+		}
 		const uploadProgress = this.beginPhase("uploading");
 		const existing = await remote.hasBlobs([...putHashes.keys()]);
 		const uploads = [...putHashes].filter(([hash]) => !existing.has(hash));
@@ -496,8 +569,15 @@ export class ReconcileSession {
 		for (const p of skipped) this.nextDirtyPaths.add(p);
 		this.beginPhase("finishing");
 		await this.refreshViewsByDisk(app, views);
+		// 配置文件写盘不会热生效（宿主在内存里持有设置、部分配置要重载才读盘）：
+		// 只提示，不自动重载（重载会打断用户正在做的事）
+		if ([...planResult.apply_actions, ...planResult.conflict_copies].some((a) => filter.isConfigPath(a.path))) {
+			this.deps.notifyConfigReload?.();
+		}
 
-		// 14. 原子写新 Base（saveBase 内部重新 stat 记录实际落盘 mtime/size）→ 清 pending（§9.1 步骤 13/14）
+		// 14. 原子写新 Base（saveBase 内部重新 stat 记录实际落盘 mtime/size）→ 清 pending（§9.1 步骤 13/14）。
+		// 被跳过的路径（用户期间改过）不算已校验：它们的 local_* 由下一轮 dirty 刷新补齐
+		const skippedSet = new Set(skipped);
 		await baseStore.saveBase({
 			schema_version: 2,
 			device_id: settings.deviceId,
@@ -505,10 +585,10 @@ export class ReconcileSession {
 			base_revision: String(commit.revision),
 			base_root_hash: commit.rootHash,
 			entries: planResult.target_entries,
-		});
+		}, (path) => skippedSet.has(path) || unverified(path));
 		await pendingStore.clear();
 		await this.applier.cleanupTemp(this.tmpDir);
-		this.lastError = "";
+		this.finishRound();
 	}
 
 	/** pending 恢复（§9.4）：Remote 与 pending target 一致 → 完成本地落地并更新 Base；
@@ -532,6 +612,8 @@ export class ReconcileSession {
 			// Commit 已成功：完成本地落地并更新 Base
 			try {
 				const manifest = await remote.getManifest(head.revision, head.rootHash);
+				const filter = this.buildFilter(settings);
+				const skippedPaths = new Set<string>();
 				await pendingStore.markApplying();
 				await this.applier.applyPlan({
 					onProgress: this.beginPhase("applying"),
@@ -543,7 +625,10 @@ export class ReconcileSession {
 					tmpDir: this.tmpDir,
 					isMobile: Platform.isMobile,
 					yieldControl: createYieldControl(),
-					onSkipped: (p) => this.nextDirtyPaths.add(p),
+					onSkipped: (p) => {
+						skippedPaths.add(p);
+						this.nextDirtyPaths.add(p);
+					},
 				});
 				this.beginPhase("finishing");
 				await baseStore.saveBase({
@@ -553,6 +638,10 @@ export class ReconcileSession {
 					base_revision: String(head.revision),
 					base_root_hash: head.rootHash,
 					entries: manifest.entries,
+				}, (path) => {
+					if (skippedPaths.has(path)) return true;
+					const e = manifest.entries[path];
+					return filter.isExcluded(path, (e?.kind ?? KIND_FILE) === KIND_DIR);
 				});
 				await pendingStore.clear();
 				this.forceAudit = true; // 落地后完整审计校正本地状态

@@ -36,6 +36,31 @@ export class Applier {
 		private readonly remote: SnapshotRemote,
 	) {}
 
+	/** 磁盘上是否存在（覆盖 vault 索引之外的路径；exists 抛错按不存在处理） */
+	private async existsOnDisk(path: string): Promise<boolean> {
+		try {
+			return await this.app.vault.adapter.exists(path);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * 删除 vault 索引之外的路径（配置目录里的文件）：优先系统回收站，平台不支持时直接移除。
+	 * 这类文件的内容可由版本历史恢复，移动端退化为 remove 是可接受的。
+	 */
+	private async trashUnindexed(path: string): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		if (typeof adapter.trashSystem === "function") {
+			try {
+				if (await adapter.trashSystem(path)) return;
+			} catch {
+				// 落到 remove
+			}
+		}
+		await adapter.remove(path);
+	}
+
 	/**
 	 * 下载需要的 Remote Blob（最大值由当前套餐决定）。返回 hash → 内容。
 	 * 指定 tmpDir 时逐项写入插件私有临时区并返回空 Map（内容用完即释放，不整轮驻留内存）：
@@ -150,8 +175,10 @@ export class Applier {
 					continue;
 				}
 				if (action.kind === "trash") {
+					// 配置目录等 vault 索引之外的路径没有 TFile：不能把「索引里没有」当成
+					// 「文件不存在」，否则远端删除被静默跳过，下一轮又按新增把本地文件传回去
 					const file = this.app.vault.getFileByPath(action.path);
-					if (!file) continue; // 幂等成功
+					if (!file && !(await this.existsOnDisk(action.path))) continue; // 幂等成功
 					// 用户在此期间改动过文件（hash 与 Session 开始时记录不符）→ 不删
 					if (expectedHashes.has(action.path)) {
 						try {
@@ -166,8 +193,12 @@ export class Applier {
 							continue; // 读失败视为不存在，幂等跳过
 						}
 					}
-					// 走宿主的删除流程（尊重用户的「系统回收站 / 本地 .trash」偏好）
-					await this.app.fileManager.trashFile(file);
+					if (file) {
+						// 走宿主的删除流程（尊重用户的「系统回收站 / 本地 .trash」偏好）
+						await this.app.fileManager.trashFile(file);
+					} else {
+						await this.trashUnindexed(action.path);
+					}
 					continue;
 				}
 
@@ -177,9 +208,9 @@ export class Applier {
 					skipped.add(action.path);
 					continue;
 				}
-				// 目标已存在且已是目标内容 → 幂等跳过
-				const existing = this.app.vault.getFileByPath(action.path);
-				if (existing) {
+				// 目标已存在且已是目标内容 → 幂等跳过；存在性判定一并覆盖索引之外的路径
+				const indexed = this.app.vault.getFileByPath(action.path) !== null;
+				if (indexed || (await this.existsOnDisk(action.path))) {
 					const disk = await this.app.vault.adapter.readBinary(action.path);
 					const diskHash = await remoteHash(disk); // 明文 → 远端寻址哈希（与 action.content_hash 同口径）
 					if (diskHash === action.content_hash) continue;
@@ -205,8 +236,11 @@ export class Applier {
 			let processed = true;
 			try {
 				await maybeYield();
-				const target = this.app.vault.getFileByPath(cc.path);
-				if (target) {
+				// 存在性判定一并覆盖索引之外的路径（配置目录里的冲突副本没有 TFile）
+				if (
+					this.app.vault.getFileByPath(cc.path) !== null ||
+					(await this.existsOnDisk(cc.path))
+				) {
 					const disk = await this.app.vault.adapter.readBinary(cc.path);
 					if ((await remoteHash(disk)) === cc.content_hash) continue; // 幂等
 				}

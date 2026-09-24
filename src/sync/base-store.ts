@@ -71,15 +71,20 @@ export class BaseStore {
 	/**
 	 * 写新 Base。写盘前对每个 active 条目重新 stat，记录实际落盘 mtime/size；
 	 * 磁盘上已不存在的 active 条目删除其 local_* 快路径字段（下一轮按 dirty 处理）。
+	 *
+	 * unverified：本轮**没有**校验过磁盘内容的路径（被选择性同步排除、被阻塞等）。
+	 * 它们的 content_hash 来自远端/旧基线而非实测，绝不能记 local_*——否则下一轮快路径
+	 * 会拿这份 stat 冒充「磁盘与 Base 一致」，把此期间的本地改动永久漏掉。
 	 */
-	async saveBase(snapshot: Snapshot): Promise<void> {
+	async saveBase(snapshot: Snapshot, unverified?: (path: string) => boolean): Promise<void> {
 		// 把「写这份基线时用的内容密钥代次」一并落盘：它是判断内容寻址口径是否变化的唯一可靠依据，
 		// 只放在内存里的话，转换中途失败/关闭 Obsidian 后重开就会误判成「没有工作可做」
 		snapshot = { ...snapshot, key_epoch: vaultKeys.getEpoch() };
 		const entries: Record<string, Entry> = {};
 		for (const [path, e] of Object.entries(snapshot.entries)) {
-			if (e.state !== "active") {
-				entries[path] = { ...e };
+			if (e.state !== "active" || unverified?.(path)) {
+				const { local_mtime: _m, local_size: _s, ...rest } = e;
+				entries[path] = rest;
 				continue;
 			}
 			let stat: { mtime: number; size: number } | null = null;

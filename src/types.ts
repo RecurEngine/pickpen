@@ -1,12 +1,16 @@
 // 插件内部统一类型（Snapshot 同步 v2）：绑定主键 vault_id（name 仅展示），
 // int64 一律十进制字符串。登录态：access_token（2h）+ refresh_token（30d，自动刷新）。
 
+import type { SelectiveSettings } from "./sync/selective";
+import { defaultSelectiveSettings } from "./sync/selective";
+
 import type { VaultKeyParams } from "./crypto/vault-crypto";
 
 export type { VaultKeyParams };
+export type { SelectiveSettings };
 
 // PluginSettings 内存镜像。持久化拆分：
-//  - vaultId/vaultName/extraExcludes/debugLog 落 data.json（会随 iCloud 同步 vault）；
+//  - vaultId/vaultName/selective/debugLog 落 data.json（会随 iCloud 同步 vault）；
 //  - email/userId/token 族/deviceId 属登录会话，来源=设备本地 SessionStore（session-store.ts），
 //    经 stripSessionKeys 剔除后不写 data.json（防止多端共享 data.json 造成 deviceId/token 互顶）。
 // 同步内核/UI 一律读本内存镜像，来源切换对它们无感。
@@ -23,7 +27,8 @@ export interface PluginSettings {
 	// 绑定归属（vaultId + 绑定时账号邮箱）：随 data.json 跨端共享（不含密钥），
 	// 供新设备登录同账号时自动沿用原绑定、以及跨账号守卫用
 	vaultOwner?: { vaultId: string; email: string };
-	extraExcludes: string[];
+	/** 选择性同步（类型白名单 / 排除文件夹 / 配置目录分类）；载入时经 normalizeSelectiveSettings 补齐 */
+	selective: SelectiveSettings;
 	debugLog: boolean; // 调试日志开关：开启后设置面板实时展示插件内部 console 输出
 	// persist 落盘回调（index.ts 装配时注入 plugin.saveData，仅写 data.json 非会话键，不随 data.json 序列化）
 	persist?: () => Promise<void>;
@@ -60,7 +65,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	refreshToken: "",
 	refreshExpiresAtMs: 0,
 	deviceId: "",
-	extraExcludes: [],
+	// 嵌套对象由 defaultSelectiveSettings() 每次现造：DEFAULT_SETTINGS 是模块级单例，
+	// 共享引用会被代码里的原地改写污染（见 index.ts 载入时的 normalizeSelectiveSettings）
+	selective: defaultSelectiveSettings(),
 	debugLog: false,
 };
 

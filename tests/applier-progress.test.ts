@@ -46,9 +46,10 @@ describe("下载和本地应用进度", () => {
 		const hash = await sha256Hex(content);
 		const writeBinary = vi.fn(async (_path: string, _data: ArrayBuffer) => {});
 		const app = { vault: {
-			getFileByPath: () => null,
+			getFileByPath: () => null, // 索引里没有（配置目录等路径的常态）：存在性只能由 adapter 判定
 			adapter: {
-				exists: async () => true,
+				// 待写入的两个目标不存在（走 write），其余路径存在（mkdir/rmdir 的判定分支）
+				exists: async (path: string) => path !== "笔记.md" && path !== "冲突.md",
 				list: async () => ({ files: ["非空/a.md"], folders: [] }),
 				readBinary: async () => content,
 				writeBinary,

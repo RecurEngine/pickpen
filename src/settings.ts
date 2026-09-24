@@ -1,21 +1,23 @@
-// 设置面板（Snapshot 同步 v2）：账号登录、仓库绑定、同步参数与诊断。
-// 防抖窗口客户端默认 10s，服务端可通过 GetVaultHead 动态下发；面板只读展示当前生效值。
+// 设置面板（Snapshot 同步 v2）：账号登录、仓库绑定、同步范围（选择性同步）、已删除的文件入口与诊断。
 
 import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
 
 import { renderAboutAndFeedback } from "./about";
 import { copyText } from "./clipboard";
 import { vaultKeys } from "./crypto/vault-key-store";
+import { openDeletedFiles } from "./deleted-files-view";
 import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { renderInviteSection } from "./invite-view";
 import { ErrCode, errorCode } from "./remote-connect";
+import { openFolderExclusionManager } from "./selective-view";
+import { AUDIO_EXTS, IMAGE_EXTS, PDF_EXTS, VIDEO_EXTS } from "./sync/selective";
 import { formatProgress, progressPercent } from "./sync/progress";
 import { StatusRefresh } from "./status-refresh";
 import { syncState, type SyncState } from "./sync-state";
 import { renderSubscriptionSection } from "./subscription-view";
 import { renderMobileSubscriptionSection } from "./mobile-subscription-view";
-import { BASE_URL, BUILD_TAG, DEBOUNCE_MS, type PluginSettings } from "./types";
+import { BASE_URL, BUILD_TAG, type PluginSettings } from "./types";
 import { openVaultManager } from "./vault-manager";
 
 /** 跳转后需要滚动并高亮的区域 */
@@ -56,6 +58,11 @@ export class PickpenSettingTab extends PluginSettingTab {
 			this.sectionGroup("account", "账号和仓库", "登录、仓库绑定与端到端加密解锁状态", [
 				"登录", "退出登录", "邮箱", "验证码", "注册", "邀请码", "绑定仓库", "仓库管理", "加密", "密码", "解锁",
 			]),
+			this.sectionGroup("sync", "同步", "文件类型、排除文件夹与配置文件同步", [
+				"同步", "选择性同步", "同步图片", "同步音频", "同步视频", "同步 PDF", "其他类型", "排除文件夹", "排除",
+				"同步配置文件", "主要设置", "外观", "主题", "CSS 片段", "快捷键", "核心插件", "第三方插件",
+				"已删除的文件", "删除", "恢复",
+			]),
 			this.sectionGroup("invite", "邀请", "邀请码、邀请人数与邀请奖励进度", [
 				"邀请码", "邀请人数", "邀请充值", "邀请用户",
 			]),
@@ -64,9 +71,6 @@ export class PickpenSettingTab extends PluginSettingTab {
 			]),
 			this.sectionGroup("subscription-plans", "订阅方案", "可选套餐、价格与购买入口", [
 				"订阅", "订阅方案", "套餐", "升级", "购买", "支付", "二维码", "价格", "折扣",
-			]),
-			this.sectionGroup("sync", "同步", "同步状态、排除项、冲突策略与变更防抖", [
-				"同步", "同步状态", "排除项", "排除清单", "冲突副本", "防抖", "同步间隔",
 			]),
 			this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与调试日志", [
 				"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "调试日志", "日志",
@@ -170,10 +174,10 @@ export function openPluginSettings(app: App, pluginId: string): boolean {
 /** 声明式设置的分区 id：与 PickpenSettingTab.getSettingDefinitions() 返回的项一一对应。 */
 export type SettingsSection =
 	| "account"
+	| "sync"
 	| "invite"
 	| "subscription-status"
 	| "subscription-plans"
-	| "sync"
 	| "diagnostics"
 	| "about";
 
@@ -209,11 +213,9 @@ class PickpenSettingsView {
 	private statusPercentEl: HTMLElement | null = null;
 	private statusPathEl: HTMLElement | null = null;
 	private readonly statusRefresh = new StatusRefresh(() => this.refreshStatusCard());
-	private debounceInputEl: HTMLInputElement | null = null;
 	private statusListener = () => {
 		const status = deriveStatus(this.plugin.settings, syncState);
 		this.statusRefresh.request(JSON.stringify([status.mod, status.text, syncState.sessionRunning, syncState.progress?.phase]));
-		this.refreshDebounceDisplay();
 	};
 	private active = false;
 	// 各分区订阅清理（分区重建/被拆除时解除）
@@ -290,9 +292,6 @@ class PickpenSettingsView {
 			case "diagnostics":
 				this.debugCleanup?.();
 				this.debugCleanup = null;
-				break;
-			case "sync":
-				this.debounceInputEl = null;
 				break;
 			case "account":
 				// 状态卡片是唯一会持续刷新的分区
@@ -476,42 +475,148 @@ class PickpenSettingsView {
 		if (loggedIn && settings.vaultId && vaultKeys.isEncrypted()) this.renderEncryptionSection(accountSectionEl);
 	}
 
-	/** 同步：排除项追加、冲突策略与变更防抖窗口 */
+	/**
+	 * 同步（specs/sync/spec.md 需求 1 + 需求 3）：已删除的文件入口 + 同步范围（选择性同步）。
+	 * 范围口径与默认值对齐 Obsidian 官方：笔记格式恒同步；图片/音频/视频/PDF 默认开、其他类型默认关；
+	 * 配置文件分类前 6 项默认开、第三方插件两项默认关。
+	 */
 	private renderSync(containerEl: HTMLElement, settings: PluginSettings): void {
 		// 分区标题由声明式分组提供
-		const syncSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section" });
+		const sectionEl = containerEl.createDiv({ cls: "pickpen-settings-section pickpen-sync-section" });
 
-		// 排除项追加（默认清单 + 追加）
-		new Setting(syncSectionEl)
-			.setName("排除项追加")
-			.setDesc(`每行一项；目录前缀 / 前缀* 为 basename 匹配 / *后缀 为后缀匹配。默认已排除 ${this.app.vault.configDir}/、.trash/、隐藏文件等`)
-			.addTextArea((text) =>
-				text
-					.setPlaceholder("例如：\nprivate/\n*.drawio")
-					.setValue(settings.extraExcludes.join("\n"))
-					.onChange(async (value) => {
-						settings.extraExcludes = value
-							.split("\n")
-							.map((s) => s.trim())
-							.filter((s) => s !== "");
-						await this.plugin.saveSettings();
-					}),
+		// 已删除的文件（需求 3）：位置对齐官方「设置 → 同步 → 已删除文件」
+		new Setting(sectionEl)
+			.setName("已删除的文件")
+			.setDesc("浏览、恢复已删除的文件。")
+			.addButton((btn) =>
+				btn.setButtonText("查看").onClick(() => {
+					if (!settings.accessToken || !settings.vaultId) {
+						new Notice("请先登录并绑定仓库");
+						return;
+					}
+					openDeletedFiles(this.app, this.plugin);
+				}),
 			);
 
-		// 冲突策略（spec §8.2：双方不同内容保留双副本，不用 mtime 裁决）
-		new Setting(syncSectionEl)
-			.setName("冲突策略")
-			.setDesc("双方并发修改时保留冲突副本，任一方内容不丢失")
-			.addText((text) => text.setValue("保留冲突副本").setDisabled(true));
+		const selective = settings.selective;
+		// 任何一项开关都会改变同步范围：必须落盘 + 强制重算，否则 L 里该进/该出的路径不会自行变化
+		const commit = async (): Promise<void> => {
+			await this.plugin.saveSettings();
+			this.plugin.session.requestRun({ forceAudit: true });
+		};
+		const toggle = (
+			name: string,
+			desc: string,
+			get: () => boolean,
+			set: (value: boolean) => void,
+		): void => {
+			new Setting(sectionEl)
+				.setName(name)
+				.setDesc(desc)
+				.addToggle((el) =>
+					el.setValue(get()).onChange(async (value) => {
+						set(value);
+						await commit();
+					}),
+				);
+		};
+		const extensions = (list: string[]): string => list.join("、");
 
-		// 变更防抖窗口（客户端默认 + 服务端下发，非用户设置项；local-hint 合并窗口）
-		new Setting(syncSectionEl)
-			.setName("变更防抖")
-			.setDesc(`本地变更合并窗口：客户端默认 ${DEBOUNCE_MS / 1000}s，服务端可调整`)
-			.addText((text) => {
-				this.debounceInputEl = text.inputEl;
-				text.setValue(`${syncState.localDebounceMs / 1000}s`).setDisabled(true);
-			});
+		toggle(
+			"同步图片",
+			`同步以下类型的图片文件：${extensions(IMAGE_EXTS)}。`,
+			() => selective.images,
+			(v) => (selective.images = v),
+		);
+		toggle(
+			"同步音频",
+			`同步以下类型的音频文件：${extensions(AUDIO_EXTS)}。`,
+			() => selective.audio,
+			(v) => (selective.audio = v),
+		);
+		toggle(
+			"同步视频",
+			`同步以下类型的视频文件：${extensions(VIDEO_EXTS)}。`,
+			() => selective.video,
+			(v) => (selective.video = v),
+		);
+		toggle(
+			"同步 PDF",
+			`同步以下类型的 PDF 文件：${extensions(PDF_EXTS)}。`,
+			() => selective.pdf,
+			(v) => (selective.pdf = v),
+		);
+		toggle(
+			"同步所有其他类型文件",
+			"同步那些无法在 Obsidian 中打开的文件。",
+			() => selective.other,
+			(v) => (selective.other = v),
+		);
+
+		// 需要排除的文件夹（[管理] 打开列表；目录按整棵子树排除）
+		const folders = selective.excludedFolders;
+		new Setting(sectionEl)
+			.setName("需要排除的文件夹")
+			.setDesc(
+				folders.length > 0
+					? `目前这些文件夹被排除在外：${folders.join("、")}`
+					: "防止某些文件夹被同步。排除后其整棵子树都不参与同步。",
+			)
+			.addButton((btn) =>
+				btn.setButtonText("管理").onClick(() =>
+					openFolderExclusionManager(this.app, this.plugin, () => this.refreshIfActive()),
+				),
+			);
+
+		// —— 配置目录内的文件：以下 8 项为官方分类的逐项开关（列表前不再有分组小标题）——
+		toggle(
+			"主要设置",
+			"同步编辑器、文件与链接等方面的设置（app.json、types.json）。",
+			() => selective.config.app,
+			(v) => (selective.config.app = v),
+		);
+		toggle(
+			"外观",
+			"同步外观设置，比如基础颜色、当前应用的主题、开启的 CSS 样式代码片段等设置（appearance.json）。",
+			() => selective.config.appearance,
+			(v) => (selective.config.appearance = v),
+		);
+		toggle(
+			"主题与 CSS 代码片段",
+			"同步已保存的主题与 CSS 代码片段文件。文件启用情况由「外观」决定。",
+			() => selective.config.appearanceData,
+			(v) => (selective.config.appearanceData = v),
+		);
+		toggle(
+			"快捷键",
+			"同步自定义快捷键（hotkeys.json）。",
+			() => selective.config.hotkey,
+			(v) => (selective.config.hotkey = v),
+		);
+		toggle(
+			"核心插件的启用情况",
+			"同步核心插件的启用情况（core-plugins.json）。",
+			() => selective.config.corePlugin,
+			(v) => (selective.config.corePlugin = v),
+		);
+		toggle(
+			"核心插件设置",
+			"同步核心插件的设置信息。",
+			() => selective.config.corePluginData,
+			(v) => (selective.config.corePluginData = v),
+		);
+		toggle(
+			"第三方插件启用情况",
+			"同步社区插件的启用情况（community-plugins.json）。",
+			() => selective.config.communityPlugin,
+			(v) => (selective.config.communityPlugin = v),
+		);
+		toggle(
+			"已安装的第三方插件",
+			"同步已安装的社区插件，包括插件中的 .js、.css、manifest.json 等文件，以及插件的设置信息。pickpen 自身不会被同步。",
+			() => selective.config.communityPluginData,
+			(v) => (selective.config.communityPluginData = v),
+		);
 	}
 
 	/** 诊断：远端地址、设备 / 构建信息与调试日志面板 */
@@ -557,7 +662,6 @@ class PickpenSettingsView {
 		this.inviteCleanup?.();
 		this.inviteCleanup = null;
 		this.clearStatusCardRefs();
-		this.debounceInputEl = null;
 	}
 
 	/** 状态卡片在重建 / 拆除后置空，避免持有已脱离文档的节点 */
@@ -570,10 +674,6 @@ class PickpenSettingsView {
 		this.statusBarFillEl = null;
 		this.statusPercentEl = null;
 		this.statusPathEl = null;
-	}
-
-	private refreshDebounceDisplay(): void {
-		if (this.debounceInputEl) this.debounceInputEl.value = `${syncState.localDebounceMs / 1000}s`;
 	}
 
 	// refreshIfActive 就地重建当前已渲染的分区（登录 / 退出 / 仓库变更后刷新）；

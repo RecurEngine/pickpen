@@ -97,6 +97,12 @@ describe("Ribbon 文案", () => {
 		expect(label).toContain("2 个文件被阻塞");
 	});
 
+	it("已全部同步时同时显示最后同步时间（时间不顶掉完成态）", () => {
+		const label = ribbonLabel(labelInput({ lastSyncAt: Date.parse("2026-09-11T08:30:00") }));
+		expect(label).toContain("已全部同步");
+		expect(label).toContain("最后同步");
+	});
+
 	it("暂停原因优先于完成态", () => {
 		const label = ribbonLabel(labelInput({ pausedReason: "令牌失效，请重新登录" }));
 		expect(label).toContain("令牌失效，请重新登录");

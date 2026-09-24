@@ -12,6 +12,7 @@ import { resolveAutoUnlockPrompt, unlockPromptKey, type UnlockPromptCopy } from 
 import { createVaultKey, unwrapDek, wrapDekWithPassword, WrongPasswordError } from "./crypto/vault-crypto";
 import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
+import { installDeletedFilesFeature } from "./deleted-files-view";
 import { installHistoryFeature } from "./history-view";
 import { planLegacyMigration, SessionStore, stripSessionKeys, vaultScopeKey, type KeyValueStore } from "./session-store";
 import { RemoteClient } from "./remote-connect";
@@ -29,6 +30,7 @@ import { LocalSnapshotBuilder } from "./sync/local-snapshot";
 import { PendingStore } from "./sync/pending-store";
 import { Poller } from "./sync/poller";
 import { SnapshotRemote } from "./sync/remote";
+import { normalizeSelectiveSettings } from "./sync/selective";
 import { ReconcileSession } from "./sync/session";
 
 // PAUSED_BY_LOCK 加密仓库未解锁时的暂停原因（同步状态栏展示；解锁后自动恢复）
@@ -49,6 +51,7 @@ interface LegacyDataJson extends Partial<PluginSettings> {
 	username?: unknown;
 	token?: unknown;
 	expiresAtMs?: unknown;
+	extraExcludes?: unknown;
 }
 
 // createLocalKV 探测 localStorage 可用性；不可用（隐私模式/禁用站点存储）→ 调用方降级为仅内存，
@@ -115,7 +118,7 @@ export default class PickpenPlugin extends Plugin {
 		this.sessionStore.load();
 		syncState.update({ storageLimitExceeded: this.sessionStore.storageLimitAlertActive });
 
-		// 历史残留字段剥离（baseUrl/debounceMs/username/token/expiresAtMs）
+		// 历史残留字段剥离（baseUrl/debounceMs/username/token/expiresAtMs/extraExcludes）
 		// data.json 由本插件自身写入，读取时按「可能残留旧字段」的宽松结构声明：
 		// 先落到 unknown 再断言，避免反序列化结果以 any 形式扩散到后续成员访问
 		const raw: unknown = (await this.loadData()) ?? {};
@@ -125,6 +128,8 @@ export default class PickpenPlugin extends Plugin {
 		delete loaded.username;
 		delete loaded.token;
 		delete loaded.expiresAtMs;
+		// 旧「排除项追加」已下线（排除范围收敛为「需要排除的文件夹」）：老数据不迁移，直接剥掉
+		delete loaded.extraExcludes;
 
 		// 迁移判定：data.json 若仍带会话（旧版本曾把会话写进 data.json，可能已被 iCloud 复制到多端）
 		// → 老用户首迁：token 族导入设备本地，deviceId 强制重生成（旧值离线无法证明唯一，沿用会继续互顶）；
@@ -147,6 +152,9 @@ export default class PickpenPlugin extends Plugin {
 
 		// data.json 仅保留非会话键合并进镜像；会话字段以 localStorage 权威覆盖
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, stripSessionKeys(loaded));
+		// 选择性同步是嵌套对象：Object.assign 只会带过 data.json 里的引用，缺键/脏值必须补齐，
+		// 否则旧版本升级上来的实例里会出现 undefined 子项，把过滤规则判成「全部排除」
+		this.settings.selective = normalizeSelectiveSettings(this.settings.selective);
 		this.settings.persist = () => this.persistSettings();
 		this.sessionStore.applyTo(this.settings);
 		debugLog.setEnabled(this.settings.debugLog);
@@ -229,16 +237,19 @@ export default class PickpenPlugin extends Plugin {
 			localBuilder: this.localBuilder,
 			remote: this.remote,
 			pluginDir: this.manifest.dir ?? "",
+			pluginId: this.manifest.id,
 			caseInsensitive: Platform.isMobileApp, // 移动端文件系统按大小写不敏感处理
 			// 加密仓库未解锁时不能读盘算哈希：本轮整体不运行，并提示用户解锁
 			preflight: (interactive) => this.ensureVaultUnlocked(interactive),
 			initialStorageLimitExceeded: this.sessionStore.storageLimitAlertActive,
+			notifyConfigReload: () => new Notice("配置已同步，重载 Obsidian 后生效"),
 			onStatus: (s) => {
 				syncState.update({
 					sessionRunning: s.running,
 					progress: s.progress,
 					lastError: s.lastError,
 					blockedPaths: s.blockedPaths,
+					lastSyncAt: s.lastSyncAt,
 					storageLimitExceeded: s.storageLimitExceeded,
 				});
 				this.handleStorageLimitState(s.storageLimitExceeded, s.storageLimitConfirmed);
@@ -295,6 +306,9 @@ export default class PickpenPlugin extends Plugin {
 
 		// 文件历史版本：右键菜单「拾笔版本历史」+ 命令面板入口（spec FR-16）
 		installHistoryFeature(this);
+
+		// 已删除的文件：命令面板入口 + 设置「同步」区 [查看]（specs/sync/spec.md 需求 3）
+		installDeletedFilesFeature(this);
 
 		this.updateDebugHook();
 

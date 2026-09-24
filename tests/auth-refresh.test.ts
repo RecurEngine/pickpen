@@ -12,6 +12,7 @@ import {
 	type RemoteConfig,
 } from "../src/remote-connect";
 import type { SessionFields } from "../src/session-store";
+import { defaultSelectiveSettings } from "../src/sync/selective";
 import type { PluginSettings } from "../src/types";
 
 function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
@@ -25,7 +26,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
 		refreshToken: "old-refresh",
 		refreshExpiresAtMs: Date.now() + 30 * 24 * 60 * 60 * 1000,
 		deviceId: "dev-1",
-		extraExcludes: [],
+		selective: defaultSelectiveSettings(),
 		debugLog: false,
 		persist: vi.fn(async () => {}),
 		...overrides,

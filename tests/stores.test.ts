@@ -105,6 +105,25 @@ describe("BaseStore", () => {
 		expect(m.writes.some((w) => w.startsWith("rename:"))).toBe(true);
 	});
 
+	it("unverified 的条目不带 local_* 快路径字段（被排除/被阻塞路径不得冒充已校验）", async () => {
+		const m = mockAdapter({}, ["excluded.txt", "kept.md"]); // 两个路径磁盘上都存在
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		await store.saveBase(
+			baseSnapshot({
+				entries: {
+					"excluded.txt": { state: "active", content_hash: "a".repeat(64), size: "1" },
+					"kept.md": { state: "active", content_hash: "b".repeat(64), size: "1" },
+				},
+			}),
+			(path) => path === "excluded.txt",
+		);
+		const parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
+		// 被排除路径：下一轮必须重新读盘算哈希，否则期间的本地改动会被快路径永久漏掉
+		expect(parsed.entries["excluded.txt"].local_mtime).toBeUndefined();
+		expect(parsed.entries["excluded.txt"].content_hash).toBe("a".repeat(64)); // 内容哈希保留（远端状态）
+		expect(parsed.entries["kept.md"].local_mtime).toBe("1700000000000");
+	});
+
 	it("磁盘不存在的 active 条目清除 local_* 快路径字段", async () => {
 		const m = mockAdapter();
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");

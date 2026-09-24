@@ -46,7 +46,7 @@ function fakeDeps(overrides: { commitSnapshot?: SnapshotRemote["commitSnapshot"]
 				},
 				workspace: { getLeavesOfType: () => [] },
 			},
-			getSettings: () => ({ accessToken: "t", vaultId: "42", deviceId: "dev-1", extraExcludes: [] }),
+			getSettings: () => ({ accessToken: "t", vaultId: "42", deviceId: "dev-1" }),
 			baseStore: {
 				getBase,
 				saveBase: vi.fn(async () => {}),

@@ -24,7 +24,7 @@ describe("stripSessionKeys", () => {
 			...DEFAULT_SETTINGS,
 			vaultId: "3",
 			vaultName: "hello",
-			extraExcludes: ["private/"],
+			selective: { ...DEFAULT_SETTINGS.selective, excludedFolders: ["private"] },
 			debugLog: true,
 			email: "a@x.com",
 			userId: "7",
@@ -43,7 +43,7 @@ describe("stripSessionKeys", () => {
 		// 保留键在
 		expect(stripped.vaultId).toBe("3");
 		expect(stripped.vaultName).toBe("hello");
-		expect(stripped.extraExcludes).toEqual(["private/"]);
+		expect(stripped.selective?.excludedFolders).toEqual(["private"]);
 		expect(stripped.debugLog).toBe(true);
 	});
 });

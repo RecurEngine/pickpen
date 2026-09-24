@@ -9,6 +9,7 @@ import {
 	EntryKind,
 	MutationSchema,
 	PutMutationSchema,
+	type DeletedFile,
 	type FileVersionInfo,
 } from "../gen/proto/sync/sync.ext_pb";
 import { isSnapshotChanged, type RemoteClient } from "../remote-connect";
@@ -199,6 +200,19 @@ export class SnapshotRemote {
 			pageToken,
 		});
 		return { versions: resp.versions, nextPageToken: resp.nextPageToken, hasMore: resp.hasMore };
+	}
+
+	/** 查询已删除的文件（删除时间倒序 keyset 分页；供「已删除的文件」UI） */
+	async listDeletedFiles(
+		pageSize = 50,
+		pageToken = "",
+	): Promise<{ files: DeletedFile[]; nextPageToken: string; hasMore: boolean }> {
+		const resp = await this.client.syncClient.listDeletedFiles({
+			vaultId: this.vaultId,
+			pageSize: BigInt(pageSize),
+			pageToken,
+		});
+		return { files: resp.files, nextPageToken: resp.nextPageToken, hasMore: resp.hasMore };
 	}
 
 	/**

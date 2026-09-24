@@ -51,7 +51,7 @@ function fakeDeps() {
 			},
 			workspace: { getLeavesOfType: () => [] },
 		},
-		getSettings: () => ({ accessToken: "t", vaultId: "42", deviceId: "dev-1", extraExcludes: [] }),
+		getSettings: () => ({ accessToken: "t", vaultId: "42", deviceId: "dev-1" }),
 		baseStore: { getBase: () => base, saveBase: vi.fn(async () => {}), reset: vi.fn(), flush: vi.fn(async () => {}) } as unknown as BaseStore,
 		pendingStore: {
 			getPending: () => null, writePrepared: vi.fn(async () => {}), markCommitted: vi.fn(async () => {}),

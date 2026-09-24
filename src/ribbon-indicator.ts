@@ -40,11 +40,10 @@ export interface RibbonLabelInput {
 // ribbonLabel 悬停与无障碍文案（纯函数）。
 // 未配置时同步并未在运行，绝不能显示「已全部同步」；未配置提示优先于暂停/错误，
 // 与设置页状态卡片判定一致；存储已满排最前，因为点击 Ribbon 就是先处理容量。
+// 「最后同步」是补充信息，最后追加且不参与「有无状态文案」的判定——否则它会顶掉
+// 完成态的「已全部同步」，让悬停只剩一个时间戳。
 export function ribbonLabel(input: RibbonLabelInput): string {
 	const parts: string[] = [];
-	if (input.lastSyncAt) {
-		parts.push(`最后同步 ${new Date(input.lastSyncAt).toLocaleTimeString("zh-CN", { hour12: false })}`);
-	}
 	if (input.storageLimitExceeded) {
 		parts.push("云端存储已满，点击处理");
 	} else if (input.stage === "login") {
@@ -56,5 +55,8 @@ export function ribbonLabel(input: RibbonLabelInput): string {
 	}
 	if (input.blockedCount > 0) parts.push(`${input.blockedCount} 个文件被阻塞`);
 	if (input.stage === null && input.allSynced && parts.length === 0) parts.push("已全部同步");
+	if (input.lastSyncAt) {
+		parts.push(`最后同步 ${new Date(input.lastSyncAt).toLocaleTimeString("zh-CN", { hour12: false })}`);
+	}
 	return parts.length > 0 ? `Pickpen Sync：${parts.join(" ｜ ")}` : "Pickpen Sync";
 }

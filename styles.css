@@ -1420,3 +1420,33 @@ body.is-mobile .pickpen-password-field {
 	align-items: center;
 	gap: var(--size-4-2);
 }
+
+/* ===== 需要排除的文件夹 [管理]（选择性同步）===== */
+
+.pickpen-exclude-picker {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+}
+
+.pickpen-exclude-picker .dropdown {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* 单条排除项：路径左、移除按钮右（与仓库卡片同一视觉层级） */
+.pickpen-exclude-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.pickpen-exclude-path {
+	overflow-wrap: anywhere; /* 长路径换行而不是撑破卡片 */
+}

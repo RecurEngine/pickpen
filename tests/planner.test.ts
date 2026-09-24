@@ -2,6 +2,7 @@
 // planner 输入不含 mtime → 设备时钟差异不影响冲突结果（§16.3）。
 import { describe, expect, it } from "vitest";
 import { entriesEqual, nextConflictCopyName, plan } from "../src/sync/planner";
+import { createSyncFilter, defaultSelectiveSettings } from "../src/sync/selective";
 import type { Entry, Snapshot } from "../src/sync/types";
 
 const A = "a".repeat(64);
@@ -527,5 +528,115 @@ describe("file_id 身份冲突（12023 防触发）", () => {
 		expect(p.puts[0].path).toBe("dir");
 		expect(p.puts[0].file_id).not.toBe(F); // blocked 不产生 delete → 身份必然不可配对
 		expect(p.target_entries["未命名"].state).toBe("active"); // 阻塞路径保留原状态
+	});
+});
+
+// ===== 选择性同步：被排除路径整体无操作 =====
+
+describe("选择性同步（filter 排除路径）", () => {
+	const onlyMd = () =>
+		createSyncFilter({
+			selective: { ...defaultSelectiveSettings(), images: false, audio: false, video: false, pdf: false, other: false },
+			configDir: ".obsidian",
+			selfDir: ".obsidian/plugins/pickpen",
+			selfId: "pickpen",
+		});
+
+	it("远端独有的被排除文件：不下载、不进 target（保留远端状态），也不计 blocked", () => {
+		const p = plan({
+			base: null,
+			local: snap({ "note.md": active(A) }),
+			remote: snap({ "note.md": active(A), "clip.mp4": active(B) }),
+			deviceId: "dev-001",
+			filter: onlyMd(),
+		});
+		expect(p.apply_actions).toEqual([]); // 不下载
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.blocked_paths).toEqual([]); // 用户主动排除，不是异常
+		expect(p.target_entries["clip.mp4"]).toEqual({ state: "active", content_hash: B, size: "10" });
+	});
+
+	it("本地独有的被排除文件：不上传，远端不留行", () => {
+		const p = plan({
+			base: null,
+			local: snap({ "note.md": active(A), "clip.mp4": active(B) }),
+			remote: snap({}),
+			deviceId: "dev-001",
+			filter: onlyMd(),
+		});
+		expect(p.puts.map((m) => m.path)).toEqual(["note.md"]);
+		expect(p.target_entries["clip.mp4"]).toBeUndefined();
+	});
+
+	it("被排除路径的本地删除不传播到远端（关掉类型不删远端已有文件）", () => {
+		const b = snap({ "clip.mp4": active(A) });
+		const p = plan({
+			base: b,
+			local: snap({ "clip.mp4": deleted }), // 扫描视角：该路径已不在同步范围内
+			remote: snap({ "clip.mp4": active(A) }),
+			deviceId: "dev-001",
+			filter: onlyMd(),
+		});
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["clip.mp4"]).toEqual({ state: "active", content_hash: A, size: "10" });
+	});
+
+	it("排除文件夹：整棵子树无操作", () => {
+		const filter = createSyncFilter({
+			selective: { ...defaultSelectiveSettings(), excludedFolders: ["private"] },
+			configDir: ".obsidian",
+			selfDir: ".obsidian/plugins/pickpen",
+			selfId: "pickpen",
+		});
+		const p = plan({
+			base: null,
+			local: snap({ "private/a.md": active(A) }),
+			remote: snap({ "private/b.md": active(B), "public.md": active(C) }),
+			deviceId: "dev-001",
+			filter,
+		});
+		expect(p.puts).toEqual([]);
+		expect(p.apply_actions).toEqual([{ kind: "write", path: "public.md", content_hash: C, size: "10" }]);
+		expect(p.target_entries["private/b.md"]).toEqual({ state: "active", content_hash: B, size: "10" });
+	});
+
+	it("配置文件冲突：远端胜，本地副本只落盘不产生 put", () => {
+		const filter = createSyncFilter({
+			selective: defaultSelectiveSettings(),
+			configDir: ".obsidian",
+			selfDir: ".obsidian/plugins/pickpen",
+			selfId: "pickpen",
+		});
+		const p = plan({
+			base: snap({ ".obsidian/app.json": active(A) }),
+			local: snap({ ".obsidian/app.json": active(B) }),
+			remote: snap({ ".obsidian/app.json": active(C) }),
+			deviceId: "dev-001",
+			filter,
+		});
+		expect(p.puts).toEqual([]); // 副本不上传
+		expect(p.conflict_copies).toHaveLength(1);
+		expect(p.conflict_copies[0].path.startsWith(".obsidian/app (conflict ")).toBe(true);
+		expect(p.target_entries[".obsidian/app.json"]).toEqual({ state: "active", content_hash: C, size: "10" });
+		expect(p.apply_actions).toContainEqual({ kind: "write", path: ".obsidian/app.json", content_hash: C, size: "10" });
+	});
+
+	it("配置目录不参与 rmdir 兜底（远端删配置文件不连带删 .obsidian）", () => {
+		const filter = createSyncFilter({
+			selective: defaultSelectiveSettings(),
+			configDir: ".obsidian",
+			selfDir: ".obsidian/plugins/pickpen",
+			selfId: "pickpen",
+		});
+		const p = plan({
+			base: snap({ ".obsidian/app.json": active(A) }),
+			local: snap({ ".obsidian/app.json": active(A) }),
+			remote: snap({ ".obsidian/app.json": deleted }),
+			deviceId: "dev-001",
+			filter,
+		});
+		expect(p.apply_actions).toEqual([{ kind: "trash", path: ".obsidian/app.json", content_hash: "", size: "0" }]);
+		expect(p.apply_actions.some((a) => a.kind === "rmdir")).toBe(false);
 	});
 });
