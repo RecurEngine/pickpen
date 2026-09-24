@@ -1,7 +1,7 @@
 {
 	"id": "pickpen",
 	"name": "Pickpen Sync",
-	"version": "1.4.0",
+	"version": "1.4.1",
 	"minAppVersion": "1.13.0",
 	"description": "跨设备同步笔记，支持端到端加密、版本历史与冲突副本。Sync notes across devices with optional end-to-end encryption, version history, and conflict copies.",
 	"author": "Pickpen",

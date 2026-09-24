@@ -195,6 +195,37 @@
 }
 
 /*
+ * 「同步」区在窄屏 / 手机上失掉「信息在左、控件贴右」的排布，需要把行排布显式钉回来。
+ *
+ * 触发条件是宿主的窄容器（@container max-width:400px）与手机（.is-phone .modal）两组规则：
+ * 它们把行折成上下两行，并把控件改成整宽 + 左对齐。这两组规则的选择器是后代组合符
+ * （`.setting-item … .setting-item-control`，不是 `>`），豁免用的 :not(:is(…)) 只看「行的类」。
+ * 于是承载分区的声明行（.pickpen-declared-section）本身不含被豁免的类，规则从那一层就
+ * 穿透进了分区内部——行自己仍是横排，控件却已被改成 flex-start，开关因此停在控件框左端，
+ * 且每行停的位置随文字长度变化。
+ *
+ * 下面的声明把本分区内的行钉回原生横排语义：控件恒为本行内容区右边缘。桌面不受那两组
+ * 规则影响，这里是等价重述，观感不变。
+ */
+.mod-settings .setting-group .pickpen-settings-section.pickpen-sync-section > .setting-item {
+	display: flex;
+	flex-direction: row;
+}
+
+.mod-settings .setting-group .pickpen-settings-section.pickpen-sync-section > .setting-item > .setting-item-control {
+	width: auto;
+	flex: 0 0 auto;
+	margin-inline-start: auto;
+	justify-content: flex-end;
+}
+
+/* 手机端宿主会把控件里的按钮撑满整行，这里收回自然宽度 */
+.mod-settings .setting-group .pickpen-settings-section.pickpen-sync-section > .setting-item > .setting-item-control > button:not(.clickable-icon) {
+	width: auto;
+	max-width: none;
+}
+
+/*
  * 分区内的子标题（订阅区的「当前订阅」「订阅方案」）：与行内容同列，
  * 并补足卡片顶部 / 分节之间的内边距。选择器需压过宿主的分组标题规则。
  */
