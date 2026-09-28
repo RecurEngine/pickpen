@@ -7,6 +7,7 @@ import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import { Platform } from "obsidian";
 
 import { debugLog } from "./debug-log";
+import { BenefitService } from "./gen/proto/benefit/benefit_pb";
 import { InviteService } from "./gen/proto/invite/invite_pb";
 import { SyncService } from "./gen/proto/sync/sync.ext_pb";
 import { SubscriptionService } from "./gen/proto/subscription/subscription_pb";
@@ -59,6 +60,11 @@ export const ErrCode = {
 	PaymentVerifyFailed: 13006,
 	InviteCodeInvalid: 15001,  // 邀请码无效（仅首次注册时校验）
 	InviteRequestInvalid: 15002, // 邀请查询参数非法（分页游标等）
+	BenefitCodeUnavailable: 16001, // 福利码无效或已下架
+	BenefitCodeExpired: 16002,     // 福利码不在可领取时段内
+	BenefitAlreadyClaimed: 16003,  // 该福利码已领取过（同一福利码限领一次）
+	BenefitRequestInvalid: 16004,  // 福利码格式非法
+	BenefitTooFrequent: 16005,     // 领取失败过于频繁，暂时拒绝
 } as const;
 
 // errorCode 业务错误码（err.code 即业务码）
@@ -191,6 +197,7 @@ export class RemoteClient {
 	syncClient: ReturnType<typeof createClient<typeof SyncService>>;
 	subscriptionClient: ReturnType<typeof createClient<typeof SubscriptionService>>;
 	inviteClient: ReturnType<typeof createClient<typeof InviteService>>;
+	benefitClient: ReturnType<typeof createClient<typeof BenefitService>>;
 	private getConfig: () => RemoteConfig;
 	private currentBaseUrl = "";
 
@@ -201,6 +208,7 @@ export class RemoteClient {
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
 		this.inviteClient = createClient(InviteService, transport);
+		this.benefitClient = createClient(BenefitService, transport);
 	}
 
 	// rebuild baseUrl 变更时重建 transport 与客户端（插件初始化时调用）
@@ -213,6 +221,7 @@ export class RemoteClient {
 		this.syncClient = createClient(SyncService, transport);
 		this.subscriptionClient = createClient(SubscriptionService, transport);
 		this.inviteClient = createClient(InviteService, transport);
+		this.benefitClient = createClient(BenefitService, transport);
 		this.currentBaseUrl = baseUrl;
 		debugLog.info("[pickpen] 远端地址已更新");
 	}

@@ -867,6 +867,8 @@ export default class PickpenPlugin extends Plugin {
 	// afterLogin 登录成功后的绑定决策（状态机核心，settings.ts 登录按钮调用）：
 	// 同账号重登（token 过期续登）→ 沿用原绑定零打扰；否则暂停同步并打开仓库管理
 	async afterLogin(onBindingChange?: () => void): Promise<void> {
+		// 登录后才有资格查询福利码活动状态；结果变化时设置页会自行重算入口可见性
+		this.settingTab.refreshBenefitAvailability();
 		const { email, vaultId } = this.settings;
 		const bound = this.accountBinding;
 		// 沿用条件：①本会话曾绑定同账号同仓库；或 ②data.json 共享的绑定归属属于当前账号（新设备免重选）
@@ -951,6 +953,7 @@ export default class PickpenPlugin extends Plugin {
 		this.settings.vaultId = "";
 		this.settings.vaultName = "";
 		delete this.settings.vaultOwner;
+		this.settingTab.resetBenefitAvailability(); // 未登录不展示福利码入口
 		await this.saveSettings();
 	}
 

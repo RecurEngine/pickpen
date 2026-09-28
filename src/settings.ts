@@ -3,6 +3,8 @@
 import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting, TFile, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
 
 import { renderAboutAndFeedback } from "./about";
+import { benefitActivityOpen, refreshBenefitActivity, resetBenefitActivity } from "./benefit-state";
+import { renderBenefitSection } from "./benefit-view";
 import { copyText } from "./clipboard";
 import { vaultKeys } from "./crypto/vault-key-store";
 import { openDeletedFiles } from "./deleted-files-view";
@@ -44,7 +46,24 @@ export class PickpenSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: PickpenPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
-		this.view = new PickpenSettingsView(app, plugin);
+		// 设置页首次渲染时补一次福利码活动状态：活动可能在插件启动之后才开启，
+		// 不刷新的话用户必须重启插件才看得到入口。
+		this.view = new PickpenSettingsView(app, plugin, () => this.refreshBenefitAvailability());
+	}
+
+	/**
+	 * refreshBenefitAvailability 拉取福利码活动开关并重算分组可见性（见 benefitGroup 的 visible）。
+	 * 只重算谓词、不重绘整页：update() 会重建全部分区，账号区的验证码倒计时是闭包内状态，
+	 * 重绘会丢引用但定时器仍在跑。
+	 */
+	refreshBenefitAvailability(): void {
+		void refreshBenefitActivity(this.plugin).then(() => this.refreshDomState());
+	}
+
+	/** resetBenefitAvailability 退出登录时清掉活动状态，入口随之隐藏。 */
+	resetBenefitAvailability(): void {
+		resetBenefitActivity();
+		this.refreshDomState();
 	}
 
 	/**
@@ -63,15 +82,16 @@ export class PickpenSettingTab extends PluginSettingTab {
 				"同步配置文件", "主要设置", "外观", "主题", "CSS 片段", "快捷键", "核心插件", "第三方插件",
 				"已删除的文件", "删除", "恢复",
 			]),
-			this.sectionGroup("invite", "邀请", "邀请码、邀请人数与邀请奖励进度", [
-				"邀请码", "邀请人数", "邀请充值", "邀请用户",
-			]),
 			this.sectionGroup("subscription-status", "当前订阅", "当前套餐、容量与到期时间", [
 				"订阅", "当前订阅", "当前档位", "套餐", "容量", "存储空间", "到期", "版本历史",
 			]),
 			this.sectionGroup("subscription-plans", "订阅方案", "可选套餐、价格与购买入口", [
 				"订阅", "订阅方案", "套餐", "升级", "购买", "支付", "二维码", "价格", "折扣",
 			]),
+			this.sectionGroup("invite", "邀请", "邀请码、邀请人数与邀请奖励进度", [
+				"邀请码", "邀请人数", "邀请充值", "邀请用户",
+			]),
+			this.benefitGroup(),
 			this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与调试日志", [
 				"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "调试日志", "日志",
 			]),
@@ -110,6 +130,32 @@ export class PickpenSettingTab extends PluginSettingTab {
 						// 其余分区渲染时不动，避免反复触发滚动
 						if (this.focusOwner() === section) this.applyFocus();
 						return () => this.view.disposeSection(section);
+					},
+				},
+			],
+		};
+	}
+
+	/**
+	 * 福利码分组：活动开启时才展示（开关来自服务端，见 benefit-state）。
+	 * 用 visible 谓词而非在 getSettingDefinitions 里条件性拼数组：
+	 * 谓词由宿主在每次渲染时求值，开关变化只需 refreshDomState() 就地切换，
+	 * 不必调用 update() 重绘整页（那会重建账号区、打断验证码倒计时）。
+	 */
+	private benefitGroup(): SettingDefinitionGroup {
+		return {
+			type: "group",
+			heading: "福利码",
+			visible: () => benefitActivityOpen(),
+			items: [
+				{
+					name: "福利码",
+					desc: "输入福利码兑换会员时长",
+					aliases: ["福利码", "兑换", "领取", "兑换码", "会员"],
+					render: (setting) => {
+						setting.setClass("pickpen-declared-section");
+						this.view.render("benefit", setting.settingEl);
+						return () => this.view.disposeSection("benefit");
 					},
 				},
 			],
@@ -185,9 +231,10 @@ export function closePluginSettings(app: App): void {
 export type SettingsSection =
 	| "account"
 	| "sync"
-	| "invite"
 	| "subscription-status"
 	| "subscription-plans"
+	| "invite"
+	| "benefit"
 	| "diagnostics"
 	| "about";
 
@@ -233,14 +280,17 @@ class PickpenSettingsView {
 	// 各分区订阅清理（分区重建/被拆除时解除）
 	private debugCleanup: (() => void) | null = null;
 	private inviteCleanup: (() => void) | null = null;
+	private benefitCleanup: (() => void) | null = null;
+	private readonly onFirstRender: () => void;
 	// 订阅两块共用一份数据与一个加载器：容器按分块记录，重建合并到同一微任务
 	private readonly subscriptionEls = new Map<SubscriptionPart, HTMLElement>();
 	private subscriptionCleanup: (() => void) | null = null;
 	private subscriptionRebuildQueued = false;
 
-	constructor(app: App, plugin: PickpenPlugin) {
+	constructor(app: App, plugin: PickpenPlugin, onFirstRender: () => void) {
 		this.app = app;
 		this.plugin = plugin;
+		this.onFirstRender = onFirstRender;
 	}
 
 	/** 渲染一个分区到宿主给的容器（重复调用即就地重建该分区） */
@@ -259,6 +309,11 @@ class PickpenSettingsView {
 			case "invite":
 				// —— 邀请（与「账号和仓库」同级；未登录时只显示登录引导）——
 				this.inviteCleanup = renderInviteSection(containerEl, this.plugin);
+				break;
+			case "benefit":
+				// —— 福利码（与「邀请」同级；由活动开关控制整个分组的可见性）——
+				// 领取会改变会员时长，只重建订阅两块，不整页重绘
+				this.benefitCleanup = renderBenefitSection(containerEl, this.plugin, () => this.refreshSubscription());
 				break;
 			case "subscription-status":
 				// 订阅：移动端交给官网移动收银台；其他平台在插件内显示二维码。
@@ -283,7 +338,14 @@ class PickpenSettingsView {
 		if (!this.started) {
 			this.started = true;
 			syncState.onChange(this.statusListener);
+			// 每次打开设置页补一次福利码活动状态，结果变化时由回调重算分组可见性
+			this.onFirstRender();
 		}
+	}
+
+	/** refreshSubscription 领取福利码后重建订阅两块（数据变化在 subscriptionEls 内部合并处理） */
+	refreshSubscription(): void {
+		this.queueSubscriptionRebuild();
 	}
 
 	/** 分区被重建或拆除时解除该分区的订阅与 DOM 引用（幂等） */
@@ -300,6 +362,10 @@ class PickpenSettingsView {
 			case "invite":
 				this.inviteCleanup?.();
 				this.inviteCleanup = null;
+				break;
+			case "benefit":
+				this.benefitCleanup?.();
+				this.benefitCleanup = null;
 				break;
 			case "diagnostics":
 				this.debugCleanup?.();
@@ -402,7 +468,6 @@ class PickpenSettingsView {
 				};
 				btn.setButtonText("获取验证码").onClick(async () => {
 					if (countdown > 0) return;
-					codeSetting.setErrorMessage(null);
 					try {
 						await this.plugin.auth.sendCode(settings.email);
 						new Notice("验证码已发送，请查收邮箱");
@@ -418,9 +483,8 @@ class PickpenSettingsView {
 						}, 1000);
 					} catch (err) {
 						debugLog.error(`[pickpen] 发送验证码失败，错误码：${errorCode(err) ?? "unknown"}`);
-						const msg = sendCodeErrorMessage(err);
-						codeSetting.setErrorMessage(msg);
-						new Notice(msg);
+						// 只走 Notice：与登录、购买一致，服务端结果不在表单下方常驻红字
+						new Notice(sendCodeErrorMessage(err));
 					}
 				});
 			});
@@ -449,7 +513,6 @@ class PickpenSettingsView {
 					.onClick(async () => {
 						if (busy) return;
 						busy = true;
-						loginSetting.setErrorMessage(null);
 						btn.setDisabled(true).setButtonText("登录中…");
 						try {
 							await this.plugin.auth.login(settings.email, code, inviteCode);
@@ -457,9 +520,8 @@ class PickpenSettingsView {
 							this.refreshIfActive();
 						} catch (err) {
 							debugLog.error(`[pickpen] 登录失败，错误码：${errorCode(err) ?? "unknown"}`);
-							const msg = loginErrorMessage(err);
-							loginSetting.setErrorMessage(msg);
-							new Notice(msg);
+							// 只走 Notice：与发送验证码、购买一致，服务端结果不在表单下方常驻红字
+							new Notice(loginErrorMessage(err));
 							btn.setDisabled(false).setButtonText("登录");
 						} finally {
 							busy = false;
@@ -673,6 +735,8 @@ class PickpenSettingsView {
 		this.subscriptionCleanup = null;
 		this.inviteCleanup?.();
 		this.inviteCleanup = null;
+		this.benefitCleanup?.();
+		this.benefitCleanup = null;
 		this.clearStatusCardRefs();
 	}
 

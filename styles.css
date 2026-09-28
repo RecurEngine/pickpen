@@ -187,7 +187,8 @@
  * 因此不再自带内边距。
  */
 .pickpen-settings-section,
-.pickpen-invite {
+.pickpen-invite,
+.pickpen-benefit {
 	margin: 0;
 	padding: 0 var(--size-4-5, 20px);
 	background: transparent;
@@ -207,7 +208,8 @@
  */
 .pickpen-settings-section > .setting-item,
 .pickpen-subscription > .setting-item,
-.pickpen-invite > .setting-item {
+.pickpen-invite > .setting-item,
+.pickpen-benefit > .setting-item {
 	padding: var(--setting-items-padding-y, var(--size-4-5)) 0;
 	margin-bottom: 0;
 	background: transparent;
@@ -279,7 +281,8 @@
  * 这里排除 .setting-item 以免重复画线）。
  */
 .pickpen-subscription > :not(.setting-item):not(:first-child),
-.pickpen-invite > :not(.setting-item):not(:first-child) {
+.pickpen-invite > :not(.setting-item):not(:first-child),
+.pickpen-benefit > :not(.setting-item):not(:first-child) {
 	border-top: 1px solid var(--background-modifier-border);
 }
 

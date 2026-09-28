@@ -27,12 +27,31 @@ describe("设置页分区", () => {
 		expect(headings).toEqual([
 			"账号和仓库",
 			"同步",
-			"邀请",
 			"当前订阅",
 			"订阅方案",
+			"邀请",
+			"福利码",
 			"诊断",
 			"关于与反馈",
 		]);
+	});
+
+	it("福利码入口由活动开关控制：分组声明常驻，可见性走 visible 谓词", () => {
+		const benefit = sectionGroups().find((g) => g.heading === "福利码");
+		expect(benefit).toBeDefined();
+		const visible = benefit?.visible;
+		// 必须是函数而不是恒 true：改死就等于绕过服务端下发的活动开关（见 benefit-state）
+		expect(typeof visible).toBe("function");
+		// 未获知活动状态（测试环境无登录态）时入口必须隐藏
+		expect(typeof visible === "function" ? visible() : visible).toBe(false);
+	});
+
+	it("福利码分组可被设置搜索检索到", () => {
+		const benefit = sectionGroups().find((g) => g.heading === "福利码");
+		const aliases = (benefit?.items?.[0] as { aliases?: string[] } | undefined)?.aliases ?? [];
+		for (const keyword of ["福利码", "兑换", "领取", "兑换码", "会员"]) {
+			expect(aliases).toContain(keyword);
+		}
 	});
 
 	it("同步区索引同时覆盖选择性同步与原同步区的入口", () => {

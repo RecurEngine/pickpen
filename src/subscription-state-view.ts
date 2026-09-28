@@ -71,6 +71,7 @@ export function subscriptionQuotaRows(
 const SOURCE_SUFFIX: Record<string, string> = {
 	trial: "（试用）",
 	invite: "（邀请奖励）",
+	benefit: "（福利码）",
 };
 
 /** 在桌面和移动设置页统一展示当前档位、有效期与待生效订阅。 */

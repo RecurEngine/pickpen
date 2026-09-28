@@ -280,9 +280,8 @@ export function renderSubscriptionSection(blocks: SubscriptionSlots, plugin: Pic
 						requestID = crypto.randomUUID();
 						new SubscriptionPaymentModal(plugin, reply.order, reply.qrCode.content, selectedPlan.name, paymentMethod, () => void load()).open();
 					} catch (err) {
-						const message = purchaseErrorMessage(err);
-						purchase.setErrorMessage(message);
-						new Notice(message);
+						// 只走 Notice：一次点击只给一条提示——服务端结果不在表单下方常驻红字
+						new Notice(purchaseErrorMessage(err));
 					} finally {
 						busy = false;
 						button.setDisabled(false).setButtonText("购买");
