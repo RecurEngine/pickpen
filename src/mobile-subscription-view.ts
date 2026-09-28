@@ -33,7 +33,7 @@ export function renderMobileSubscriptionSection(blocks: SubscriptionSlots, plugi
 	};
 	const accountHint = plugin.settings.email
 		? `当前插件账号：${plugin.settings.email}，请在官网使用同一账号。`
-		: "移动端订阅请在拾笔官网完成，将使用手机网站支付。";
+		: "移动端订阅请在 Pickpen 官网完成，将使用手机网站支付。";
 
 	const renderPurchase = () => {
 		const purchase = new Setting(plansRoot).setName("前往官网购买").setDesc(accountHint);
@@ -44,7 +44,7 @@ export function renderMobileSubscriptionSection(blocks: SubscriptionSlots, plugi
 				.onClick(() => {
 					try {
 						openExternal(mobileCheckoutUrl());
-						new Notice("已打开拾笔官网，请在官网登录后确认支付");
+						new Notice("已打开 Pickpen 官网，请在官网登录后确认支付");
 					} catch (error) {
 						debugLog.error("[pickpen] 打开移动端收银台失败", error);
 						new Notice("无法打开官网，请稍后重试");

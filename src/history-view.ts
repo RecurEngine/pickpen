@@ -61,7 +61,7 @@ export function installHistoryFeature(plugin: PickpenPlugin): void {
 			menu.addItem((item) => {
 				item.setIcon("history");
 				item.setTitle(
-					!bound ? "拾笔版本历史（需先登录并绑定仓库）" : fileId ? "拾笔版本历史" : "拾笔版本历史（文件尚未同步）",
+					!bound ? "Pickpen 版本历史（需先登录并绑定仓库）" : fileId ? "Pickpen 版本历史" : "Pickpen 版本历史（文件尚未同步）",
 				);
 				if (!bound || !fileId) {
 					item.setDisabled(true);
