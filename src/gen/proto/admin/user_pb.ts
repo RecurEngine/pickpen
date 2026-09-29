@@ -9,7 +9,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin/user.proto.
  */
 export const file_admin_user: GenFile = /*@__PURE__*/
-  fileDesc("ChBhZG1pbi91c2VyLnByb3RvEgVhZG1pbiI6CgpQbGFuT3B0aW9uEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEgoKbWF4X21vbnRocxgDIAEoAyIZChdMaXN0R3JhbnRPcHRpb25zUmVxdWVzdCI5ChVMaXN0R3JhbnRPcHRpb25zUmVwbHkSIAoFcGxhbnMYASADKAsyES5hZG1pbi5QbGFuT3B0aW9uIpwBCgtVc2VyU3VtbWFyeRIPCgd1c2VyX2lkGAEgASgDEg0KBWVtYWlsGAIgASgJEhAKCG5pY2tuYW1lGAMgASgJEhUKDWNyZWF0ZWRfYXRfbXMYBCABKAMSDwoHcGxhbl9pZBgFIAEoCRIfChdzdWJzY3JpcHRpb25fZW5kc19hdF9tcxgGIAEoAxISCgpzdWJzY3JpYmVkGAcgASgIIk4KEExpc3RVc2Vyc1JlcXVlc3QSDAoEcGFnZRgBIAEoBRIMCgRzaXplGAIgASgFEg0KBWVtYWlsGAMgASgJEg8KB3VzZXJfaWQYBCABKAMiXQoOTGlzdFVzZXJzUmVwbHkSIAoEbGlzdBgBIAMoCzISLmFkbWluLlVzZXJTdW1tYXJ5Eg0KBXRvdGFsGAIgASgDEgwKBHBhZ2UYAyABKAUSDAoEc2l6ZRgEIAEoBSItChpHZXRVc2VyU3Vic2NyaXB0aW9uUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDIo0BChJTdWJzY3JpcHRpb25SZWNvcmQSCgoCaWQYASABKAMSDwoHcGxhbl9pZBgCIAEoCRIOCgZzb3VyY2UYAyABKAkSFAoMc3RhcnRzX2F0X21zGAQgASgDEhIKCmVuZHNfYXRfbXMYBSABKAMSEAoIb3BlcmF0b3IYBiABKAkSDgoGcmVhc29uGAcgASgJIsIBChhHZXRVc2VyU3Vic2NyaXB0aW9uUmVwbHkSIAoEdXNlchgBIAEoCzISLmFkbWluLlVzZXJTdW1tYXJ5EioKB2N1cnJlbnQYAiABKAsyGS5hZG1pbi5TdWJzY3JpcHRpb25SZWNvcmQSLAoJc2NoZWR1bGVkGAMgAygLMhkuYWRtaW4uU3Vic2NyaXB0aW9uUmVjb3JkEioKB2hpc3RvcnkYBCADKAsyGS5hZG1pbi5TdWJzY3JpcHRpb25SZWNvcmQicAoYR3JhbnRTdWJzY3JpcHRpb25SZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDwoHcGxhbl9pZBgCIAEoCRIOCgZtb250aHMYAyABKAMSDgoGcmVhc29uGAQgASgJEhIKCnJlcXVlc3RfaWQYBSABKAkidQoWR3JhbnRTdWJzY3JpcHRpb25SZXBseRIvCgxzdWJzY3JpcHRpb24YASABKAsyGS5hZG1pbi5TdWJzY3JpcHRpb25SZWNvcmQSKgoHY3VycmVudBgCIAEoCzIZLmFkbWluLlN1YnNjcmlwdGlvblJlY29yZDLMAgoLVXNlclNlcnZpY2USUAoQTGlzdEdyYW50T3B0aW9ucxIeLmFkbWluLkxpc3RHcmFudE9wdGlvbnNSZXF1ZXN0GhwuYWRtaW4uTGlzdEdyYW50T3B0aW9uc1JlcGx5EjsKCUxpc3RVc2VycxIXLmFkbWluLkxpc3RVc2Vyc1JlcXVlc3QaFS5hZG1pbi5MaXN0VXNlcnNSZXBseRJZChNHZXRVc2VyU3Vic2NyaXB0aW9uEiEuYWRtaW4uR2V0VXNlclN1YnNjcmlwdGlvblJlcXVlc3QaHy5hZG1pbi5HZXRVc2VyU3Vic2NyaXB0aW9uUmVwbHkSUwoRR3JhbnRTdWJzY3JpcHRpb24SHy5hZG1pbi5HcmFudFN1YnNjcmlwdGlvblJlcXVlc3QaHS5hZG1pbi5HcmFudFN1YnNjcmlwdGlvblJlcGx5Qh1aG3BpY2twZW4vcGtnL2dlbi9wcm90by9hZG1pbmIGcHJvdG8z");
+  fileDesc("ChBhZG1pbi91c2VyLnByb3RvEgVhZG1pbiI6CgpQbGFuT3B0aW9uEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEgoKbWF4X21vbnRocxgDIAEoAyIZChdMaXN0R3JhbnRPcHRpb25zUmVxdWVzdCI5ChVMaXN0R3JhbnRPcHRpb25zUmVwbHkSIAoFcGxhbnMYASADKAsyES5hZG1pbi5QbGFuT3B0aW9uIs8BCgtVc2VyU3VtbWFyeRIPCgd1c2VyX2lkGAEgASgDEg0KBWVtYWlsGAIgASgJEhAKCG5pY2tuYW1lGAMgASgJEhUKDWNyZWF0ZWRfYXRfbXMYBCABKAMSDwoHcGxhbl9pZBgFIAEoCRIfChdzdWJzY3JpcHRpb25fZW5kc19hdF9tcxgGIAEoAxISCgpzdWJzY3JpYmVkGAcgASgIEhkKEWxhc3RfYWN0aXZlX2F0X21zGAggASgDEhYKDmxhc3RfYWN0aXZlX2lwGAkgASgJIk4KEExpc3RVc2Vyc1JlcXVlc3QSDAoEcGFnZRgBIAEoBRIMCgRzaXplGAIgASgFEg0KBWVtYWlsGAMgASgJEg8KB3VzZXJfaWQYBCABKAMiXQoOTGlzdFVzZXJzUmVwbHkSIAoEbGlzdBgBIAMoCzISLmFkbWluLlVzZXJTdW1tYXJ5Eg0KBXRvdGFsGAIgASgDEgwKBHBhZ2UYAyABKAUSDAoEc2l6ZRgEIAEoBSJIChlMaXN0VXNlckFjdGl2ZURheXNSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDAoEcGFnZRgCIAEoBRIMCgRzaXplGAMgASgFIkoKE1VzZXJBY3RpdmVEYXlSZWNvcmQSCwoDZGF5GAEgASgDEhoKEmZpcnN0X2FjdGl2ZV9hdF9tcxgCIAEoAxIKCgJpcBgDIAEoCSKfAQoXTGlzdFVzZXJBY3RpdmVEYXlzUmVwbHkSKAoEbGlzdBgBIAMoCzIaLmFkbWluLlVzZXJBY3RpdmVEYXlSZWNvcmQSDQoFdG90YWwYAiABKAMSDAoEcGFnZRgDIAEoBRIMCgRzaXplGAQgASgFEhMKC2FjdGl2ZV9kYXlzGAUgASgDEhoKEmFjdGl2ZV9kYXlzX3dpbmRvdxgGIAEoBSItChpHZXRVc2VyU3Vic2NyaXB0aW9uUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDIo0BChJTdWJzY3JpcHRpb25SZWNvcmQSCgoCaWQYASABKAMSDwoHcGxhbl9pZBgCIAEoCRIOCgZzb3VyY2UYAyABKAkSFAoMc3RhcnRzX2F0X21zGAQgASgDEhIKCmVuZHNfYXRfbXMYBSABKAMSEAoIb3BlcmF0b3IYBiABKAkSDgoGcmVhc29uGAcgASgJIsIBChhHZXRVc2VyU3Vic2NyaXB0aW9uUmVwbHkSIAoEdXNlchgBIAEoCzISLmFkbWluLlVzZXJTdW1tYXJ5EioKB2N1cnJlbnQYAiABKAsyGS5hZG1pbi5TdWJzY3JpcHRpb25SZWNvcmQSLAoJc2NoZWR1bGVkGAMgAygLMhkuYWRtaW4uU3Vic2NyaXB0aW9uUmVjb3JkEioKB2hpc3RvcnkYBCADKAsyGS5hZG1pbi5TdWJzY3JpcHRpb25SZWNvcmQicAoYR3JhbnRTdWJzY3JpcHRpb25SZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDwoHcGxhbl9pZBgCIAEoCRIOCgZtb250aHMYAyABKAMSDgoGcmVhc29uGAQgASgJEhIKCnJlcXVlc3RfaWQYBSABKAkidQoWR3JhbnRTdWJzY3JpcHRpb25SZXBseRIvCgxzdWJzY3JpcHRpb24YASABKAsyGS5hZG1pbi5TdWJzY3JpcHRpb25SZWNvcmQSKgoHY3VycmVudBgCIAEoCzIZLmFkbWluLlN1YnNjcmlwdGlvblJlY29yZDKkAwoLVXNlclNlcnZpY2USUAoQTGlzdEdyYW50T3B0aW9ucxIeLmFkbWluLkxpc3RHcmFudE9wdGlvbnNSZXF1ZXN0GhwuYWRtaW4uTGlzdEdyYW50T3B0aW9uc1JlcGx5EjsKCUxpc3RVc2VycxIXLmFkbWluLkxpc3RVc2Vyc1JlcXVlc3QaFS5hZG1pbi5MaXN0VXNlcnNSZXBseRJZChNHZXRVc2VyU3Vic2NyaXB0aW9uEiEuYWRtaW4uR2V0VXNlclN1YnNjcmlwdGlvblJlcXVlc3QaHy5hZG1pbi5HZXRVc2VyU3Vic2NyaXB0aW9uUmVwbHkSUwoRR3JhbnRTdWJzY3JpcHRpb24SHy5hZG1pbi5HcmFudFN1YnNjcmlwdGlvblJlcXVlc3QaHS5hZG1pbi5HcmFudFN1YnNjcmlwdGlvblJlcGx5ElYKEkxpc3RVc2VyQWN0aXZlRGF5cxIgLmFkbWluLkxpc3RVc2VyQWN0aXZlRGF5c1JlcXVlc3QaHi5hZG1pbi5MaXN0VXNlckFjdGl2ZURheXNSZXBseUIdWhtwaWNrcGVuL3BrZy9nZW4vcHJvdG8vYWRtaW5iBnByb3RvMw");
 
 /**
  * PlanOption 赠送表单可选的订阅档位。
@@ -132,6 +132,20 @@ export type UserSummary = Message<"admin.UserSummary"> & {
    * @generated from field: bool subscribed = 7;
    */
   subscribed: boolean;
+
+  /**
+   * 最近一个活跃自然日内首次活跃的时刻，Unix 毫秒时间戳；无活跃记录时为 0。
+   *
+   * @generated from field: int64 last_active_at_ms = 8;
+   */
+  lastActiveAtMs: bigint;
+
+  /**
+   * 最近一次活跃记录到的客户端 IP（明文，IPv4/IPv6）；无记录或未取到时为空串。
+   *
+   * @generated from field: string last_active_ip = 9;
+   */
+  lastActiveIp: string;
 };
 
 /**
@@ -222,6 +236,128 @@ export const ListUsersReplySchema: GenMessage<ListUsersReply> = /*@__PURE__*/
   messageDesc(file_admin_user, 5);
 
 /**
+ * @generated from message admin.ListUserActiveDaysRequest
+ */
+export type ListUserActiveDaysRequest = Message<"admin.ListUserActiveDaysRequest"> & {
+  /**
+   * 目标用户 ID。
+   *
+   * @generated from field: int64 user_id = 1;
+   */
+  userId: bigint;
+
+  /**
+   * 页码，从 1 开始；为 0 时按 1 处理。
+   *
+   * @generated from field: int32 page = 2;
+   */
+  page: number;
+
+  /**
+   * 每页数量，0 表示用服务端默认值，服务端限制最大值。
+   *
+   * @generated from field: int32 size = 3;
+   */
+  size: number;
+};
+
+/**
+ * Describes the message admin.ListUserActiveDaysRequest.
+ * Use `create(ListUserActiveDaysRequestSchema)` to create a new message.
+ */
+export const ListUserActiveDaysRequestSchema: GenMessage<ListUserActiveDaysRequest> = /*@__PURE__*/
+  messageDesc(file_admin_user, 6);
+
+/**
+ * UserActiveDayRecord 用户活跃记录中的一天；对应 domain 的 UserActiveDayRow。
+ *
+ * @generated from message admin.UserActiveDayRecord
+ */
+export type UserActiveDayRecord = Message<"admin.UserActiveDayRecord"> & {
+  /**
+   * 北京自然日桶，格式 yyyyMMdd（如 20260929）；不是时间戳，勿按毫秒处理。
+   *
+   * @generated from field: int64 day = 1;
+   */
+  day: bigint;
+
+  /**
+   * 该日首次活跃的落库时刻，Unix 毫秒时间戳。
+   *
+   * @generated from field: int64 first_active_at_ms = 2;
+   */
+  firstActiveAtMs: bigint;
+
+  /**
+   * 该日首次活跃记录到的客户端 IP（明文，IPv4/IPv6）；未取到或存量为空串。
+   *
+   * @generated from field: string ip = 3;
+   */
+  ip: string;
+};
+
+/**
+ * Describes the message admin.UserActiveDayRecord.
+ * Use `create(UserActiveDayRecordSchema)` to create a new message.
+ */
+export const UserActiveDayRecordSchema: GenMessage<UserActiveDayRecord> = /*@__PURE__*/
+  messageDesc(file_admin_user, 7);
+
+/**
+ * @generated from message admin.ListUserActiveDaysReply
+ */
+export type ListUserActiveDaysReply = Message<"admin.ListUserActiveDaysReply"> & {
+  /**
+   * 当前页活跃记录，按自然日倒序。
+   *
+   * @generated from field: repeated admin.UserActiveDayRecord list = 1;
+   */
+  list: UserActiveDayRecord[];
+
+  /**
+   * 活跃记录总天数，即累计活跃天数。
+   *
+   * @generated from field: int64 total = 2;
+   */
+  total: bigint;
+
+  /**
+   * 与请求的 page 一致；超出末页时返回空列表。
+   *
+   * @generated from field: int32 page = 3;
+   */
+  page: number;
+
+  /**
+   * 每页数量，为服务端实际生效值（可能被钳制）。
+   *
+   * @generated from field: int32 size = 4;
+   */
+  size: number;
+
+  /**
+   * 最近 active_days_window 个北京自然日内（含今日）的活跃天数。
+   *
+   * @generated from field: int64 active_days = 5;
+   */
+  activeDays: bigint;
+
+  /**
+   * active_days 的统计窗口天数；服务端规则，前端只用于展示。
+   *
+   * @generated from field: int32 active_days_window = 6;
+   */
+  activeDaysWindow: number;
+};
+
+/**
+ * Describes the message admin.ListUserActiveDaysReply.
+ * Use `create(ListUserActiveDaysReplySchema)` to create a new message.
+ */
+export const ListUserActiveDaysReplySchema: GenMessage<ListUserActiveDaysReply> = /*@__PURE__*/
+  messageDesc(file_admin_user, 8);
+
+/**
  * @generated from message admin.GetUserSubscriptionRequest
  */
 export type GetUserSubscriptionRequest = Message<"admin.GetUserSubscriptionRequest"> & {
@@ -238,7 +374,7 @@ export type GetUserSubscriptionRequest = Message<"admin.GetUserSubscriptionReque
  * Use `create(GetUserSubscriptionRequestSchema)` to create a new message.
  */
 export const GetUserSubscriptionRequestSchema: GenMessage<GetUserSubscriptionRequest> = /*@__PURE__*/
-  messageDesc(file_admin_user, 6);
+  messageDesc(file_admin_user, 9);
 
 /**
  * SubscriptionRecord 管理后台展示的订阅周期记录。
@@ -302,7 +438,7 @@ export type SubscriptionRecord = Message<"admin.SubscriptionRecord"> & {
  * Use `create(SubscriptionRecordSchema)` to create a new message.
  */
 export const SubscriptionRecordSchema: GenMessage<SubscriptionRecord> = /*@__PURE__*/
-  messageDesc(file_admin_user, 7);
+  messageDesc(file_admin_user, 10);
 
 /**
  * @generated from message admin.GetUserSubscriptionReply
@@ -342,7 +478,7 @@ export type GetUserSubscriptionReply = Message<"admin.GetUserSubscriptionReply">
  * Use `create(GetUserSubscriptionReplySchema)` to create a new message.
  */
 export const GetUserSubscriptionReplySchema: GenMessage<GetUserSubscriptionReply> = /*@__PURE__*/
-  messageDesc(file_admin_user, 8);
+  messageDesc(file_admin_user, 11);
 
 /**
  * @generated from message admin.GrantSubscriptionRequest
@@ -389,7 +525,7 @@ export type GrantSubscriptionRequest = Message<"admin.GrantSubscriptionRequest">
  * Use `create(GrantSubscriptionRequestSchema)` to create a new message.
  */
 export const GrantSubscriptionRequestSchema: GenMessage<GrantSubscriptionRequest> = /*@__PURE__*/
-  messageDesc(file_admin_user, 9);
+  messageDesc(file_admin_user, 12);
 
 /**
  * @generated from message admin.GrantSubscriptionReply
@@ -415,7 +551,7 @@ export type GrantSubscriptionReply = Message<"admin.GrantSubscriptionReply"> & {
  * Use `create(GrantSubscriptionReplySchema)` to create a new message.
  */
 export const GrantSubscriptionReplySchema: GenMessage<GrantSubscriptionReply> = /*@__PURE__*/
-  messageDesc(file_admin_user, 10);
+  messageDesc(file_admin_user, 13);
 
 /**
  * UserService 提供管理后台的用户检索、订阅查询与赠送能力。
@@ -435,7 +571,7 @@ export const UserService: GenService<{
     output: typeof ListGrantOptionsReplySchema;
   },
   /**
-   * ListUsers 按用户 ID 或邮箱检索用户，返回用户基础资料与当前订阅摘要。
+   * ListUsers 按用户 ID 或邮箱检索用户，返回用户基础资料、当前订阅摘要与最近活跃摘要。
    *
    * @generated from rpc admin.UserService.ListUsers
    */
@@ -463,6 +599,16 @@ export const UserService: GenService<{
     methodKind: "unary";
     input: typeof GrantSubscriptionRequestSchema;
     output: typeof GrantSubscriptionReplySchema;
+  },
+  /**
+   * ListUserActiveDays 分页返回用户的活跃记录（一自然日一行），并给出最近若干天的活跃天数汇总。
+   *
+   * @generated from rpc admin.UserService.ListUserActiveDays
+   */
+  listUserActiveDays: {
+    methodKind: "unary";
+    input: typeof ListUserActiveDaysRequestSchema;
+    output: typeof ListUserActiveDaysReplySchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_admin_user, 0);

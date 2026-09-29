@@ -7,12 +7,13 @@ import { App, Platform, normalizePath } from "obsidian";
 
 import { openForLocal, remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
-import { isFileIDMoved, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
+import { isFileIDMoved, isInvalidHash, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
 import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgress } from "./progress";
 import { Applier } from "./applier";
 import { BaseStore } from "./base-store";
+import { sha256Hex } from "./content-hash";
 import { LocalSnapshotBuilder } from "./local-snapshot";
 import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
 import { buildTree } from "./merkle";
@@ -26,6 +27,24 @@ import { backoffMs, createYieldControl } from "./utils";
 
 /** 12023 连续次数达此值 → 抑制 rename hint 继承（强制新身份，切断复发） */
 const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
+
+/** 上传期间本地文件变动连续达此值 → 不再静默重排，改报错（避免被持续改写的文件一直空转） */
+const UPLOAD_RACE_SUPPRESS_AFTER = 3;
+
+/**
+ * 上传期间本地文件被改动：计划里的 hash 已不代表磁盘内容（服务端重算会以 12006 拒绝）。
+ * 与 step 9「本地已变则放弃本轮」同一原则，只是发现得晚——放弃本轮并把该路径标脏重排。
+ */
+class LocalChangedDuringUploadError extends Error {
+	/** 下一轮需要重扫的本地路径（冲突副本的 hash 对应其 source_path） */
+	readonly path: string;
+
+	constructor(path: string) {
+		super("本地文件在上传期间持续变动，请稍后重试");
+		this.name = "LocalChangedDuringUploadError";
+		this.path = path;
+	}
+}
 
 /**
  * L 与 B 是否在「排除项之外」逐条一致。
@@ -107,6 +126,8 @@ export class ReconcileSession {
 	private consecutiveFailures = 0;
 	/** 12023 连续触发次数：驱动 hint 抑制与退避 */
 	private fileIDMovedStreak = 0;
+	/** 上传期间本地文件变动连续轮数：驱动静默重排与退避 */
+	private uploadRaceStreak = 0;
 	/** 12023 连续触发后的 rename hint 抑制：fileIDFor 退化为新 UUID，保证重试产生不同 plan */
 	private suppressRenameHints = false;
 	private blockedPaths: string[] = [];
@@ -195,6 +216,7 @@ export class ReconcileSession {
 		this.blockedPaths = [];
 		this.consecutiveFailures = 0;
 		this.fileIDMovedStreak = 0;
+		this.uploadRaceStreak = 0;
 		this.suppressRenameHints = false;
 		this.lastError = "";
 		this.lastSyncAt = 0; // 换绑后旧仓库的「最后同步」不再适用
@@ -288,7 +310,17 @@ export class ReconcileSession {
 					this.storageLimitExceeded = false;
 				} catch (err) {
 					this.clearProgress();
-					if (isUnauthenticated(err)) {
+					// 上传期间本地文件被改动：不是同步失败，而是计划已过期——该路径标脏、下一轮重排即可收敛，
+					// 因此不设 lastError、不计失败次数。连续命中达阈值说明该文件在被持续改写（继续重排只会空转），
+					// 落到下面的普通失败分支报错。
+					if (err instanceof LocalChangedDuringUploadError && ++this.uploadRaceStreak < UPLOAD_RACE_SUPPRESS_AFTER) {
+						this.nextDirtyPaths.add(err.path);
+						this.rerunRequested = true;
+						debugLog.warn(`[pickpen] 上传期间本地文件变动（第 ${this.uploadRaceStreak} 次），退避后重新对账：${err.path}`);
+						// 退避基数小：本地改动通常已落盘完成，短暂等待即可（若正写到一半，等它写完）
+						this.beginPhase("waiting");
+						await new Promise((r) => window.setTimeout(r, backoffMs(this.uploadRaceStreak, 1_000, 5_000)));
+					} else if (isUnauthenticated(err)) {
 						this.lastError = "令牌失效，请重新登录";
 					} else if (isStorageLimitExceeded(err)) {
 						this.storageLimitExceeded = true;
@@ -518,19 +550,32 @@ export class ReconcileSession {
 			await uploadTracker.track(srcPath, async () => {
 				if (mergePass.stagedHashes.has(hash)) {
 					// 合并产物：临时区里已是「密封后」的字节（其 SHA-256 即计划声明的 hash）。
-					// 绝不能按源文件重新密封——磁盘上仍是合并前的本地内容，会算出另一个地址
+					// 绝不能按源文件重新密封——磁盘上仍是合并前的本地内容，会算出另一个地址。
+					// 这里仍校验一次临时区内容（与下载侧 applier 同一原则）：不一致说明临时区被破坏，
+					// 不是本地竞态，不得静默重排
 					const sealedBytes = new Uint8Array(
 						await app.vault.adapter.readBinary(normalizePath(`${this.tmpDir}/${hash}`)),
 					);
+					if ((await sha256Hex(sealedBytes)) !== hash) {
+						throw new Error(`合并产物临时文件校验失败：${srcPath}`);
+					}
 					await remote.putBlob(hash, sealedBytes);
 					return;
 				}
 				const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
 				// 上传统一出口：加密仓库在这里转成密文。
-				// 声明哈希用计划里的 hash 而不是重算值：文件若在上传期间被改动，服务端重算
-				// SHA-256 会当场以 12006 拒绝，而不是把内容存到一个没人引用的新地址上
+				// 声明哈希用计划里的 hash：sealed.hash 就是这批字节（加密仓库下是密文）的 SHA-256，
+				// 与计划不一致 = 文件在上传期间被改动。此时不发请求——服务端重算会以 12006 拒绝，
+				// 白跑一趟还把整轮变成可见失败——改为放弃本轮、把该路径标脏重排（下一轮即收敛）
 				const sealed = await sealForRemote(content);
-				await remote.putBlob(hash, sealed.bytes);
+				if (sealed.hash !== hash) throw new LocalChangedDuringUploadError(srcPath);
+				try {
+					await remote.putBlob(hash, sealed.bytes);
+				} catch (err) {
+					// 兜底：本地预检与请求之间仍可能被改动（服务端重算拦下 → 12006），走同一条重排路径
+					if (isInvalidHash(err)) throw new LocalChangedDuringUploadError(srcPath);
+					throw err;
+				}
 			});
 		}
 
@@ -584,6 +629,7 @@ export class ReconcileSession {
 		}
 		this.consecutiveFailures = 0;
 		this.fileIDMovedStreak = 0;
+		this.uploadRaceStreak = 0;
 		this.suppressRenameHints = false;
 
 		// 13. 逐文件安全写入本地（§9.1 步骤 12）

@@ -63,13 +63,16 @@ describe("下载和本地应用进度", () => {
 				{ kind: "rmdir", path: "非空", content_hash: "", size: "0" },
 				{ kind: "write", path: "笔记.md", content_hash: hash, size: String(content.length) },
 			],
-			conflicts: [{ path: "冲突.md", source_path: "源.md", content_hash: hash, size: String(content.length) }],
+			conflicts: [
+				{ path: "冲突.md", source_path: "源.md", content_hash: hash, size: String(content.length), local_only: false },
+			],
 			expectedHashes: new Map(), expectedRevision: 1n, expectedRootHash: "root", tmpDir: "tmp", isMobile: false,
 			onProgress, onSkipped,
 		});
 		expect(skipped).toEqual(["非空"]);
 		expect(onSkipped).toHaveBeenCalledWith("非空");
-		expect(writeBinary.mock.calls.map(([path]) => path)).toEqual(["笔记.md", "冲突.md"]);
+		// 副本先于 actions 落盘：取副本源的时机必须早于「写回远端内容」覆盖原路径
+		expect(writeBinary.mock.calls.map(([path]) => path)).toEqual(["冲突.md", "笔记.md"]);
 		expect(onProgress.mock.lastCall![0]).toEqual({ completed: 4, total: 4, activePaths: [] });
 	});
 

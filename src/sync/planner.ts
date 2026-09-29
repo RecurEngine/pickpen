@@ -9,7 +9,7 @@
 // 配置文件（配置目录内）参与对账，但冲突时以远端为准、本地留不参与同步的副本。
 
 import { KIND_DIR, KIND_FILE } from "./types";
-import type { Entry, PutMutation, Snapshot, SyncPlan } from "./types";
+import type { ConflictCopy, Entry, PutMutation, Snapshot, SyncPlan } from "./types";
 import type { SyncFilter } from "./selective";
 import { newUUID } from "./utils";
 
@@ -59,7 +59,7 @@ export function plan(input: PlanInput): SyncPlan {
 	const puts: PutMutation[] = [];
 	const deletes: string[] = [];
 	const applyActions: SyncPlan["apply_actions"] = [];
-	const conflictCopies: { path: string; source_path: string; content_hash: string; size: string }[] = [];
+	const conflictCopies: ConflictCopy[] = [];
 	const targetEntries: Record<string, Entry> = { ...remote.entries };
 	const usedNames = new Set<string>([...Object.keys(targetEntries), ...Object.keys(local.entries)]);
 
@@ -107,15 +107,17 @@ export function plan(input: PlanInput): SyncPlan {
 		// 冲突副本是新文件，必须新 file_id：沿用源 file_id 会与保留在原路径的
 		// Remote 行冲突（服务端拒绝同一 file_id 出现在两条 active 路径，12023）
 		const copyFileId = newUUID();
+		// 配置文件（配置目录内）的冲突副本只落本地、不参与同步：副本名不在官方分类覆盖范围内，
+		// 上传出去只会给其他设备留下一份永远无人处理的孤儿；原路径仍按远端胜
+		const localOnly = isConfigPath(path);
 		conflictCopies.push({
 			path: copyPath,
 			source_path: path,
 			content_hash: l.content_hash!,
 			size: l.size!,
+			local_only: localOnly,
 		});
-		// 配置文件（配置目录内）的冲突副本只落本地、不参与同步：副本名不在官方分类覆盖范围内，
-		// 上传出去只会给其他设备留下一份永远无人处理的孤儿；原路径仍按远端胜
-		if (isConfigPath(path)) {
+		if (localOnly) {
 			applyRemote(path, r);
 			return;
 		}

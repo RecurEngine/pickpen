@@ -81,6 +81,7 @@ describe("§8.2 裁决矩阵", () => {
 		const cc = p.conflict_copies[0];
 		expect(cc.source_path).toBe("x.md");
 		expect(cc.content_hash).toBe(B);
+		expect(cc.local_only).toBe(false); // 非配置路径：副本随 commit 上传，可走远端兜底
 		// 原路径保持 Remote 内容
 		expect(p.target_entries["x.md"].content_hash).toBe(C);
 		// 冲突副本进入目标 Manifest 并上传 Blob
@@ -635,6 +636,8 @@ describe("选择性同步（filter 排除路径）", () => {
 		expect(p.puts).toEqual([]); // 副本不上传
 		expect(p.conflict_copies).toHaveLength(1);
 		expect(p.conflict_copies[0].path.startsWith(".obsidian/app (conflict ")).toBe(true);
+		// 只落本地：applier 据此禁止回退 GetBlob（该 hash 不在服务端引用集，只会换回 12021）
+		expect(p.conflict_copies[0].local_only).toBe(true);
 		expect(p.target_entries[".obsidian/app.json"]).toEqual({ state: "active", content_hash: C, size: "10" });
 		expect(p.apply_actions).toContainEqual({ kind: "write", path: ".obsidian/app.json", content_hash: C, size: "10" });
 	});

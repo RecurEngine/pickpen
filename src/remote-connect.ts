@@ -105,6 +105,11 @@ export function isFileIDMoved(err: unknown): boolean {
 	return errorCode(err) === ErrCode.FileIDMoved;
 }
 
+// isInvalidHash 判断声明哈希与内容不符（12006）：PutBlob 时本地文件已被改动，标脏重排即可恢复
+export function isInvalidHash(err: unknown): boolean {
+	return errorCode(err) === ErrCode.InvalidHash;
+}
+
 /** isStorageLimitExceeded 判断用户总存储空间超过当前套餐上限。 */
 export function isStorageLimitExceeded(err: unknown): boolean {
 	return errorCode(err) === ErrCode.StorageLimitExceeded;

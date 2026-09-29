@@ -110,7 +110,9 @@ describe("verifying 阶段逐文件进度", () => {
 					{ path: "b.md", content_hash: hash, size: "3", file_id: "f2" },
 					{ path: "冲突.md", content_hash: hash, size: "3", file_id: "f3" },
 				],
-				conflict_copies: [{ path: "冲突.md", source_path: "源.md", content_hash: hash, size: "3" }],
+				conflict_copies: [
+					{ path: "冲突.md", source_path: "源.md", content_hash: hash, size: "3", local_only: false },
+				],
 			}),
 			new Map(),
 			onProgress,

@@ -2,6 +2,8 @@
 // - 「逐文件安全写入」：写插件私有临时文件 → 校验 hash → 替换目标；不承诺跨文件原子
 // - 覆盖前比对 Session 开始记录的目标 hash：期间被用户再次修改的文件不覆盖/不删除，
 //   重新标记 dirty 由下一轮 planner 处理（spec §9.1 步骤 12）
+// - 冲突副本必须**先于** actions 取材：副本源与原路径的 write 动作是同一个文件，
+//   顺序颠倒会读到已被远端内容覆盖的源（配置副本因此退化为注定 12021 的 GetBlob）
 // - 批量应用分批（25 文件或 50ms）checkpoint pending 并让出事件循环（§10.1）
 
 import { App, normalizePath } from "obsidian";
@@ -131,6 +133,8 @@ export class Applier {
 		const { actions, conflicts, expectedHashes, expectedRevision, expectedRootHash, tmpDir } = args;
 		const yc = args.yieldControl ?? createYieldControl();
 		const skipped = new Set<string>();
+		// 冲突副本取材失败（配置路径）时不得覆盖的原路径：见下方 conflicts 循环
+		const protectedPaths = new Set<string>();
 		let batchCount = 0;
 		const tracker = new ProgressTracker(actions.length + conflicts.length, args.onProgress);
 
@@ -143,6 +147,55 @@ export class Applier {
 				await yc.tick(100, 50);
 			}
 		};
+
+		// 冲突副本：优先从本地源复制（内容即源文件 hash），源失效再走远端下载。
+		// **必须早于 actions 循环**：配置冲突的原路径同时有一条「写回远端内容」的 write 动作，
+		// 先跑 actions 会把源文件覆盖掉，此后 hash 必然对不上；配置副本又只落本地、从不上传
+		// （local_only），其 hash 不在服务端引用集内 → 退化成一次注定 12021 的 GetBlob
+		// （整轮失败且副本丢失、本地配置改动被静默丢弃，线上实测缺陷）。
+		for (const cc of conflicts) {
+			const finishProgress = tracker.start(cc.path);
+			let processed = true;
+			try {
+				await maybeYield();
+				// 存在性判定一并覆盖索引之外的路径（配置目录里的冲突副本没有 TFile）
+				if (
+					this.app.vault.getFileByPath(cc.path) !== null ||
+					(await this.existsOnDisk(cc.path))
+				) {
+					const disk = await this.app.vault.adapter.readBinary(cc.path);
+					if ((await remoteHash(disk)) === cc.content_hash) continue; // 幂等
+				}
+				// 本地明文优先（内容即 cc.content_hash），源已失效再走远端下载（可能是密文）
+				let content: Uint8Array | null = null;
+				try {
+					const src = await this.app.vault.adapter.readBinary(cc.source_path);
+					if ((await remoteHash(src)) === cc.content_hash) {
+						content = new Uint8Array(src);
+					}
+				} catch {
+					// 源已消失 → 走 GetBlob
+				}
+				if (!content) {
+					if (cc.local_only) {
+						// 配置副本从不上传，GetBlob 只会换回 12021。取不到本地内容就保住原路径
+						// （本轮不覆盖）并标脏等下轮，绝不静默丢用户的配置改动
+						protectedPaths.add(cc.source_path);
+						skipped.add(cc.source_path);
+						continue;
+					}
+					const blob = await this.remote.getBlob(cc.content_hash, expectedRevision, expectedRootHash);
+					content = await openForLocal(blob);
+				}
+				await writeLocalFile(this.app, cc.path, content);
+
+			} catch (err) {
+				processed = false;
+				throw err;
+			} finally {
+				finishProgress(processed);
+			}
+		}
 
 		for (const action of actions) {
 			const finishProgress = tracker.start(action.path);
@@ -203,6 +256,12 @@ export class Applier {
 				}
 
 				// write
+				if (protectedPaths.has(action.path)) {
+					// 该路径的配置冲突副本没能就地取材（见上方 conflicts 循环）：本轮不得写回远端内容
+					// 覆盖本地，标脏等下轮重新对账
+					skipped.add(action.path);
+					continue;
+				}
 				const content = await this.loadWriteContent(action, expectedRevision, expectedRootHash, tmpDir);
 				if (!content) {
 					skipped.add(action.path);
@@ -221,44 +280,6 @@ export class Applier {
 					}
 				}
 				await writeLocalFile(this.app, action.path, content);
-
-			} catch (err) {
-				processed = false;
-				throw err;
-			} finally {
-				finishProgress(processed);
-			}
-		}
-
-		// 冲突副本：优先从本地源复制（内容即源文件 hash），源失效则 GetBlob
-		for (const cc of conflicts) {
-			const finishProgress = tracker.start(cc.path);
-			let processed = true;
-			try {
-				await maybeYield();
-				// 存在性判定一并覆盖索引之外的路径（配置目录里的冲突副本没有 TFile）
-				if (
-					this.app.vault.getFileByPath(cc.path) !== null ||
-					(await this.existsOnDisk(cc.path))
-				) {
-					const disk = await this.app.vault.adapter.readBinary(cc.path);
-					if ((await remoteHash(disk)) === cc.content_hash) continue; // 幂等
-				}
-				// 本地明文优先（内容即 cc.content_hash），源已失效再走远端下载（可能是密文）
-				let content: Uint8Array | null = null;
-				try {
-					const src = await this.app.vault.adapter.readBinary(cc.source_path);
-					if ((await remoteHash(src)) === cc.content_hash) {
-						content = new Uint8Array(src);
-					}
-				} catch {
-					// 源已消失 → 走 GetBlob
-				}
-				if (!content) {
-					const blob = await this.remote.getBlob(cc.content_hash, expectedRevision, expectedRootHash);
-					content = await openForLocal(blob);
-				}
-				await writeLocalFile(this.app, cc.path, content);
 
 			} catch (err) {
 				processed = false;

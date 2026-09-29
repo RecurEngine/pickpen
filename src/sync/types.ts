@@ -51,9 +51,14 @@ export interface ApplyAction {
 /** 冲突副本（planner 输出）：Local 内容保存到新路径，Remote 保持原路径 */
 export interface ConflictCopy {
 	path: string;
-	source_path: string; // 本地源文件（applier 优先从源复制，源失效则 GetBlob）
+	source_path: string; // 本地源文件（applier 优先从源复制，源失效则 GetBlob——local_only 除外）
 	content_hash: string;
 	size: string;
+	/**
+	 * 只落本地、不参与同步（配置目录内的副本）。该 hash 从不上传，必定不在服务端 active
+	 * 引用集内，因此 applier 不得回退 GetBlob（只会换回 12021「内容不存在」）。
+	 */
+	local_only: boolean;
 }
 
 /** 三方对账结果（planner 输出） */
