@@ -40,5 +40,41 @@ export class ToggleComponent {}
 export class Component {}
 export const MarkdownRenderer = {}
 
+/** requestUrl 桩：测试通过 setRequestUrlHandler 注入逐请求行为（默认抛错，暴露未打桩的调用） */
+export type RequestUrlParam = {
+	url: string;
+	method?: string;
+	body?: string | ArrayBuffer;
+	headers?: Record<string, string>;
+	throw?: boolean;
+};
+export type RequestUrlResponse = {
+	status: number;
+	arrayBuffer: ArrayBuffer;
+	text: string;
+	json: unknown;
+	headers: Record<string, string>;
+};
+type RequestUrlHandler = (param: RequestUrlParam) => Promise<Partial<RequestUrlResponse>>;
+let requestUrlHandler: RequestUrlHandler | null = null;
+
+export function setRequestUrlHandler(handler: RequestUrlHandler | null): void {
+	requestUrlHandler = handler;
+}
+
+export async function requestUrl(param: RequestUrlParam): Promise<RequestUrlResponse> {
+	if (!requestUrlHandler) {
+		throw new Error(`requestUrl 未打桩：${param.url}`);
+	}
+	const partial = await requestUrlHandler(param);
+	return {
+		status: partial.status ?? 200,
+		arrayBuffer: partial.arrayBuffer ?? new ArrayBuffer(0),
+		text: partial.text ?? "",
+		json: partial.json ?? null,
+		headers: partial.headers ?? {},
+	};
+}
+
 export type EventRef = unknown;
 export type App2 = App;

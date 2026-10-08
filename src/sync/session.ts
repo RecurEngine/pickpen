@@ -565,14 +565,15 @@ export class ReconcileSession {
 				const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
 				// 上传统一出口：加密仓库在这里转成密文。
 				// 声明哈希用计划里的 hash：sealed.hash 就是这批字节（加密仓库下是密文）的 SHA-256，
-				// 与计划不一致 = 文件在上传期间被改动。此时不发请求——服务端重算会以 12006 拒绝，
-				// 白跑一趟还把整轮变成可见失败——改为放弃本轮、把该路径标脏重排（下一轮即收敛）
+				// 与计划不一致 = 文件在上传期间被改动。此时不发请求——上传会把错误内容写到该地址下，
+				// 且服务端不再重算内容——改为放弃本轮、把该路径标脏重排（下一轮即收敛）
 				const sealed = await sealForRemote(content);
 				if (sealed.hash !== hash) throw new LocalChangedDuringUploadError(srcPath);
 				try {
 					await remote.putBlob(hash, sealed.bytes);
 				} catch (err) {
-					// 兜底：本地预检与请求之间仍可能被改动（服务端重算拦下 → 12006），走同一条重排路径
+					// 防御性兜底：服务端拒绝声明 hash（12006）时同样按标脏重排处理。
+					// 直传链路上服务端只校验 hash 格式，正常计算出的 hash 不会命中
 					if (isInvalidHash(err)) throw new LocalChangedDuringUploadError(srcPath);
 					throw err;
 				}

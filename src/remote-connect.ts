@@ -105,7 +105,7 @@ export function isFileIDMoved(err: unknown): boolean {
 	return errorCode(err) === ErrCode.FileIDMoved;
 }
 
-// isInvalidHash 判断声明哈希与内容不符（12006）：PutBlob 时本地文件已被改动，标脏重排即可恢复
+// isInvalidHash 判断声明哈希被拒（12006）：上传前对本地竞态有预检，这里是防御性兜底，标脏重排即可恢复
 export function isInvalidHash(err: unknown): boolean {
 	return errorCode(err) === ErrCode.InvalidHash;
 }

@@ -13,6 +13,7 @@ import {
 	type FileVersionInfo,
 } from "../gen/proto/sync/sync.ext_pb";
 import { isSnapshotChanged, type RemoteClient } from "../remote-connect";
+import { httpGetBytes, httpPutBytes } from "./direct-transfer";
 import { buildTree, type Entry } from "./merkle";
 import { KIND_DIR } from "./types";
 import type { PutMutation } from "./types";
@@ -159,32 +160,35 @@ export class SnapshotRemote {
 		return new Set(resp.existing);
 	}
 
-	/** 预上传 Blob（同 hash 幂等，服务端重算 SHA-256 校验） */
+	/** 预上传 Blob（同 hash 幂等）：服务端签发短时效直传地址，字节直接送达远端存储，
+	 * 不经应用服务端中转；地址签发失败或存储侧拒绝即本轮失败，由既有重试语义恢复。 */
 	async putBlob(hash: string, content: Uint8Array): Promise<void> {
-		await this.client.syncClient.putBlob({
+		const prep = await this.client.syncClient.prepareBlobUpload({
 			vaultId: this.vaultId,
 			hash,
 			size: BigInt(content.length),
-			content,
 		});
+		if (prep.existing) return; // 服务端已有同 hash 内容，无需上传
+		await httpPutBytes(prep.url, content);
 	}
 
-	/** 下载 Blob（须携带 expected Head，服务端校验引用集；12012 = GC 竞态可恢复）；
-	 * historyFileId 非空 = 读该 file_id 的历史版本（免 expected Head 校验） */
+	/** 下载 Blob：服务端鉴权后签发短时效直传地址，字节由本端直接取回，不经应用服务端中转。
+	 * 须携带 expected Head，服务端校验引用集（12012 = GC 竞态可恢复）；
+	 * historyFileId 非空 = 读该 file_id 的历史版本（免 expected Head 校验）。 */
 	async getBlob(
 		hash: string,
 		expectedRevision: bigint,
 		expectedRootHash: string,
 		historyFileId = "",
 	): Promise<Uint8Array> {
-		const resp = await this.client.syncClient.getBlob({
+		const resp = await this.client.syncClient.getBlobURL({
 			vaultId: this.vaultId,
 			hash,
 			expectedRevision,
 			expectedRootHash,
 			historyFileId,
 		});
-		return resp.content;
+		return await httpGetBytes(resp.url);
 	}
 
 	/** 查询文件历史版本（created_at 倒序 keyset 分页；供历史查看 UI） */
