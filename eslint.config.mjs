@@ -28,6 +28,13 @@ export default defineConfig([
 		rules: { "no-undef": "off" },
 	},
 	{
+		// 内容字节直传/直下：移动端的 requestUrl 会把 ArrayBuffer 请求体逐字节转成数组再
+		// base64 过原生桥，大文件瞬时占用放大一个数量级（见 src/sync/direct-transfer.ts 头注释），
+		// 因此该文件在移动端用 fetch 绕开桥；桌面端仍走 requestUrl。
+		files: ["src/sync/direct-transfer.ts"],
+		rules: { "no-restricted-globals": "off" },
+	},
+	{
 		// 构建脚本与构建期配置运行在 node 侧，补上 node 全局；
 		// 这些文件不随插件发布、也不进插件运行时，node 模块与动态 import 限制不适用。
 		files: ["esbuild.config.mjs", "vitest.config.ts", "config/**/*.ts"],

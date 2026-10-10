@@ -19,10 +19,17 @@ import { ProgressTracker, type ProgressCallback } from "./progress";
 import { isTooBig, normalize } from "../excludes";
 import type { SyncFilter } from "./selective";
 import { nfcPath, detectCaseConflicts } from "./path";
-import { remoteHash } from "../crypto/vault-key-store";
+import { sealForRemote } from "../crypto/vault-key-store";
 import { KIND_DIR, KIND_FILE } from "./types";
 import type { Entry, Snapshot } from "./types";
-import { createYieldControl, mapConcurrent, newUUID, type YieldControl } from "./utils";
+import {
+	CONTENT_BUDGET,
+	createYieldControl,
+	mapConcurrent,
+	newUUID,
+	UNKNOWN_SIZE_BYTES,
+	type YieldControl,
+} from "./utils";
 
 export interface LocalScanContext {
 	vault: Vault;
@@ -64,15 +71,37 @@ export class LocalSnapshotBuilder {
 	private blockedPaths = new Set<string>();
 	/** 上次配置 sweep 时刻（节流用；移动端 adapter.stat 走桥，避免每轮都扫） */
 	private lastConfigSweepAt = 0;
+	/** 寻址哈希 → 明文哈希（本轮读盘算过哈希的路径）。提交前复验内容是否变化时用它比较：
+	 *  加密是确定映射，二者等价，但按明文口径省掉一次整块 AES-GCM。每次全量审计重建，
+	 *  内存只与「本轮哈希过的内容数」同阶（每条 64 字符）。 */
+	private plainHashes = new Map<string, string>();
 
 	getCurrent(): Snapshot | null {
 		return this.current;
+	}
+
+	/** 本轮登记的内容哈希口径（寻址哈希 → 明文哈希），供提交前复验复用 */
+	getPlainHashes(): ReadonlyMap<string, string> {
+		return this.plainHashes;
+	}
+
+	/** 登记一条内容哈希口径（扫描之外的封密出口，如内容合并产物） */
+	recordPlainHash(hash: string, plainHash: string): void {
+		this.plainHashes.set(hash, plainHash);
+	}
+
+	/** 计算寻址哈希并登记明文哈希（加密仓库下这一步本身就是一次整块封密） */
+	private async addressHash(content: Uint8Array | ArrayBuffer): Promise<string> {
+		const sealed = await sealForRemote(content);
+		this.plainHashes.set(sealed.hash, sealed.plainHash);
+		return sealed.hash;
 	}
 
 	/** 换绑仓库后清空内存状态 */
 	reset(): void {
 		this.current = null;
 		this.blockedPaths.clear();
+		this.plainHashes.clear();
 		this.lastConfigSweepAt = 0;
 	}
 
@@ -150,6 +179,8 @@ export class LocalSnapshotBuilder {
 
 	/** 完整审计：枚举全部同步范围文件/目录 + §7.5 删除状态构造（spec §9.2 规则 1-5） */
 	private async fullAudit(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<string[]> {
+		// 全量审计重建哈希登记表：控制内存，且本轮所有需要哈希的内容都会重新登记
+		this.plainHashes.clear();
 		const files = ctx.vault.getFiles();
 		const disk = new Map<string, TFile>();
 		const hashConcurrency = HASH_CONCURRENCY[ctx.isMobile ? "mobile" : "desktop"];
@@ -213,7 +244,8 @@ export class LocalSnapshotBuilder {
 		// 2. 快路径：mtime+size 与 Base 一致 → 复用 entry（不读内容）。
 		// needHash 统一承载索引文件与配置文件：两者读盘都走 adapter.readBinary
 		const entries: Record<string, Entry> = {};
-		const needHash: { path: string }[] = [];
+		/** size 用于按字节预算限流（stat 缺失按保守值估算），与实际读入内存的量级一致 */
+		const needHash: { path: string; size: number }[] = [];
 		const base = ctx.base;
 		for (const [path, f] of disk) {
 			await yieldCtl.tick(100, 50);
@@ -236,7 +268,7 @@ export class LocalSnapshotBuilder {
 				tracker.start(path)();
 				continue;
 			}
-			needHash.push(f);
+			needHash.push({ path, size: stat?.size ?? UNKNOWN_SIZE_BYTES });
 		}
 		for (const [path, stat] of configStat) {
 			await yieldCtl.tick(100, 50);
@@ -257,24 +289,33 @@ export class LocalSnapshotBuilder {
 				tracker.start(path)();
 				continue;
 			}
-			needHash.push({ path });
+			needHash.push({ path, size: stat.size });
 		}
 
-		// 3. 内容 hash（新文件/元数据变化才读内容）
-		const hashed = await mapConcurrent(needHash, hashConcurrency, async (f) => {
-			await yieldCtl.tick(100, 50);
-			const finish = tracker.start(f.path);
-			try {
-				const content = await ctx.vault.adapter.readBinary(f.path);
-				// 寻址哈希：加密仓库为密文哈希，未加密仓库为明文 SHA-256；size 恒为明文大小
-				const hash = await remoteHash(content);
-				return { path: f.path, hash, size: content.byteLength };
-			} catch {
-				return null; // 读取失败 → blocked
-			} finally {
-				finish();
-			}
-		});
+		// 3. 内容 hash（新文件/元数据变化才读内容）。
+		// 加密仓库下这一步本身就是整块封密，故按在途字节限流：大附件独占通道
+		const hashed = await mapConcurrent(
+			needHash,
+			hashConcurrency,
+			async (f) => {
+				await yieldCtl.tick(100, 50);
+				const finish = tracker.start(f.path);
+				try {
+					const content = await ctx.vault.adapter.readBinary(f.path);
+					// 寻址哈希：加密仓库为密文哈希，未加密仓库为明文 SHA-256；size 恒为明文大小
+					const hash = await this.addressHash(content);
+					return { path: f.path, hash, size: content.byteLength };
+				} catch {
+					return null; // 读取失败 → blocked
+				} finally {
+					finish();
+				}
+			},
+			{
+				sizeOf: (f) => f.size,
+				budgetBytes: CONTENT_BUDGET[ctx.isMobile ? "mobile" : "desktop"],
+			},
+		);
 		const readFailures = new Set<string>();
 		for (const h of hashed) {
 			if (!h) continue;
@@ -392,7 +433,7 @@ export class LocalSnapshotBuilder {
 					const content = await ctx.vault.adapter.readBinary(np);
 					entries[np] = {
 						state: "active",
-						content_hash: await remoteHash(content),
+						content_hash: await this.addressHash(content),
 						size: String(content.byteLength),
 						file_id: this.fileIDFor(np, ctx),
 					};
@@ -446,7 +487,7 @@ export class LocalSnapshotBuilder {
 			const content = await ctx.vault.adapter.readBinary(path);
 			entries[path] = {
 				state: "active",
-				content_hash: await remoteHash(content),
+				content_hash: await this.addressHash(content),
 				size: String(content.byteLength),
 				file_id: this.fileIDFor(path, ctx),
 			};

@@ -189,7 +189,7 @@ describe("ReconcileSession 上传期间本地变动", () => {
 
 		expect(deps.remote.hasBlobs).toHaveBeenCalledTimes(3); // 2 次静默重排 + 第 3 次转为报错
 		expect(putBlob).not.toHaveBeenCalled();
-		expect(lastStatus(deps).lastError).toBe("同步失败：本地文件在上传期间持续变动，请稍后重试");
+		expect(lastStatus(deps).lastError).toBe("同步失败：本地文件在同步期间发生变化，请稍后重试");
 	});
 
 	it("正常路径不变量：声明 hash 恒等于上传字节的 SHA-256", async () => {

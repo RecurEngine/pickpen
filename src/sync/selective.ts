@@ -13,7 +13,7 @@
 import type { DataAdapter } from "obsidian";
 
 import { debugLog } from "../debug-log";
-import { DEFAULT_EXCLUDES, isHidden, matchPattern, normalize } from "../excludes";
+import { DEFAULT_EXCLUDES, isConflictCopyPath, isHidden, matchPattern, normalize } from "../excludes";
 
 /** 文件类型分类（note = 笔记格式，恒同步） */
 export type FileKind = "note" | "image" | "audio" | "video" | "pdf" | "other";
@@ -167,6 +167,10 @@ function configFileAllowed(rel: string, settings: SelectiveSettings): boolean {
 	if (segs.some((seg) => seg === "node_modules" || seg.startsWith("."))) return false;
 	const name = baseName(rel);
 	const ext = extLower(rel);
+	// 冲突副本只落本地、不参与同步（planner 对配置冲突按此处理）。副本名会改变分类匹配：
+	// `core-plugins (conflict …).json` 会落进「配置目录下其余顶层 *.json」这个默认开启的兜底分类，
+	// 于是下一轮被当普通新文件传上去，变成其他设备永远无人处理的孤儿副本——这里一并挡掉
+	if (isConflictCopyPath(name)) return false;
 	if (rel === "workspace.json" || rel === "workspace-mobile.json" || rel === "sync.json") return false;
 	const c = settings.config;
 	if (rel === "app.json" || rel === "types.json") return c.app;

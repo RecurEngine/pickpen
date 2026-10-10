@@ -65,7 +65,7 @@ describe("配置路径冲突副本", () => {
 			if (hash === hLocal) throw Object.assign(new Error("内容不存在"), { code: 12021 });
 			return remoteBytes;
 		});
-		const applier = new Applier(app, { getBlob } as unknown as SnapshotRemote);
+		const applier = new Applier(app, { getBlob } as unknown as SnapshotRemote, ".pickpen");
 
 		await applier.applyPlan({
 			actions: [
@@ -118,7 +118,7 @@ describe("配置路径冲突副本", () => {
 			if (hash === hLocal) throw Object.assign(new Error("内容不存在"), { code: 12021 });
 			return remoteBytes;
 		});
-		const applier = new Applier(app, { getBlob } as unknown as SnapshotRemote);
+		const applier = new Applier(app, { getBlob } as unknown as SnapshotRemote, ".pickpen");
 
 		const skipped = await applier.applyPlan({
 			actions: [

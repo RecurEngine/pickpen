@@ -19,7 +19,7 @@ describe("下载和本地应用进度", () => {
 		const first = deferred<Uint8Array>(), second = deferred<Uint8Array>();
 		const getBlob = vi.fn((hash: string) => hash === ha ? first.promise : second.promise);
 		const onProgress = vi.fn();
-		const applier = new Applier({} as App, { getBlob } as unknown as SnapshotRemote);
+		const applier = new Applier({} as App, { getBlob } as unknown as SnapshotRemote, ".pickpen");
 		const result = applier.fetchBlobs([
 			{ path: "a.md", content_hash: ha, size: "1" },
 			{ path: "副本.md", content_hash: ha, size: "1" },
@@ -36,7 +36,7 @@ describe("下载和本地应用进度", () => {
 
 	it("下载校验失败不计为完成且清除活动路径", async () => {
 		const onProgress = vi.fn();
-		const applier = new Applier({} as App, { getBlob: async () => new Uint8Array() } as unknown as SnapshotRemote);
+		const applier = new Applier({} as App, { getBlob: async () => new Uint8Array() } as unknown as SnapshotRemote, ".pickpen");
 		await expect(applier.fetchBlobs([{ path: "坏文件.md", content_hash: "bad", size: "0" }], 1n, "root", false, undefined, onProgress)).rejects.toThrow("下载内容校验失败");
 		expect(onProgress.mock.lastCall![0]).toEqual({ completed: 0, total: 1, activePaths: [] });
 	});
@@ -56,7 +56,7 @@ describe("下载和本地应用进度", () => {
 			},
 		} } as unknown as App;
 		const onProgress = vi.fn(), onSkipped = vi.fn();
-		const applier = new Applier(app, { getBlob: async () => content } as unknown as SnapshotRemote);
+		const applier = new Applier(app, { getBlob: async () => content } as unknown as SnapshotRemote, ".pickpen");
 		const skipped = await applier.applyPlan({
 			actions: [
 				{ kind: "mkdir", path: "已有目录", content_hash: "", size: "0" },
@@ -82,7 +82,7 @@ describe("下载和本地应用进度", () => {
 		const written = deferred<void>();
 		const writeBinary = vi.fn(async (_path: string, _data: ArrayBuffer) => written.promise);
 		const onProgress = vi.fn();
-		const applier = new Applier(tmpApp(writeBinary), { getBlob: async () => content } as unknown as SnapshotRemote);
+		const applier = new Applier(tmpApp(writeBinary), { getBlob: async () => content } as unknown as SnapshotRemote, ".pickpen");
 		const result = applier.fetchBlobs([{ path: "a.md", content_hash: hash, size: String(content.length) }], 1n, "root", false, undefined, onProgress, "tmp");
 		await vi.waitFor(() => expect(writeBinary).toHaveBeenCalledTimes(1));
 		// 下载已完成但写盘未落：不得显示「已完成 N/N」而仍在写盘
@@ -97,7 +97,7 @@ describe("下载和本地应用进度", () => {
 		const hash = await sha256Hex(content);
 		const writeBinary = vi.fn(async (_path: string, _data: ArrayBuffer) => {});
 		const onProgress = vi.fn();
-		const applier = new Applier(tmpApp(writeBinary), { getBlob: async () => content } as unknown as SnapshotRemote);
+		const applier = new Applier(tmpApp(writeBinary), { getBlob: async () => content } as unknown as SnapshotRemote, ".pickpen");
 		const downloads = [
 			{ path: "a.md", content_hash: hash, size: String(content.length) },
 			{ path: "副本.md", content_hash: hash, size: String(content.length) },
@@ -109,7 +109,7 @@ describe("下载和本地应用进度", () => {
 
 		const failing = vi.fn(async (_path: string, _data: ArrayBuffer) => { throw new Error("磁盘写入失败"); });
 		const failProgress = vi.fn();
-		const failApplier = new Applier(tmpApp(failing), { getBlob: async () => content } as unknown as SnapshotRemote);
+		const failApplier = new Applier(tmpApp(failing), { getBlob: async () => content } as unknown as SnapshotRemote, ".pickpen");
 		await expect(failApplier.fetchBlobs(downloads, 1n, "root", false, undefined, failProgress, "tmp")).rejects.toThrow("磁盘写入失败");
 		expect(failProgress.mock.lastCall![0]).toEqual({ completed: 0, total: 1, activePaths: [] });
 	});

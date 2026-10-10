@@ -8,12 +8,20 @@
 
 import { App, normalizePath } from "obsidian";
 
+import { isTooBig } from "../excludes";
 import { openForLocal, remoteHash } from "../crypto/vault-key-store";
 import { ProgressTracker, type ProgressCallback } from "./progress";
+import { beginTransfer, endTransfer } from "./transfer-journal";
 import { sha256Hex } from "./content-hash";
 import type { SnapshotRemote } from "./remote";
 import type { ApplyAction, ConflictCopy, DownloadItem } from "./types";
-import { createYieldControl, mapConcurrent, type YieldControl } from "./utils";
+import {
+	CONTENT_BUDGET,
+	createYieldControl,
+	mapConcurrent,
+	UNKNOWN_SIZE_BYTES,
+	type YieldControl,
+} from "./utils";
 import { ensureParentDirs, writeLocalFile } from "./vault-io";
 
 export interface ApplyContext {
@@ -36,6 +44,8 @@ export class Applier {
 	constructor(
 		private readonly app: App,
 		private readonly remote: SnapshotRemote,
+		/** 插件目录：大文件传输痕迹落在这里（与临时区同源） */
+		private readonly pluginDir: string,
 	) {}
 
 	/** 磁盘上是否存在（覆盖 vault 索引之外的路径；exists 抛错按不存在处理） */
@@ -85,23 +95,46 @@ export class Applier {
 		const byHash = new Map<string, DownloadItem>();
 		for (const d of downloads) byHash.set(d.content_hash, d);
 		const tracker = new ProgressTracker(byHash.size, onProgress);
-		await mapConcurrent([...byHash.values()], concurrency, async (d) => {
-			await yc.tick(100, 50);
-			await tracker.track(d.path, async () => {
-				const content = await this.remote.getBlob(d.content_hash, expectedRevision, expectedRootHash);
-				// 校验下载内容 hash（传输完整性）；content 可能是 protobuf subarray 视图，直接传视图本身。
-				// 加密仓库下这里是密文，校验对象就是密文本身；解密统一放在写盘边界（loadWriteContent）。
-				const actual = await sha256Hex(content);
-				if (actual !== d.content_hash) {
-					throw new Error(`下载内容校验失败：${d.path}`);
-				}
-				if (tmpDir) {
-					await this.writeTemp(this.app, normalizePath(`${tmpDir}/${d.content_hash}`), content);
-					return; // 已落盘：不再驻留内存
-				}
-				out.set(d.content_hash, content);
-			});
-		});
+		// 内容体积按在途字节限流：大文件独占通道，不与其他下载叠加内存
+		await mapConcurrent(
+			[...byHash.values()],
+			concurrency,
+			async (d) => {
+				await yc.tick(100, 50);
+				await tracker.track(d.path, async () => {
+					// 大文件先留痕：进程若在此被系统杀掉（闪退/OOM），下次启动能指出中断位置
+					await beginTransfer(this.app, this.pluginDir, {
+						kind: "download",
+						path: d.path,
+						bytes: Number(d.size) || 0,
+					});
+					try {
+						const content = await this.remote.getBlob(
+							d.content_hash,
+							expectedRevision,
+							expectedRootHash,
+						);
+						// 校验下载内容 hash（传输完整性）；content 可能是 protobuf subarray 视图，直接传视图本身。
+						// 加密仓库下这里是密文，校验对象就是密文本身；解密统一放在写盘边界（loadWriteContent）。
+						const actual = await sha256Hex(content);
+						if (actual !== d.content_hash) {
+							throw new Error(`下载内容校验失败：${d.path}`);
+						}
+						if (tmpDir) {
+							await this.writeTemp(this.app, normalizePath(`${tmpDir}/${d.content_hash}`), content);
+							return; // 已落盘：不再驻留内存
+						}
+						out.set(d.content_hash, content);
+					} finally {
+						await endTransfer(this.app, this.pluginDir);
+					}
+				});
+			},
+			{
+				sizeOf: (d) => Number(d.size) || UNKNOWN_SIZE_BYTES,
+				budgetBytes: CONTENT_BUDGET[isMobile ? "mobile" : "desktop"],
+			},
+		);
 		return out;
 	}
 
@@ -126,6 +159,8 @@ export class Applier {
 		expectedRootHash: string;
 		tmpDir: string;
 		isMobile: boolean;
+		/** 当前套餐单文件上限（明文字节口径）：write 目标超过即拒绝落下（pending 重放的兜底） */
+		maxFileSizeBytes?: number;
 		yieldControl?: YieldControl;
 		onSkipped?: (path: string) => void;
 		onProgress?: ProgressCallback;
@@ -255,7 +290,15 @@ export class Applier {
 					continue;
 				}
 
-				// write
+				// write：远端内容超过当前套餐单文件上限（降档后的存量文件）→ 不下载不落地。
+				// 正常轮次由 planner 提前拦下；这里是 pending 重放的兜底（重放不经对账）
+				if (
+					args.maxFileSizeBytes !== undefined &&
+					isTooBig(Number(action.size || "0"), args.maxFileSizeBytes)
+				) {
+					skipped.add(action.path);
+					continue;
+				}
 				if (protectedPaths.has(action.path)) {
 					// 该路径的配置冲突副本没能就地取材（见上方 conflicts 循环）：本轮不得写回远端内容
 					// 覆盖本地，标脏等下轮重新对账

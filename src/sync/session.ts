@@ -11,6 +11,13 @@ import { isFileIDMoved, isInvalidHash, isStorageLimitExceeded, isUnauthenticated
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
 import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgress } from "./progress";
+import {
+	beginTransfer,
+	endTransfer,
+	formatTransferSize,
+	readInterrupted,
+	type TransferMark,
+} from "./transfer-journal";
 import { Applier } from "./applier";
 import { BaseStore } from "./base-store";
 import { sha256Hex } from "./content-hash";
@@ -18,7 +25,7 @@ import { LocalSnapshotBuilder } from "./local-snapshot";
 import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
 import { buildTree } from "./merkle";
 import { PendingStore } from "./pending-store";
-import { entriesEqual, isConflictCopyPath, plan } from "./planner";
+import { entriesEqual, isConflictCopyPath, isRemoteOversized, plan } from "./planner";
 import { SnapshotRemote } from "./remote";
 import { createSyncFilter, type SyncFilter } from "./selective";
 import { KIND_DIR, KIND_FILE } from "./types";
@@ -32,15 +39,16 @@ const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
 const UPLOAD_RACE_SUPPRESS_AFTER = 3;
 
 /**
- * 上传期间本地文件被改动：计划里的 hash 已不代表磁盘内容（服务端重算会以 12006 拒绝）。
- * 与 step 9「本地已变则放弃本轮」同一原则，只是发现得晚——放弃本轮并把该路径标脏重排。
+ * 本轮取计划到提交之间本地文件被改动：计划里的 hash 已不代表磁盘内容
+ * （上传阶段发现——服务端重算会以 12006 拒绝；提交前复验发现——§9.1 步骤 9）。
+ * 统一按「计划已过期」处理：放弃本轮并把该路径标脏重排，由下一轮重新对账收敛。
  */
 class LocalChangedDuringUploadError extends Error {
 	/** 下一轮需要重扫的本地路径（冲突副本的 hash 对应其 source_path） */
 	readonly path: string;
 
 	constructor(path: string) {
-		super("本地文件在上传期间持续变动，请稍后重试");
+		super("本地文件在同步期间发生变化，请稍后重试");
 		this.name = "LocalChangedDuringUploadError";
 		this.path = path;
 	}
@@ -88,6 +96,8 @@ export interface SyncStatus {
 	storageLimitConfirmed: boolean;
 	/** 全部同步完成：无运行、无错误、无阻塞、无 pending */
 	allSynced: boolean;
+	/** 上次运行被中断在传输中的大文件（进程被杀留下的痕迹；仅提示，不参与 allSynced） */
+	interruptedTransfer: TransferMark | null;
 }
 
 export interface SessionDeps {
@@ -121,6 +131,12 @@ export class ReconcileSession {
 	private rehashAll = false;
 	private dirtyPaths = new Set<string>();
 	private nextDirtyPaths = new Set<string>();
+	/** 本轮 dirty 是否已成功落入 Local 快照（扫描完成）。未完成就结束的轮次必须把 dirty 放回，
+	 *  否则该路径要等到下一次完整审计（重启/切前台/6h/重新绑定）才会被重新看到 */
+	private dirtyScanned = false;
+	/** 扫描前结束的轮次留下的 dirty（等下一次触发时并入，不驱动 run 的续跑——
+	 *  前置检查长期不过时自行续跑会变成空转） */
+	private carriedDirtyPaths = new Set<string>();
 	/** 本轮 rename 提示（newPath → oldPath）：local-snapshot 据此继承 file_id */
 	private renameHints = new Map<string, string>();
 	private consecutiveFailures = 0;
@@ -131,6 +147,14 @@ export class ReconcileSession {
 	/** 12023 连续触发后的 rename hint 抑制：fileIDFor 退化为新 UUID，保证重试产生不同 plan */
 	private suppressRenameHints = false;
 	private blockedPaths: string[] = [];
+	/** 远端内容超过当前套餐单文件上限的路径（降档后的存量文件）：不下载、不覆盖、不删除 */
+	private oversizedRemotePaths: string[] = [];
+	/** 上次中断在传输中的大文件（启动首次读取一次；成功跑完一轮后清除） */
+	private interruptedTransfer: TransferMark | null = null;
+	private interruptedChecked = false;
+	/** 本轮登记的内容哈希口径（寻址哈希 → 明文哈希）：提交前复验按明文口径比较，
+	 *  与按密文重算等价（加密是确定映射）但少一次整块 AES-GCM（见 verifyLocalUnchanged） */
+	private plainHashes: ReadonlyMap<string, string> = new Map();
 	/** 待处理冲突副本存量（每轮扫描后刷新；仅提示用） */
 	private conflictCopyPaths: string[] = [];
 	private lastError = "";
@@ -149,7 +173,7 @@ export class ReconcileSession {
 	constructor(deps: SessionDeps) {
 		this.deps = deps;
 		this.storageLimitExceeded = !!deps.initialStorageLimitExceeded;
-		this.applier = new Applier(deps.app, deps.remote);
+		this.applier = new Applier(deps.app, deps.remote, deps.pluginDir);
 	}
 
 	/**
@@ -213,7 +237,11 @@ export class ReconcileSession {
 		this.clearProgress();
 		this.dirtyPaths.clear();
 		this.nextDirtyPaths.clear();
+		this.carriedDirtyPaths.clear();
 		this.blockedPaths = [];
+		this.oversizedRemotePaths = [];
+		this.interruptedTransfer = null;
+		this.interruptedChecked = false;
 		this.consecutiveFailures = 0;
 		this.fileIDMovedStreak = 0;
 		this.uploadRaceStreak = 0;
@@ -235,6 +263,17 @@ export class ReconcileSession {
 		this.nextDirtyPaths.add(oldPath);
 		this.nextDirtyPaths.add(newPath);
 		this.renameHints.set(newPath, oldPath);
+	}
+
+	/**
+	 * 本轮在本地扫描之前就结束（未登录/未绑定、前置检查未通过、Head 取不到、异常）：
+	 * 已消费的 dirty 必须放回。dirty 是本地改动的唯一线索——增量扫描只认 dirty 路径，
+	 * 丢掉它这条路径就再也不会被扫到，对账会一直认为「本地 = Base」，表现为
+	 * 「已全部同步（无变化）」而改动永远传不出去，直到下一次完整审计（重启/切前台/6h）。
+	 * 只登记为待并入，不请求续跑：失败原因仍在时（如未解锁）由既有触发入口决定何时重试
+	 */
+	private requeueDirty(): void {
+		for (const p of this.dirtyPaths) this.carriedDirtyPaths.add(p);
 	}
 
 	private get tmpDir(): string {
@@ -265,13 +304,19 @@ export class ReconcileSession {
 			running: this.running,
 			progress: this.progress,
 			lastError: this.lastError,
-			blockedPaths: [...this.blockedPaths],
+			blockedPaths: [...this.blockedPaths, ...this.oversizedRemotePaths],
 			conflictCopyPaths: [...this.conflictCopyPaths],
 			lastSyncAt: this.lastSyncAt,
 			storageLimitExceeded: this.storageLimitExceeded,
 			storageLimitConfirmed,
+			interruptedTransfer: this.interruptedTransfer,
 			allSynced:
-				!this.running && !this.lastError && !this.storageLimitExceeded && this.blockedPaths.length === 0 && !pending,
+				!this.running &&
+				!this.lastError &&
+				!this.storageLimitExceeded &&
+				this.blockedPaths.length === 0 &&
+				this.oversizedRemotePaths.length === 0 &&
+				!pending,
 		});
 	}
 
@@ -283,6 +328,8 @@ export class ReconcileSession {
 	private finishRound(): void {
 		this.lastError = "";
 		this.lastSyncAt = Date.now();
+		// 成功跑完一轮即不再是「中断现场」的提示语境
+		this.interruptedTransfer = null;
 	}
 
 	private async run(): Promise<void> {
@@ -295,6 +342,10 @@ export class ReconcileSession {
 				this.rerunRequested = false;
 				this.dirtyPaths = this.nextDirtyPaths;
 				this.nextDirtyPaths = new Set();
+				// 上一轮扫描前结束时留下的 dirty 并入本轮；它们不驱动续跑，只等下一次触发
+				for (const p of this.carriedDirtyPaths) this.dirtyPaths.add(p);
+				this.carriedDirtyPaths.clear();
+				this.dirtyScanned = false;
 				const force = this.forceAudit;
 				this.forceAudit = false;
 				const interactive = this.interactiveRequested;
@@ -310,7 +361,9 @@ export class ReconcileSession {
 					this.storageLimitExceeded = false;
 				} catch (err) {
 					this.clearProgress();
-					// 上传期间本地文件被改动：不是同步失败，而是计划已过期——该路径标脏、下一轮重排即可收敛，
+					// 本轮还没扫到本地就失败：dirty 放回下一轮，避免本地改动被静默漏掉（见 requeueDirty）
+					if (!this.dirtyScanned) this.requeueDirty();
+					// 取计划后本地文件被改动（上传/复验阶段发现）：不是同步失败，而是计划已过期——该路径标脏、下一轮重排即可收敛，
 					// 因此不设 lastError、不计失败次数。连续命中达阈值说明该文件在被持续改写（继续重排只会空转），
 					// 落到下面的普通失败分支报错。
 					if (err instanceof LocalChangedDuringUploadError && ++this.uploadRaceStreak < UPLOAD_RACE_SUPPRESS_AFTER) {
@@ -368,13 +421,32 @@ export class ReconcileSession {
 	private async runOnce(forceAudit: boolean, interactive: boolean, rehashAll: boolean): Promise<void> {
 		const { app, baseStore, pendingStore, localBuilder, remote } = this.deps;
 		const settings = this.deps.getSettings();
-		if (!settings.accessToken || !settings.vaultId) return;
+		if (!settings.accessToken || !settings.vaultId) {
+			this.requeueDirty(); // 未登录/未绑定：本轮不扫盘，dirty 放回（绑定后的完整审计亦会兜底）
+			return;
+		}
+
+		// 上次运行若在传输大文件时被系统杀掉（闪退/OOM），痕迹还在插件目录里：读到即消费，
+		// 记一条日志并在状态卡说明中断位置——这是崩溃后唯一能留下的现场
+		if (!this.interruptedChecked) {
+			this.interruptedChecked = true;
+			this.interruptedTransfer = await readInterrupted(app, this.deps.pluginDir);
+			if (this.interruptedTransfer) {
+				const m = this.interruptedTransfer;
+				debugLog.warn(
+					`[pickpen] 上次同步在${m.kind === "upload" ? "上传" : "下载"} ${m.path}（${formatTransferSize(m.bytes)}）时中断`,
+				);
+			}
+		}
 
 		// 本轮的选择性同步过滤：扫描与对账必须共用同一实例，否则中途改设置会让两侧口径错位
 		const filter = this.buildFilter(settings);
 
 		// 0. 同步前置检查（加密仓库未解锁时不能读盘算哈希，本轮整体不运行）
-		if (this.deps.preflight && !(await this.deps.preflight(interactive))) return;
+		if (this.deps.preflight && !(await this.deps.preflight(interactive))) {
+			this.requeueDirty(); // 未解锁期间结束的轮次：dirty 放回，解锁后的轮次接着用
+			return;
+		}
 		if (this.disposed) return; // 已卸载：前置检查期间被卸载则不再继续
 
 		// 1. pending 恢复（§9.1 步骤 1 / §9.4）
@@ -393,7 +465,10 @@ export class ReconcileSession {
 		const knownRoot = base?.base_root_hash ?? "";
 		this.beginPhase("remote");
 		const head = await remote.pollHead(knownRevision, knownRoot);
-		if (!head) return;
+		if (!head) {
+			this.requeueDirty(); // 无 token/未绑定：同上方守卫，dirty 放回
+			return;
+		}
 		const maxFileSizeBytes = Number(head.maxFileSizeBytes);
 		if (!Number.isSafeInteger(maxFileSizeBytes) || maxFileSizeBytes <= 0) {
 			throw new Error("服务端返回的单文件上限非法");
@@ -416,8 +491,10 @@ export class ReconcileSession {
 			yieldControl: createYieldControl(),
 		});
 		this.renameHints.clear(); // 本轮 hint 已消费
+		this.dirtyScanned = true; // dirty 已落入 Local 快照：此后失败（容量超限、网络等）不再需要放回
 		const local = localRes.snapshot;
 		this.blockedPaths = localRes.blockedPaths;
+		this.plainHashes = localBuilder.getPlainHashes();
 		// 冲突副本存量：取自 vault 索引而非同步快照——被排除/被阻塞的路径也要计入，
 		// 用户是在文件列表里看到它们、并从这里去处理的（配置目录内的副本不进 vault 索引，不计）
 		this.conflictCopyPaths = vaultPaths(app).filter(isConflictCopyPath);
@@ -452,6 +529,12 @@ export class ReconcileSession {
 			entries: remoteEntries,
 		};
 
+		// 6b. 远端超限路径（降档后仓库里的存量文件）：内容取不回来，本轮完全无操作。
+		// 只作为受阻提示；升级套餐后自然恢复
+		this.oversizedRemotePaths = Object.keys(remoteEntries).filter((p) =>
+			isRemoteOversized(remoteEntries[p], maxFileSizeBytes),
+		);
+
 		// 7. 三方对账（§9.1 步骤 7）
 		this.beginPhase("planning");
 		const planResult = plan({
@@ -460,6 +543,7 @@ export class ReconcileSession {
 			remote: remoteSnap,
 			deviceId: settings.deviceId,
 			blockedPaths: this.blockedPaths,
+			remoteOversizedPaths: this.oversizedRemotePaths,
 			filter,
 		});
 		// 7b. 内容级合并（§8.2 扩展）：把能在内容层干净合并的冲突副本就地消解。
@@ -484,7 +568,7 @@ export class ReconcileSession {
 
 		// 本轮未校验过磁盘内容的路径（被排除 / 被阻塞）：Base 不得为其记 local_* 快路径字段，
 		// 否则下一轮快路径会拿旧 hash 冒充实测值，把期间的本地改动永久漏掉
-		const blockedNow = new Set(this.blockedPaths);
+		const blockedNow = new Set([...this.blockedPaths, ...this.oversizedRemotePaths]);
 		const unverified = (path: string): boolean => {
 			if (blockedNow.has(path)) return true;
 			const e = planResult.target_entries[path];
@@ -528,54 +612,63 @@ export class ReconcileSession {
 			if (a.kind === "write") a.temp_path = normalizePath(`${this.tmpDir}/${a.content_hash}`);
 		}
 
-		// 9. 提交前重新 stat/hash 复查（§9.1 步骤 9）：变化则放弃本轮，不应用已下载临时文件
-		if (!(await this.verifyLocalUnchanged(planResult, expectedHashes, mergePass.mergedPaths, this.beginPhase("verifying")))) {
-			return;
-		}
+		// 9. 提交前重新 stat/hash 复查（§9.1 步骤 9）：发现内容已不是计划里那份即放弃本轮，
+		//    不应用已下载临时文件；由 catch 侧的「本地已变」路径标脏该路径并退避重排（下一轮即收敛）
+		await this.verifyLocalUnchanged(planResult, expectedHashes, mergePass.mergedPaths, this.beginPhase("verifying"));
 
 		// 10. PutBlob 预上传服务端缺失的内容 Blob（§9.1 步骤 10）
-		const putHashes = new Map<string, string>(); // hash → 本地源路径
-		for (const p of planResult.puts) if (p.content_hash) putHashes.set(p.content_hash, p.path); // dir 无内容，跳过
+		// 携带源路径与计划声明的体积（明文口径）：大文件上传前先落一条中断痕迹
+		const putHashes = new Map<string, { path: string; size: number }>();
+		for (const p of planResult.puts) {
+			if (p.content_hash) putHashes.set(p.content_hash, { path: p.path, size: Number(p.size) || 0 }); // dir 无内容，跳过
+		}
 		// 冲突副本预上传：配置文件（配置目录内）的副本只落本地、不进 target（见 planner），
 		// 白传一次 Blob 没有意义
 		for (const cc of planResult.conflict_copies) {
 			if (filter.isConfigPath(cc.path)) continue;
-			putHashes.set(cc.content_hash, cc.source_path);
+			putHashes.set(cc.content_hash, { path: cc.source_path, size: Number(cc.size) || 0 });
 		}
 		const uploadProgress = this.beginPhase("uploading");
 		const existing = await remote.hasBlobs([...putHashes.keys()]);
 		const uploads = [...putHashes].filter(([hash]) => !existing.has(hash));
 		const uploadTracker = new ProgressTracker(uploads.length, uploadProgress);
-		for (const [hash, srcPath] of uploads) {
+		for (const [hash, src] of uploads) {
+			const srcPath = src.path;
 			await uploadTracker.track(srcPath, async () => {
-				if (mergePass.stagedHashes.has(hash)) {
-					// 合并产物：临时区里已是「密封后」的字节（其 SHA-256 即计划声明的 hash）。
-					// 绝不能按源文件重新密封——磁盘上仍是合并前的本地内容，会算出另一个地址。
-					// 这里仍校验一次临时区内容（与下载侧 applier 同一原则）：不一致说明临时区被破坏，
-					// 不是本地竞态，不得静默重排
-					const sealedBytes = new Uint8Array(
-						await app.vault.adapter.readBinary(normalizePath(`${this.tmpDir}/${hash}`)),
-					);
-					if ((await sha256Hex(sealedBytes)) !== hash) {
-						throw new Error(`合并产物临时文件校验失败：${srcPath}`);
-					}
-					await remote.putBlob(hash, sealedBytes);
-					return;
-				}
-				const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
-				// 上传统一出口：加密仓库在这里转成密文。
-				// 声明哈希用计划里的 hash：sealed.hash 就是这批字节（加密仓库下是密文）的 SHA-256，
-				// 与计划不一致 = 文件在上传期间被改动。此时不发请求——上传会把错误内容写到该地址下，
-				// 且服务端不再重算内容——改为放弃本轮、把该路径标脏重排（下一轮即收敛）
-				const sealed = await sealForRemote(content);
-				if (sealed.hash !== hash) throw new LocalChangedDuringUploadError(srcPath);
+				// 大文件先留痕：进程若在此被系统杀掉（闪退/OOM），下次启动能指出中断位置
+				await beginTransfer(app, this.deps.pluginDir, { kind: "upload", path: srcPath, bytes: src.size });
 				try {
-					await remote.putBlob(hash, sealed.bytes);
-				} catch (err) {
-					// 防御性兜底：服务端拒绝声明 hash（12006）时同样按标脏重排处理。
-					// 直传链路上服务端只校验 hash 格式，正常计算出的 hash 不会命中
-					if (isInvalidHash(err)) throw new LocalChangedDuringUploadError(srcPath);
-					throw err;
+					if (mergePass.stagedHashes.has(hash)) {
+						// 合并产物：临时区里已是「密封后」的字节（其 SHA-256 即计划声明的 hash）。
+						// 绝不能按源文件重新密封——磁盘上仍是合并前的本地内容，会算出另一个地址。
+						// 这里仍校验一次临时区内容（与下载侧 applier 同一原则）：不一致说明临时区被破坏，
+						// 不是本地竞态，不得静默重排
+						const sealedBytes = new Uint8Array(
+							await app.vault.adapter.readBinary(normalizePath(`${this.tmpDir}/${hash}`)),
+						);
+						if ((await sha256Hex(sealedBytes)) !== hash) {
+							throw new Error(`合并产物临时文件校验失败：${srcPath}`);
+						}
+						await remote.putBlob(hash, sealedBytes);
+						return;
+					}
+					const content = new Uint8Array(await app.vault.adapter.readBinary(srcPath));
+					// 上传统一出口：加密仓库在这里转成密文。
+					// 声明哈希用计划里的 hash：sealed.hash 就是这批字节（加密仓库下是密文）的 SHA-256，
+					// 与计划不一致 = 文件在上传期间被改动。此时不发请求——上传会把错误内容写到该地址下，
+					// 且服务端不再重算内容——改为放弃本轮、把该路径标脏重排（下一轮即收敛）
+					const sealed = await sealForRemote(content);
+					if (sealed.hash !== hash) throw new LocalChangedDuringUploadError(srcPath);
+					try {
+						await remote.putBlob(hash, sealed.bytes);
+					} catch (err) {
+						// 防御性兜底：服务端拒绝声明 hash（12006）时同样按标脏重排处理。
+						// 直传链路上服务端只校验 hash 格式，正常计算出的 hash 不会命中
+						if (isInvalidHash(err)) throw new LocalChangedDuringUploadError(srcPath);
+						throw err;
+					}
+				} finally {
+					await endTransfer(app, this.deps.pluginDir);
 				}
 			});
 		}
@@ -645,10 +738,18 @@ export class ReconcileSession {
 			expectedRootHash: commit.rootHash,
 			tmpDir: this.tmpDir,
 			isMobile: Platform.isMobile,
+			maxFileSizeBytes,
 			yieldControl: yc,
 			onSkipped: (p) => this.nextDirtyPaths.add(p),
 		});
 		for (const p of skipped) this.nextDirtyPaths.add(p);
+		// 写盘的配置路径必须标脏重扫：配置目录不在 vault 索引里，写盘不产生任何 vault 事件，
+		// 内存快照会一直留着写盘前的旧内容。对账据此产出「内容已不是磁盘那份」的 put，
+		// 提交前复验必然失败 → 整轮（含同轮其它文件的改动）被放弃，用户看到「无变化」而改动传不出去。
+		// 索引内文件的写盘事件已由 local-hint 覆盖，这里只补配置路径
+		for (const a of [...planResult.apply_actions, ...planResult.conflict_copies]) {
+			if (filter.isConfigPath(a.path)) this.nextDirtyPaths.add(a.path);
+		}
 		this.beginPhase("finishing");
 		await this.refreshViewsByDisk(app, views);
 		// 配置文件写盘不会热生效（宿主在内存里持有设置、部分配置要重载才读盘）：
@@ -697,6 +798,10 @@ export class ReconcileSession {
 				const filter = this.buildFilter(settings);
 				const skippedPaths = new Set<string>();
 				await pendingStore.markApplying();
+				// 单文件上限取自本次 Head；非法值退化不校验（恢复路径不该因上限字段异常而卡住）
+				const maxBytes = Number(head.maxFileSizeBytes);
+				const maxFileSizeBytes =
+					Number.isSafeInteger(maxBytes) && maxBytes > 0 ? maxBytes : undefined;
 				await this.applier.applyPlan({
 					onProgress: this.beginPhase("applying"),
 					actions: pending.apply_actions,
@@ -706,6 +811,7 @@ export class ReconcileSession {
 					expectedRootHash: head.rootHash,
 					tmpDir: this.tmpDir,
 					isMobile: Platform.isMobile,
+					maxFileSizeBytes,
 					yieldControl: createYieldControl(),
 					onSkipped: (p) => {
 						skippedPaths.add(p);
@@ -785,6 +891,8 @@ export class ReconcileSession {
 					openForLocal(await remote.getBlob(hash, args.expectedRevision, args.expectedRootHash)),
 				seal: async (content) => {
 					const sealed = await sealForRemote(content);
+					// 合并产物同样登记明文哈希：它随后会作为 put 进入提交前复验
+					this.deps.localBuilder.recordPlainHash(sealed.hash, sealed.plainHash);
 					return { hash: sealed.hash, bytes: sealed.bytes };
 				},
 				// 与下载产物同一临时区布局：后续 temp_path 推导与 applier 读取都无需特殊处理
@@ -798,6 +906,16 @@ export class ReconcileSession {
 	/** 本地内容的远端寻址哈希：加密仓库为密文哈希（与提交给服务端的一致） */
 	private async hashContent(content: ArrayBuffer): Promise<string> {
 		return remoteHash(content);
+	}
+
+	/**
+	 * 复验「内容是否仍是计划里的那一份」。命中本轮登记表时按明文哈希比较：加密是确定映射，
+	 * 明文相同 ⟺ 寻址哈希相同，但省掉一次整块 AES-GCM；未登记（如远端删除路径）退回密文口径。
+	 */
+	private async unchanged(content: ArrayBuffer, expectedHash: string): Promise<boolean> {
+		const plain = this.plainHashes.get(expectedHash);
+		if (plain === undefined) return (await this.hashContent(content)) === expectedHash;
+		return (await sha256Hex(content)) === plain;
 	}
 
 	/** 写盘后按路径分组刷新打开视图（磁盘内容即刚落盘的目标内容） */
@@ -818,13 +936,17 @@ export class ReconcileSession {
 		}
 	}
 
-	/** §9.1 步骤 9：提交前复查本地文件是否变化（变化则放弃本轮，不应用临时文件） */
+	/**
+	 * §9.1 步骤 9：提交前复查本地文件是否仍是计划里的那一份（不是则放弃本轮、不应用临时文件）。
+	 * 不一致按「本地已变」抛出：由 catch 侧标脏该路径并退避重排——绝不能静默结束本轮，
+	 * 否则同轮其它文件（如新建笔记）的改动会跟着一起被吞掉，用户只看到「已全部同步（无变化）」。
+	 */
 	private async verifyLocalUnchanged(
 		planResult: SyncPlan,
 		expectedHashes: Map<string, string>,
 		mergedPaths: Set<string>,
 		onProgress: ProgressCallback,
-	): Promise<boolean> {
+	): Promise<void> {
 		const { app } = this.deps;
 		// puts：源内容必须仍是计划的 hash（dir 无内容，跳过）
 		// 冲突副本 put 的 path 是待创建的副本路径（磁盘尚不存在），校验对象是其 source_path
@@ -836,37 +958,43 @@ export class ReconcileSession {
 			const finish = tracker.start(srcPath);
 			let verified = false;
 			try {
-				const content = await app.vault.adapter.readBinary(srcPath);
+				let content: ArrayBuffer;
+				try {
+					content = await app.vault.adapter.readBinary(srcPath);
+				} catch {
+					throw new LocalChangedDuringUploadError(srcPath); // 源文件消失：标脏重排
+				}
 				// 内容级合并产出的 put：磁盘上仍是合并前的本地内容，put 的 hash 是合并结果，
 				// 二者本就不等——这里要校验的是「用户没在提交前改动」，基线取 Session 快照时的
 				// 本地 hash（合并结果与本地一致时无写动作、也就没有基线，退回按 put hash 比对）
 				const expected = mergedPaths.has(p.path)
 					? (expectedHashes.get(p.path) ?? p.content_hash)
 					: p.content_hash;
-				if ((await this.hashContent(content)) !== expected) return false;
+				// 内容不符：同样按「本地已变」处理（unchanged 自身的异常——如未解锁——照旧向上抛）
+				if (!(await this.unchanged(content, expected))) throw new LocalChangedDuringUploadError(srcPath);
 				verified = true;
-			} catch {
-				return false; // 源文件消失：放弃
 			} finally {
 				finish(verified); // 放弃路径同样清掉活动路径：不虚增完成数、不留残留
 			}
 		}
-		// deletes：目标路径在 Session 期间重现 → 放弃（下一轮对账）；
+		// deletes：目标路径在 Session 期间重现 → 标脏重排（下一轮对账）；
 		// 目录删除目标做存在性检查（无内容 hash）
 		for (const d of planResult.deletes) {
 			const finish = tracker.start(d);
 			let processed = false;
 			try {
 				if (planResult.target_entries[d]?.kind === KIND_DIR) {
-					if (await app.vault.adapter.exists(d)) return false; // 读盘异常照旧向上抛
+					if (await app.vault.adapter.exists(d)) throw new LocalChangedDuringUploadError(d);
 				} else {
 					const expected = expectedHashes.get(d);
+					let content: ArrayBuffer | null = null;
 					try {
-						const content = await app.vault.adapter.readBinary(d);
-						const hash = await this.hashContent(content);
-						if (expected === undefined || hash !== expected) return false;
+						content = await app.vault.adapter.readBinary(d);
 					} catch {
-						// 文件不存在（正常：delete 目标本应不存在）
+						content = null; // 文件不存在（正常：delete 目标本应不存在）
+					}
+					if (content !== null && (expected === undefined || !(await this.unchanged(content, expected)))) {
+						throw new LocalChangedDuringUploadError(d);
 					}
 				}
 				processed = true;
@@ -874,6 +1002,5 @@ export class ReconcileSession {
 				finish(processed);
 			}
 		}
-		return true;
 	}
 }

@@ -1,5 +1,6 @@
 // verifying 阶段进度：逐文件校验的计数与「当前校验的文件」；
-// 提前放弃（本地在会话期间变化）时不得残留活动路径、不得虚增完成数。
+// 校验不通过（本地在会话期间变化）时抛 LocalChangedDuringUploadError（调用方据此标脏重排），
+// 且不得残留活动路径、不得虚增完成数。
 import { describe, expect, it, vi } from "vitest";
 import { ReconcileSession } from "../src/sync/session";
 import { LocalSnapshotBuilder } from "../src/sync/local-snapshot";
@@ -15,14 +16,14 @@ type VerifyFn = (
 	plan: SyncPlan,
 	expectedHashes: Map<string, string>,
 	onProgress: (progress: VerifyProgress) => void,
-) => Promise<boolean>;
+) => Promise<void>;
 /** 带 mergedPaths 的原始签名：内容级合并产出的 put 走另一套校验基线 */
 type VerifyRawFn = (
 	plan: SyncPlan,
 	expectedHashes: Map<string, string>,
 	mergedPaths: Set<string>,
 	onProgress: (progress: VerifyProgress) => void,
-) => Promise<boolean>;
+) => Promise<void>;
 
 function plan(overrides: Partial<SyncPlan> = {}): SyncPlan {
 	return {
@@ -103,22 +104,22 @@ describe("verifying 阶段逐文件进度", () => {
 		const onProgress = vi.fn();
 		const verify = verifier({ readBinary: vi.fn(async () => content.buffer) });
 
-		const ok = await verify(
-			plan({
-				puts: [
-					{ path: "目录", content_hash: "", size: "0", file_id: "f1", kind: KIND_DIR },
-					{ path: "b.md", content_hash: hash, size: "3", file_id: "f2" },
-					{ path: "冲突.md", content_hash: hash, size: "3", file_id: "f3" },
-				],
-				conflict_copies: [
-					{ path: "冲突.md", source_path: "源.md", content_hash: hash, size: "3", local_only: false },
-				],
-			}),
-			new Map(),
-			onProgress,
-		);
-
-		expect(ok).toBe(true);
+		await expect(
+			verify(
+				plan({
+					puts: [
+						{ path: "目录", content_hash: "", size: "0", file_id: "f1", kind: KIND_DIR },
+						{ path: "b.md", content_hash: hash, size: "3", file_id: "f2" },
+						{ path: "冲突.md", content_hash: hash, size: "3", file_id: "f3" },
+					],
+					conflict_copies: [
+						{ path: "冲突.md", source_path: "源.md", content_hash: hash, size: "3", local_only: false },
+					],
+				}),
+				new Map(),
+				onProgress,
+			),
+		).resolves.toBeUndefined();
 		expect(onProgress.mock.calls.map(([p]) => p)).toEqual([
 			{ completed: 0, total: 2, activePaths: [] }, // tracker 构造即报出总数（目录 put 不占总数）
 			{ completed: 0, total: 2, activePaths: ["b.md"] },
@@ -133,14 +134,14 @@ describe("verifying 阶段逐文件进度", () => {
 		const onProgress = vi.fn();
 		const verify = verifier({ readBinary: vi.fn(async () => content.buffer) });
 
-		// delete 目标在会话期间重现 → expectedHashes 无该路径 → 放弃本轮
-		const ok = await verify(
-			plan({ deletes: ["gone.md"], target_entries: { "gone.md": { state: "deleted", kind: KIND_FILE } } }),
-			new Map(),
-			onProgress,
-		);
-
-		expect(ok).toBe(false);
+		// delete 目标在会话期间重现 → expectedHashes 无该路径 → 抛给调用方（标脏重排）
+		await expect(
+			verify(
+				plan({ deletes: ["gone.md"], target_entries: { "gone.md": { state: "deleted", kind: KIND_FILE } } }),
+				new Map(),
+				onProgress,
+			),
+		).rejects.toMatchObject({ path: "gone.md" });
 		expect(onProgress.mock.lastCall![0]).toEqual({ completed: 0, total: 1, activePaths: [] });
 	});
 
@@ -148,7 +149,9 @@ describe("verifying 阶段逐文件进度", () => {
 		const onProgress = vi.fn();
 		const entries = { "空目录": { state: "deleted" as const, kind: KIND_DIR } };
 		const exists = vi.fn(async () => true);
-		expect(await verifier({ exists, readBinary: vi.fn() })(plan({ deletes: ["空目录"], target_entries: entries }), new Map(), onProgress)).toBe(false);
+		await expect(
+			verifier({ exists, readBinary: vi.fn() })(plan({ deletes: ["空目录"], target_entries: entries }), new Map(), onProgress),
+		).rejects.toMatchObject({ path: "空目录" });
 		expect(onProgress.mock.lastCall![0]).toEqual({ completed: 0, total: 1, activePaths: [] });
 
 		const broken = vi.fn(async () => { throw new Error("读盘失败"); });
@@ -168,19 +171,18 @@ describe("verifying 阶段逐文件进度", () => {
 		const put = { path: "x.md", content_hash: mergedHash, size: String(content.byteLength), file_id: "f", kind: KIND_FILE };
 
 		// 磁盘仍是合并前的本地内容、put 是合并结果 —— 二者不等但本轮合法，不得判为「用户改过」
-		expect(await verify(plan({ puts: [put] }), new Map([["x.md", localHash]]), mergedPaths, vi.fn())).toBe(true);
-		// 用户确实在提交前改过（磁盘 hash 与快照基线不符）→ 放弃
-		expect(await verify(plan({ puts: [put] }), new Map([["x.md", "0".repeat(64)]]), mergedPaths, vi.fn())).toBe(false);
+		await expect(
+			verify(plan({ puts: [put] }), new Map([["x.md", localHash]]), mergedPaths, vi.fn()),
+		).resolves.toBeUndefined();
+		// 用户确实在提交前改过（磁盘 hash 与快照基线不符）→ 抛给调用方
+		await expect(
+			verify(plan({ puts: [put] }), new Map([["x.md", "0".repeat(64)]]), mergedPaths, vi.fn()),
+		).rejects.toMatchObject({ path: "x.md" });
 		// 无写动作（合并结果与本地一致）时基线退化为 put hash
-		expect(await verify(plan({ puts: [put] }), new Map(), mergedPaths, vi.fn())).toBe(false);
-		expect(
-			await verify(
-				plan({ puts: [{ ...put, content_hash: localHash }] }),
-				new Map(),
-				mergedPaths,
-				vi.fn(),
-			),
-		).toBe(true);
+		await expect(verify(plan({ puts: [put] }), new Map(), mergedPaths, vi.fn())).rejects.toMatchObject({ path: "x.md" });
+		await expect(
+			verify(plan({ puts: [{ ...put, content_hash: localHash }] }), new Map(), mergedPaths, vi.fn()),
+		).resolves.toBeUndefined();
 	});
 });
 

@@ -188,7 +188,8 @@ export class SnapshotRemote {
 			expectedRootHash,
 			historyFileId,
 		});
-		return await httpGetBytes(resp.url);
+		// size 只是移动端回退判定的体积提示（Number 精度足够），不影响内容校验
+		return await httpGetBytes(resp.url, Number(resp.size));
 	}
 
 	/** 查询文件历史版本（created_at 倒序 keyset 分页；供历史查看 UI） */

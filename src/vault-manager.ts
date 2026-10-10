@@ -11,6 +11,7 @@ import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
 import type { Plan } from "./gen/proto/subscription/subscription_pb";
 import type PickpenPlugin from "./index";
+import { PAUSED_VAULT_CONVERTING, PAUSED_VAULT_MANAGER_BUSY } from "./sync-state";
 import { ErrCode, errorCode, isUnauthenticated, type RemoteClient } from "./remote-connect";
 import { syncState } from "./sync-state";
 import type { VaultInfo, VaultKeyParams } from "./types";
@@ -330,7 +331,7 @@ class VaultManagerModal extends Modal {
 				// 同新建：偏好先落定，转换流程内部的解锁据此决定是否在本机留存密钥
 				this.plugin.setRememberVaultPassword(remember);
 				const prevPaused = syncState.pausedReason;
-				this.plugin.pauseSync("仓库加密转换中");
+				this.plugin.pauseSync(PAUSED_VAULT_CONVERTING);
 				try {
 					await this.plugin.enableVaultEncryption(v.vaultId, password);
 				} catch (err) {
@@ -526,7 +527,7 @@ class VaultManagerModal extends Modal {
 			return;
 		}
 		const prevPaused = syncState.pausedReason;
-		this.plugin.pauseSync("仓库管理操作中");
+		this.plugin.pauseSync(PAUSED_VAULT_MANAGER_BUSY);
 		try {
 			await renameRemoteVault(this.plugin.client, v.vaultId, newName);
 			if (this.plugin.settings.vaultId === v.vaultId) {
@@ -569,7 +570,7 @@ class VaultManagerModal extends Modal {
 			return;
 		}
 		const prevPaused = syncState.pausedReason;
-		this.plugin.pauseSync("仓库管理操作中");
+		this.plugin.pauseSync(PAUSED_VAULT_MANAGER_BUSY);
 		try {
 			await deleteRemoteVault(this.plugin.client, v.vaultId);
 			new Notice(`仓库已删除：${v.name}`);

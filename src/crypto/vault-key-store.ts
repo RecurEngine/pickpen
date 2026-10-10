@@ -355,6 +355,9 @@ export interface SealedContent {
 	hash: string;
 	bytes: Uint8Array;
 	size: number;
+	/** 明文 SHA-256：提交前复验「内容是否变过」用它比较，与按密文重算等价（加密是确定映射）
+	 *  但少一整块 AES-GCM；未加密仓库与 hash 同值 */
+	plainHash: string;
 }
 
 /**
@@ -366,9 +369,17 @@ export async function sealForRemote(content: Uint8Array | ArrayBuffer): Promise<
 	const bytes = toBytes(content);
 	// 未加密仓库走明文（与改造前一致）；加密仓库未解锁必须抛错——
 	// 一旦退回明文，本地内容就会以明文写进加密仓库，且此后无法自愈。
-	if (!vaultKeys.isEncrypted()) return { hash: await sha256Hex(bytes), bytes, size: bytes.byteLength };
+	if (!vaultKeys.isEncrypted()) {
+		const hash = await sha256Hex(bytes);
+		return { hash, bytes, size: bytes.byteLength, plainHash: hash };
+	}
 	const sealed = await sealBlob(vaultKeys.requireDek(), bytes);
-	return { hash: await sha256Hex(sealed), bytes: sealed, size: sealed.byteLength };
+	return {
+		hash: await sha256Hex(sealed.bytes),
+		bytes: sealed.bytes,
+		size: sealed.bytes.byteLength,
+		plainHash: sealed.plainHash,
+	};
 }
 
 /** 只取寻址哈希（本地扫描比对用，不上传） */

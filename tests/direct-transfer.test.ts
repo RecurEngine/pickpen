@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // 直接引测试桩（与 vitest alias 的 "obsidian" 指向同一文件、同一模块实例），
 // 便于类型层面拿到打桩函数；被测代码内的 "obsidian" 仍由 alias 解析到本桩
-import { setRequestUrlHandler, type RequestUrlParam } from "./obsidian-stub";
+import { resetPlatform, setPlatform, setRequestUrlHandler, type RequestUrlParam } from "./obsidian-stub";
 import type { RemoteClient } from "../src/remote-connect";
 import { toExactArrayBuffer } from "../src/sync/direct-transfer";
 import { SnapshotRemote } from "../src/sync/remote";
@@ -157,6 +157,139 @@ describe("直传（putBlob）", () => {
 			code: 12019,
 		});
 		expect(syncClient.putBlob).not.toHaveBeenCalled();
+	});
+});
+
+describe("移动端 fetch 通道（内容字节不走 requestUrl 的 base64 桥）", () => {
+	const MB = 1024 * 1024;
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		resetPlatform();
+	});
+
+	it("直下走 fetch，不经 requestUrl", async () => {
+		const { remote } = setup();
+		setPlatform({ isMobile: true });
+		const urls: string[] = [];
+		vi.stubGlobal("fetch", async (url: string) => {
+			urls.push(url);
+			return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+		});
+		setRequestUrlHandler(async () => {
+			throw new Error("不应走 requestUrl");
+		});
+
+		const got = await remote.getBlob("a".repeat(64), 1n, "root");
+
+		expect([...got]).toEqual([1, 2, 3]);
+		expect(urls).toEqual([BLOB_URL]);
+	});
+
+	it("直传走 fetch：PUT 原样字节、不改方法、不设自定义头", async () => {
+		const { remote } = setup();
+		setPlatform({ isMobile: true });
+		const puts: { url: string; init: RequestInit }[] = [];
+		vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+			puts.push({ url, init });
+			return new Response(null, { status: 200 });
+		});
+		setRequestUrlHandler(async () => {
+			throw new Error("不应走 requestUrl");
+		});
+
+		const content = new Uint8Array([5, 6, 7, 8]);
+		await remote.putBlob("b".repeat(64), content);
+
+		expect(puts).toHaveLength(1);
+		expect(puts[0].url).toBe(PUT_URL);
+		expect(puts[0].init.method).toBe("PUT");
+		expect(puts[0].init.headers).toBeUndefined();
+		expect([...new Uint8Array(puts[0].init.body as Uint8Array)]).toEqual([5, 6, 7, 8]);
+	});
+
+	it("直传非 2xx 抛错，不退回 requestUrl", async () => {
+		const { remote } = setup();
+		setPlatform({ isMobile: true });
+		vi.stubGlobal("fetch", async () => new Response(null, { status: 403 }));
+		const requestUrls: string[] = [];
+		setRequestUrlHandler(async (param) => {
+			requestUrls.push(param.url);
+			return { status: 200 };
+		});
+
+		await expect(remote.putBlob("b".repeat(64), new Uint8Array([1]))).rejects.toThrow(
+			"直传失败（HTTP 403）",
+		);
+		expect(requestUrls).toEqual([]);
+	});
+
+	it("网络失败且请求体很小 → 回退 requestUrl", async () => {
+		const { remote } = setup();
+		setPlatform({ isMobile: true });
+		vi.stubGlobal("fetch", async () => {
+			throw new TypeError("Failed to fetch");
+		});
+		const requestUrls: string[] = [];
+		setRequestUrlHandler(async (param) => {
+			requestUrls.push(param.url);
+			return { status: 200 };
+		});
+
+		await remote.putBlob("b".repeat(64), new Uint8Array([1, 2]));
+
+		expect(requestUrls).toEqual([PUT_URL]);
+	});
+
+	it("网络失败且请求体超过回退阈值 → 明确失败并提示桌面端，不回退", async () => {
+		const { remote } = setup();
+		setPlatform({ isMobile: true });
+		vi.stubGlobal("fetch", async () => {
+			throw new TypeError("Failed to fetch");
+		});
+		const requestUrls: string[] = [];
+		setRequestUrlHandler(async (param) => {
+			requestUrls.push(param.url);
+			return { status: 200 };
+		});
+
+		const big = new Uint8Array(2 * MB + 1);
+		await expect(remote.putBlob("b".repeat(64), big)).rejects.toThrow(/桌面端/);
+		expect(requestUrls).toEqual([]);
+	});
+
+	it("直下体积超过回退阈值时同样不回退", async () => {
+		const { remote, syncClient } = setup();
+		setPlatform({ isMobile: true });
+		syncClient.getBlobURL.mockResolvedValueOnce({ url: BLOB_URL, expiresAt: 0n, size: BigInt(2 * MB + 1) });
+		vi.stubGlobal("fetch", async () => {
+			throw new TypeError("Failed to fetch");
+		});
+		const requestUrls: string[] = [];
+		setRequestUrlHandler(async (param) => {
+			requestUrls.push(param.url);
+			return { status: 200 };
+		});
+
+		await expect(remote.getBlob("a".repeat(64), 1n, "root")).rejects.toThrow(/桌面端/);
+		expect(requestUrls).toEqual([]);
+	});
+
+	it("超时（非 TypeError）原样抛出，不重发", async () => {
+		const { remote } = setup();
+		setPlatform({ isMobile: true });
+		vi.stubGlobal("fetch", async () => {
+			throw Object.assign(new Error("signal timed out"), { name: "TimeoutError" });
+		});
+		const requestUrls: string[] = [];
+		setRequestUrlHandler(async (param) => {
+			requestUrls.push(param.url);
+			return { status: 200 };
+		});
+
+		await expect(remote.putBlob("b".repeat(64), new Uint8Array([1]))).rejects.toThrow(
+			"signal timed out",
+		);
+		expect(requestUrls).toEqual([]);
 	});
 });
 

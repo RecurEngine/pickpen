@@ -416,3 +416,51 @@ describe("选择性同步：配置文件（配置目录不在 vault 索引里）
 		expect(gone.snapshot.entries[".obsidian/app.json"]).toEqual({ state: "deleted" }); // kind 缺省即文件
 	});
 });
+
+describe("内容哈希口径登记（提交前复验按明文口径比较，省一次整块封密）", () => {
+	it("全量审计登记「寻址哈希 → 明文哈希」（未加密仓库两者同值）", async () => {
+		const content = enc("abc");
+		const b = new LocalSnapshotBuilder();
+		const res = await b.refresh(
+			refreshCtx({
+				vault: fakeVault([tf("a.md", "abc")], [], new Map([["a.md", content]])),
+				forceAudit: true,
+			}),
+		);
+		const hash = res.snapshot.entries["a.md"].content_hash!;
+		expect(hash).toBe(await sha256Hex(content));
+		expect(b.getPlainHashes().get(hash)).toBe(hash);
+	});
+
+	it("dirty 增量同样登记（新增大文件的上传主路径）", async () => {
+		const content = enc("hello");
+		const vault = fakeVault([tf("new.md", "hello")], [], new Map([["new.md", content]]));
+		const b = new LocalSnapshotBuilder();
+		const res = await b.refresh(refreshCtx({ vault, dirtyPaths: ["new.md"] }));
+		const hash = res.snapshot.entries["new.md"].content_hash!;
+		expect(b.getPlainHashes().get(hash)).toBe(await sha256Hex(content));
+	});
+
+	it("全量审计重建登记表：走快路径复用的路径不再占用登记内存", async () => {
+		const content = enc("abc");
+		const vault = fakeVault([tf("a.md", "abc")], [], new Map([["a.md", content]]));
+		const b = new LocalSnapshotBuilder();
+		await b.refresh(refreshCtx({ vault, dirtyPaths: ["a.md"] }));
+		const hash = await sha256Hex(content);
+		expect(b.getPlainHashes().size).toBe(1);
+
+		// mtime+size 与 Base 一致 → 快路径不读内容，登记表随之清空重建
+		const prev = base({
+			"a.md": {
+				state: "active",
+				content_hash: hash,
+				size: "3",
+				local_mtime: "1",
+				local_size: "3",
+				file_id: "550e8400-e29b-41d4-a716-446655440001",
+			},
+		});
+		await b.refresh(refreshCtx({ vault, base: prev, forceAudit: true }));
+		expect(b.getPlainHashes().size).toBe(0);
+	});
+});

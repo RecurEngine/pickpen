@@ -213,8 +213,15 @@ async function deriveBlobKey(dek: Uint8Array, seed: Uint8Array): Promise<CryptoK
 	return crypto.subtle.importKey("raw", bits, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
+/** 加密产物：密文字节 + 明文哈希（明文哈希即寻址种子的来源，调用方复验内容是否变化时用它，
+ *  比按密文口径重算便宜一个整块 AES-GCM） */
+export interface SealedBlob {
+	bytes: Uint8Array;
+	plainHash: string;
+}
+
 /** 加密单个内容（确定性：同明文同密钥 → 同密文） */
-export async function sealBlob(dek: Uint8Array, plaintext: Uint8Array): Promise<Uint8Array> {
+export async function sealBlob(dek: Uint8Array, plaintext: Uint8Array): Promise<SealedBlob> {
 	const plainHash = new Uint8Array(
 		await crypto.subtle.digest("SHA-256", plaintext as Uint8Array<ArrayBuffer>),
 	);
@@ -236,7 +243,7 @@ export async function sealBlob(dek: Uint8Array, plaintext: Uint8Array): Promise<
 	const out = new Uint8Array(header.length + sealed.byteLength);
 	out.set(header, 0);
 	out.set(new Uint8Array(sealed), header.length);
-	return out;
+	return { bytes: out, plainHash: bytesToHex(plainHash) };
 }
 
 /** 解密单个内容；密文被篡改或密钥不匹配时认证失败抛错（不会返回错误内容） */

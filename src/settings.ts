@@ -15,6 +15,7 @@ import { ErrCode, errorCode } from "./remote-connect";
 import { openFolderExclusionManager } from "./selective-view";
 import { AUDIO_EXTS, IMAGE_EXTS, PDF_EXTS, VIDEO_EXTS } from "./sync/selective";
 import { formatProgress, progressPercent } from "./sync/progress";
+import { formatTransferSize } from "./sync/transfer-journal";
 import { StatusRefresh } from "./status-refresh";
 import { syncState, type SyncState } from "./sync-state";
 import { renderSubscriptionSection } from "./subscription-view";
@@ -269,6 +270,8 @@ class PickpenSettingsView {
 	private statusBarFillEl: HTMLElement | null = null;
 	private statusPercentEl: HTMLElement | null = null;
 	private statusPathEl: HTMLElement | null = null;
+	/** 上次中断在传输中的大文件提示（崩溃现场；仅提示，不参与状态判定） */
+	private statusTransferEl: HTMLElement | null = null;
 	/** 冲突副本入口：有存量时才显示（点开第一个，处理入口不在设置页） */
 	private statusConflictEl: HTMLAnchorElement | null = null;
 	private readonly statusRefresh = new StatusRefresh(() => this.refreshStatusCard());
@@ -442,21 +445,27 @@ class PickpenSettingsView {
 				);
 		} else {
 			// 邮箱（trim + lowercase 即存）
-			new Setting(accountSectionEl).setName("邮箱").addText((text) =>
+			new Setting(accountSectionEl).setName("邮箱").addText((text) => {
+				// 移动端弹邮箱键盘（自带 @ 和 .）；type=email 按规范不自动大写、不自动更正，故默认即小写
+				text.inputEl.type = "email";
+				text.inputEl.autocapitalize = "off"; // 双保险：个别输入法仍会句首大写
+				text.inputEl.autocomplete = "email";
 				text
 					.setPlaceholder("name@example.com")
 					.setValue(settings.email)
 					.onChange((value) => {
 						settings.email = value.trim().toLowerCase();
 						this.plugin.sessionStore.setEmail(settings.email); // 邮箱属会话域：只写设备本地
-					}),
-			);
+					});
+			});
 			// 验证码（不持久化，仅登录用）
 			let code = "";
 			const codeSetting = new Setting(accountSectionEl).setName("验证码");
 			codeSetting.addText((text) => {
 				text.setPlaceholder("6 位验证码").onChange((value) => (code = value.trim()));
-				text.inputEl.type = "text";
+				text.inputEl.inputMode = "numeric"; // 移动端弹数字键盘；验证码可能含前导零，切勿改成 type=number（会吞零）
+				text.inputEl.autocomplete = "one-time-code"; // 系统验证码自动填充
+				text.inputEl.maxLength = 6;
 			});
 			// 获取验证码：60s 倒计时禁用防重复提交
 			let countdown = 0;
@@ -750,6 +759,7 @@ class PickpenSettingsView {
 		this.statusBarFillEl = null;
 		this.statusPercentEl = null;
 		this.statusPathEl = null;
+		this.statusTransferEl = null;
 	}
 
 	// refreshIfActive 就地重建当前已渲染的分区（登录 / 退出 / 仓库变更后刷新）；
@@ -936,6 +946,7 @@ class PickpenSettingsView {
 		this.statusBarFillEl = metrics.createDiv({ cls: "pickpen-status-bar" }).createDiv({ cls: "pickpen-status-bar-fill" });
 		this.statusPercentEl = metrics.createDiv({ cls: "pickpen-status-percent" });
 		this.statusPathEl = content.createDiv({ cls: "pickpen-status-path" });
+		this.statusTransferEl = content.createDiv({ cls: "pickpen-status-transfer" });
 		// 冲突副本入口。href="#" + preventDefault：链接天然可聚焦、可回车触发，
 		// 不必再用 tabIndex + role 手工补齐无障碍语义
 		this.statusConflictEl = content.createEl("a", { cls: "pickpen-status-conflict", href: "#" });
@@ -980,6 +991,12 @@ class PickpenSettingsView {
 		}
 		this.statusPathEl!.textContent = progress?.path ?? "";
 		this.statusPathEl!.hidden = !progress?.path;
+		// 崩溃现场提示：只在本次运行还没成功跑完一轮时显示
+		const interrupted = syncState.interruptedTransfer;
+		this.statusTransferEl!.textContent = interrupted
+			? `上次同步在${interrupted.kind === "upload" ? "上传" : "下载"} ${interrupted.path}（${formatTransferSize(interrupted.bytes)}）时中断，本次已重新开始`
+			: "";
+		this.statusTransferEl!.hidden = !interrupted;
 		const conflicts = syncState.conflictCopyPaths.length;
 		this.statusConflictEl!.textContent = conflicts > 0 ? `查看冲突副本（${conflicts}）` : "";
 		this.statusConflictEl!.hidden = conflicts === 0;

@@ -12,6 +12,7 @@ import {
 	WrongPasswordError,
 	wrapDekWithPassword,
 } from "../src/crypto/vault-crypto";
+import { sha256Hex } from "../src/sync/content-hash";
 import { sealForRemote, openForLocal, vaultKeys } from "../src/crypto/vault-key-store";
 import type { KeyValueStore } from "../src/session-store";
 
@@ -41,38 +42,44 @@ describe("blob 加解密", () => {
 			bigBinary,
 		];
 		for (const plain of samples) {
-			const sealed = await sealBlob(dek, plain);
+			const { bytes: sealed, plainHash } = await sealBlob(dek, plain);
 			expect(sealed.length).toBe(plain.length + BLOB_OVERHEAD_BYTES);
 			expect(Array.from(await openBlob(dek, sealed))).toEqual(Array.from(plain));
+			// 明文哈希随密文一并返回：提交前复验用它比较，等价于按密文重算但便宜一个整块 AES-GCM
+			expect(plainHash).toBe(await sha256Hex(plain));
 		}
 	});
 
 	it("确定性：同一明文同一密钥始终得到同一密文（去重与快路径的前提）", async () => {
 		const { dek } = await createVaultKey(PASSWORD);
 		const plain = encoder.encode("重复同步的同一份内容");
-		const first = await sealBlob(dek, plain);
-		const second = await sealBlob(dek, new Uint8Array(plain));
+		const first = (await sealBlob(dek, plain)).bytes;
+		const second = (await sealBlob(dek, new Uint8Array(plain))).bytes;
 		expect(Array.from(second)).toEqual(Array.from(first));
 	});
 
 	it("不同明文 / 不同仓库密钥得到不同密文", async () => {
 		const a = await createVaultKey(PASSWORD);
 		const b = await createVaultKey(PASSWORD);
-		const sealedA = await sealBlob(a.dek, encoder.encode("x"));
-		expect(Array.from(await sealBlob(a.dek, encoder.encode("y")))).not.toEqual(Array.from(sealedA));
-		expect(Array.from(await sealBlob(b.dek, encoder.encode("x")))).not.toEqual(Array.from(sealedA));
+		const sealedA = (await sealBlob(a.dek, encoder.encode("x"))).bytes;
+		expect(Array.from((await sealBlob(a.dek, encoder.encode("y"))).bytes)).not.toEqual(
+			Array.from(sealedA),
+		);
+		expect(Array.from((await sealBlob(b.dek, encoder.encode("x"))).bytes)).not.toEqual(
+			Array.from(sealedA),
+		);
 	});
 
 	it("密文自描述：明文不带头部标记，密文带头部标记", async () => {
 		const { dek } = await createVaultKey(PASSWORD);
 		expect(isEncryptedBlob(encoder.encode("普通笔记"))).toBe(false);
-		expect(isEncryptedBlob(await sealBlob(dek, encoder.encode("普通笔记")))).toBe(true);
+		expect(isEncryptedBlob((await sealBlob(dek, encoder.encode("普通笔记"))).bytes)).toBe(true);
 		expect(isEncryptedBlob(new Uint8Array([0xe1, 0x01]))).toBe(false); // 头部不全
 	});
 
 	it("密文被篡改时认证失败，不返回错误内容", async () => {
 		const { dek } = await createVaultKey(PASSWORD);
-		const sealed = await sealBlob(dek, encoder.encode("原始内容"));
+		const { bytes: sealed } = await sealBlob(dek, encoder.encode("原始内容"));
 		const tampered = new Uint8Array(sealed);
 		tampered[tampered.length - 1] ^= 0x01;
 		await expect(openBlob(dek, tampered)).rejects.toThrow();
@@ -81,7 +88,7 @@ describe("blob 加解密", () => {
 	it("换一个仓库密钥无法解密（密钥不匹配不会静默出错）", async () => {
 		const a = await createVaultKey(PASSWORD);
 		const b = await createVaultKey(PASSWORD);
-		const sealed = await sealBlob(a.dek, encoder.encode("内容"));
+		const { bytes: sealed } = await sealBlob(a.dek, encoder.encode("内容"));
 		await expect(openBlob(b.dek, sealed)).rejects.toThrow();
 	});
 });
@@ -99,7 +106,7 @@ describe("仓库密钥包装", () => {
 
 	it("改密码只重新包装内容密钥，旧密文不需重加密", async () => {
 		const { params, dek } = await createVaultKey(PASSWORD);
-		const sealed = await sealBlob(dek, encoder.encode("改密码前的内容"));
+		const { bytes: sealed } = await sealBlob(dek, encoder.encode("改密码前的内容"));
 
 		const rotated = await wrapDekWithPassword(dek, "new password");
 		await expect(unwrapDek(PASSWORD, rotated)).rejects.toBeInstanceOf(WrongPasswordError);

@@ -8,6 +8,7 @@
 // 选择性同步：被排除路径整体跳过（不 put/不 delete/不下载），目标树保留远端状态；
 // 配置文件（配置目录内）参与对账，但冲突时以远端为准、本地留不参与同步的副本。
 
+import { isTooBig } from "../excludes";
 import { KIND_DIR, KIND_FILE } from "./types";
 import type { ConflictCopy, Entry, PutMutation, Snapshot, SyncPlan } from "./types";
 import type { SyncFilter } from "./selective";
@@ -20,9 +21,21 @@ export interface PlanInput {
 	deviceId: string;
 	/** 本地被阻塞路径（超限/读失败/大小写冲突）：保留 Base/Remote 原状态，禁止提交 delete（§9.2） */
 	blockedPaths?: string[];
+	/** 远端内容超出当前套餐单文件上限的路径：不下载、不上传、不提交 delete。
+	 * 与 blockedPaths 分开：这些路径的远端状态是明确的（就是 R），目标树必须等于 R，
+	 * 不能像 blockedPaths 那样回退 Base——否则 target_root_hash 会与提交后服务端状态不符。 */
+	remoteOversizedPaths?: string[];
 	/** 选择性同步过滤（类型/排除文件夹/配置分类）：被排除路径本轮完全无操作 */
 	filter?: SyncFilter;
 	now?: Date; // 测试注入
+}
+
+/** 远端条目内容是否超过当前套餐单文件上限（size 为明文字节口径，与本地扫描同一判定）。
+ * 降档用户仓库里的存量文件会命中：内容取不回来，本轮对它完全无操作。 */
+export function isRemoteOversized(e: Entry | undefined, maxFileSizeBytes: number): boolean {
+	if (!e || e.state !== "active" || (e.kind ?? KIND_FILE) === KIND_DIR) return false;
+	const size = Number(e.size ?? "");
+	return Number.isFinite(size) && isTooBig(size, maxFileSizeBytes);
 }
 
 /** 条目语义相等：state + kind + content_hash + size（不含 file_id/mtime/local_* 字段，§8.1） */
@@ -46,6 +59,7 @@ export function plan(input: PlanInput): SyncPlan {
 	const { base, local, remote, deviceId } = input;
 	const now = input.now ?? new Date();
 	const blockedSet = new Set(input.blockedPaths ?? []);
+	const oversizedRemote = new Set(input.remoteOversizedPaths ?? []);
 	// 被排除路径（类型关闭 / 排除文件夹 / 配置分类关闭 / pickpen 自身目录）本轮完全无操作。
 	// 目录按结构判定（类型白名单不适用于目录），因此先按三方条目取 kind
 	const excluded = (path: string): boolean => {
@@ -107,8 +121,10 @@ export function plan(input: PlanInput): SyncPlan {
 		// 冲突副本是新文件，必须新 file_id：沿用源 file_id 会与保留在原路径的
 		// Remote 行冲突（服务端拒绝同一 file_id 出现在两条 active 路径，12023）
 		const copyFileId = newUUID();
-		// 配置文件（配置目录内）的冲突副本只落本地、不参与同步：副本名不在官方分类覆盖范围内，
-		// 上传出去只会给其他设备留下一份永远无人处理的孤儿；原路径仍按远端胜
+		// 配置文件（配置目录内）的冲突副本只落本地、不参与同步：上传出去只会给其他设备留下
+		// 一份永远无人处理的孤儿；原路径仍按远端胜。
+		// 「不参与同步」由 selective 侧统一兜住——副本名会改变分类匹配（落进「配置目录下其余
+		// 顶层 *.json」这个默认开启的兜底分类），只靠 local_only 只能管住生成那一轮
 		const localOnly = isConfigPath(path);
 		conflictCopies.push({
 			path: copyPath,
@@ -138,6 +154,22 @@ export function plan(input: PlanInput): SyncPlan {
 		if (excluded(p)) {
 			// 被排除路径本轮完全无操作：目标树沿用 R 的状态（targetEntries 初值即 R 的拷贝），
 			// 既不提交 put/delete，也不下载，且不计入 blocked（用户主动排除，不是异常）
+			continue;
+		}
+		if (oversizedRemote.has(p) && remote.entries[p]) {
+			// 远端内容超限（降档后仓库里的存量文件）：内容取不回来，本轮不下载、不覆盖本地。
+			// 目标树显式保持远端（targetEntries 初值即 R 的拷贝，这里再钉一次以防被后续分支改写）。
+			const r = remote.entries[p];
+			const b = base?.entries[p];
+			const l = local.entries[p];
+			if (l?.state === "deleted" && b?.state === "active" && entriesEqual(b, r)) {
+				// 例外：本地已删除且远端自 Base 未变——删除意图明确、无需取回内容，照常传播。
+				// 否则降档用户把大文件删掉也释放不出配额，远端会永远留着那份超限内容
+				deletes.push(p);
+				targetEntries[p] = { state: "deleted", kind: r.kind };
+				continue;
+			}
+			targetEntries[p] = r;
 			continue;
 		}
 		if (blockedSet.has(p)) {
@@ -314,16 +346,9 @@ export function plan(input: PlanInput): SyncPlan {
 	};
 }
 
-/**
- * 冲突副本命名判定：nextConflictCopyName 的逆运算，用于统计「待处理的冲突副本」。
- * 只认本插件生成的形状 `<stem> (conflict <设备短码> <UTC ISO>)[ N].<ext>`：
- * 不匹配 Obsidian 官方的 `(Conflicted copy …)`，也尽量不误伤用户自己的同名文件。
- */
-const CONFLICT_COPY_RE = / \(conflict [^()/]+ \d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(?: \d+)?\)(?:\.[^/]*)?$/;
-
-export function isConflictCopyPath(path: string): boolean {
-	return CONFLICT_COPY_RE.test(path);
-}
+// 冲突副本命名判定（形状与说明见 excludes.ts；同步范围过滤也要用同一套判定，
+// 放在基础件里避免 selective ↔ planner 循环依赖）
+export { isConflictCopyPath } from "../excludes";
 
 /** 冲突副本命名：<stem> (conflict <device 短码> <UTC 时间>).<ext>；重名追加递增序号（spec §8.2） */
 export function nextConflictCopyName(

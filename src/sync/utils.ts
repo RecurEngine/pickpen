@@ -1,21 +1,68 @@
 // 同步模块共用工具：有限并发 map、事件循环让出（spec §10.1）
 
-/** 有限并发 map（stat/读内容/上传下载批量并发用；从旧 reconcile.ts 迁入） */
+/** 内容处理的内存预算（在途字节数上限）。并发窗口按字节限流而不是按条目数：
+ *  同样「4 个并发」，一批 100MB 附件与一批 1KB 笔记的内存开销差五个数量级。 */
+export const CONTENT_BUDGET = { desktop: 96 * 1024 * 1024, mobile: 32 * 1024 * 1024 } as const;
+
+/** stat 缺失时按此估算内容体积（宁可少并发，不要突发大内存） */
+export const UNKNOWN_SIZE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * 有限并发 map（stat/读内容/上传下载批量并发用；从旧 reconcile.ts 迁入）。
+ * 传 budget 时额外按在途字节数限流：单个条目超过整个预算时独占运行（在途归零才准入），
+ * 大文件因此天然串行、不与其他任务叠加内存。结果始终按输入顺序返回。
+ */
 export async function mapConcurrent<T, R>(
 	items: T[],
 	limit: number,
 	fn: (item: T) => Promise<R>,
+	budget?: { sizeOf: (item: T) => number; budgetBytes: number },
 ): Promise<R[]> {
 	const results = new Array<R>(items.length);
+	const maxActive = Math.max(1, limit);
+	const sizeOf = budget?.sizeOf;
+	const budgetBytes = budget?.budgetBytes ?? 0;
 	let next = 0;
-	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-		for (;;) {
-			const i = next++;
-			if (i >= items.length) return;
-			results[i] = await fn(items[i]);
-		}
+	let active = 0;
+	let activeBytes = 0;
+	let failed = false;
+
+	const canAdmit = (size: number): boolean => {
+		if (active >= maxActive) return false;
+		if (!sizeOf) return true;
+		if (active === 0) return true; // 独占通道：够大就让它一个人跑
+		return activeBytes + size <= budgetBytes;
+	};
+
+	await new Promise<void>((resolve, reject) => {
+		const pump = (): void => {
+			if (failed) return;
+			while (next < items.length && canAdmit(sizeOf ? sizeOf(items[next]) : 0)) {
+				const i = next++;
+				const size = sizeOf ? sizeOf(items[i]) : 0;
+				active++;
+				activeBytes += size;
+				fn(items[i])
+					.then(
+						(result) => {
+							results[i] = result;
+						},
+						(err: unknown) => {
+							failed = true; // 停止准入与调度；在途任务自然收敛，不再发起新请求
+							// 原样透出业务错误（Error 及其附加字段如 code 都要保留），非 Error 兜底包装
+							reject(err instanceof Error ? err : new Error(String(err)));
+						},
+					)
+					.finally(() => {
+						active--;
+						activeBytes -= size;
+						pump();
+					});
+			}
+			if (active === 0 && next >= items.length) resolve();
+		};
+		pump();
 	});
-	await Promise.all(workers);
 	return results;
 }
 

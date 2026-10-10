@@ -11,6 +11,16 @@ export const Platform = {
 	isLinux: false,
 };
 
+/** 平台打桩：测试里临时切成移动端/桌面端（用后需恢复，见各用例的 afterEach） */
+export function setPlatform(patch: Partial<typeof Platform>): void {
+	Object.assign(Platform, patch);
+}
+
+/** 恢复桌面端默认值 */
+export function resetPlatform(): void {
+	setPlatform({ isMobile: false, isDesktopApp: true, isIosApp: false, isAndroidApp: false });
+}
+
 export function normalizePath(path: string): string {
 	return path.replace(/\\/g, "/");
 }

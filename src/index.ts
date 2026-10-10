@@ -21,7 +21,13 @@ import { PickpenSettingTab } from "./settings";
 import { setupStage, SetupGuideModal, type SetupStage } from "./setup-guide";
 import { localDateKey, StorageLimitModal } from "./storage-limit-alert";
 import { syncResultMessage } from "./sync-result";
-import { syncState } from "./sync-state";
+import {
+	PAUSED_BY_LOCK,
+	PAUSED_NO_VAULT,
+	PAUSED_NOT_SIGNED_IN,
+	shouldClearAccountPause,
+	syncState,
+} from "./sync-state";
 import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings, type VaultInfo } from "./types";
 import { createRemoteVault, enableRemoteVaultEncryption, fetchVaults, openVaultManager, updateRemoteVaultKey } from "./vault-manager";
 import { BaseStore } from "./sync/base-store";
@@ -32,9 +38,6 @@ import { Poller } from "./sync/poller";
 import { SnapshotRemote } from "./sync/remote";
 import { normalizeSelectiveSettings } from "./sync/selective";
 import { ReconcileSession } from "./sync/session";
-
-// PAUSED_BY_LOCK 加密仓库未解锁时的暂停原因（同步状态栏展示；解锁后自动恢复）
-export const PAUSED_BY_LOCK = "仓库已加密，请输入密码解锁";
 
 const PICKPEN_ICON_ID = "pickpen-logo";
 // addIcon 接收 SVG 内部节点；源文件保留完整 <svg>，便于独立预览与编辑。
@@ -252,8 +255,10 @@ export default class PickpenPlugin extends Plugin {
 					conflictCopyPaths: s.conflictCopyPaths,
 					lastSyncAt: s.lastSyncAt,
 					storageLimitExceeded: s.storageLimitExceeded,
+					interruptedTransfer: s.interruptedTransfer,
 				});
 				this.handleStorageLimitState(s.storageLimitExceeded, s.storageLimitConfirmed);
+				this.healAccountPause(s.running, s.lastError);
 			},
 		});
 		this.localHint = new LocalHint(
@@ -275,7 +280,7 @@ export default class PickpenPlugin extends Plugin {
 
 		// 已登录但未绑定（异常态兜底）→ 暂停，等待用户在仓库管理中选择
 		if (this.settings.accessToken && !this.settings.vaultId) {
-			this.pauseSync("请选择要绑定的仓库");
+			this.pauseSync(PAUSED_NO_VAULT);
 		}
 
 		this.settingTab = new PickpenSettingTab(this.app, this);
@@ -608,6 +613,23 @@ export default class PickpenPlugin extends Plugin {
 		};
 	}
 
+	/**
+	 * 自愈：一轮同步成功跑完（已结束且无错误）时，清掉「未登录 / 请选择要绑定的仓库」这类
+	 * 由配置状态派生的过时暂停标志。它同时是这类标志唯一不依赖具体流程的解除点——绑定、
+	 * 登录如果因为落盘挂起/抛错没走到 resumeSync，用户会卡在「已绑定但仍显示已暂停」，
+	 * 且轮询被一并关掉；下一次成功的同步会把它拉回正常。
+	 */
+	private healAccountPause(running: boolean, lastError: string): void {
+		const clear = shouldClearAccountPause({
+			running,
+			lastError,
+			accessToken: this.settings.accessToken,
+			vaultId: this.settings.vaultId,
+			pausedReason: syncState.pausedReason,
+		});
+		if (clear) this.resumeSync();
+	}
+
 	/** 暂停同步（登录失效/未绑定/仓库管理操作中） */
 	pauseSync(reason: string): void {
 		debugLog.info(`[pickpen] 暂停同步：${reason}`);
@@ -645,6 +667,9 @@ export default class PickpenPlugin extends Plugin {
 			await this.baseStore.flush();
 			await this.pendingStore.clear();
 			this.session.reset();
+			// reset 会连本地 dirty 一并清掉：必须补一次完整审计，否则清空之前记录的本地改动
+			// 要等到重启才会被重新发现（绑定流程自己会 forceAudit，这条自愈分支不会）
+			this.session.requestRun({ forceAudit: true });
 		} else if (keyChanged) {
 			// 密钥代次可能变了（别处转换/新建），也可能只是重新包装（改密码）。
 			// 这里不清空 Base：内容寻址是否失效由 Base 里记录的密钥代次判定——
@@ -882,7 +907,7 @@ export default class PickpenPlugin extends Plugin {
 			void this.poller.pollNow();
 			return;
 		}
-		this.pauseSync("请选择要绑定的仓库");
+		this.pauseSync(PAUSED_NO_VAULT);
 		new Notice("登录成功，请选择要绑定的仓库");
 		openVaultManager(this.app, this, onBindingChange); // 绑定完成后重绘发起登录的设置视图
 	}
@@ -904,9 +929,13 @@ export default class PickpenPlugin extends Plugin {
 		}
 		this.accountBinding = { email: this.settings.email, vaultId };
 		this.settings.vaultOwner = { vaultId, email: this.settings.email }; // 归属随 data.json 共享，供新设备沿用/跨账号守卫
+		// 解除「请选择要绑定的仓库」必须排在落盘之前：内存里的绑定此刻已生效，而 saveSettings
+		// 在移动端可能挂起（原生桥回包丢失）或抛错——排在它后面时，用户会卡在「已绑定但仍显示
+		// 已暂停」，且轮询被一并关掉（见 healAccountPause 的兜底）。绑定成功与否以内存状态为准，
+		// 不以落盘成功为准。
+		this.resumeSync();
 		await this.saveSettings();
 		debugLog.info("[pickpen] 已绑定仓库");
-		this.resumeSync();
 		new Notice(`已绑定仓库：${name}`);
 		// 加密仓库必须先解锁才能读盘算哈希：绑定是用户主动操作，直接弹解锁窗
 		const info = await this.adoptVaultState(vaultId);
@@ -938,7 +967,7 @@ export default class PickpenPlugin extends Plugin {
 		vaultKeys.reset(); // 仓库已不存在，内容密钥与本地记忆一并清除
 		delete this.settings.vaultOwner;
 		await this.saveSettings();
-		this.pauseSync("请选择要绑定的仓库");
+		this.pauseSync(PAUSED_NO_VAULT);
 		new Notice("原仓库已删除，请重新选择要绑定的仓库");
 	}
 
@@ -948,7 +977,7 @@ export default class PickpenPlugin extends Plugin {
 		vaultKeys.reset(); // 解绑即上锁：内容密钥不跨账号留存
 		syncState.update({ storageLimitExceeded: false });
 		this.handleStorageLimitState(false, false);
-		this.pauseSync("未登录");
+		this.pauseSync(PAUSED_NOT_SIGNED_IN);
 		await this.auth.logout(); // 清 token 会话（写设备本地 localStorage，保留 email/deviceId）
 		this.settings.vaultId = "";
 		this.settings.vaultName = "";

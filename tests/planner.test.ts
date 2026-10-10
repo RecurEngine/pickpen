@@ -660,3 +660,97 @@ describe("选择性同步（filter 排除路径）", () => {
 		expect(p.apply_actions.some((a) => a.kind === "rmdir")).toBe(false);
 	});
 });
+
+describe("远端超限（降档后仓库里的存量文件）：本轮完全无操作", () => {
+	const oversized = (hash: string): Entry => ({ state: "active", content_hash: hash, size: "104857600" });
+	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[]) {
+		return plan({
+			base,
+			local,
+			remote,
+			deviceId: "dev-001",
+			now: new Date("2026-08-28T12:00:00Z"),
+			remoteOversizedPaths: paths,
+		});
+	}
+
+	it("本地缺失 → 不下载（无 apply_action），target 保持远端", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({}), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(A)); // 必须等于远端，否则 CAS 会 12018
+	});
+
+	it("远端变过（本地未跟）→ 目标树仍是远端新状态，不因 Base 而错位", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({}), snap({ "big.mp4": oversized(B) }), ["big.mp4"]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(B));
+		expect(p.apply_actions).toEqual([]);
+	});
+
+	it("本地也改了 → 不上传（不把本地版本推上去）", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({ "big.mp4": active(C) }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		expect(p.puts).toEqual([]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(A));
+	});
+
+	it("本地删了且远端自 Base 未变 → 照常传播删除（详见下一组用例）", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		expect(p.deletes).toEqual(["big.mp4"]);
+		expect(p.target_entries["big.mp4"]).toEqual({ state: "deleted" });
+	});
+
+	it("非超限路径不受影响（同轮其余改动照常提交）", () => {
+		const b = snap({ "big.mp4": oversized(A), "note.md": active(A) });
+		const p = runOversized(
+			b,
+			snap({ "note.md": active(B) }),
+			snap({ "big.mp4": oversized(A), "note.md": active(A) }),
+			["big.mp4"],
+		);
+		expect(p.puts).toEqual([expect.objectContaining({ path: "note.md", content_hash: B })]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(A));
+	});
+});
+
+describe("远端超限：本地删除仍要传播（否则降档后大文件删不掉、配额放不出来）", () => {
+	const oversized = (hash: string): Entry => ({ state: "active", content_hash: hash, size: "104857600" });
+	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[]) {
+		return plan({
+			base,
+			local,
+			remote,
+			deviceId: "dev-001",
+			now: new Date("2026-08-28T12:00:00Z"),
+			remoteOversizedPaths: paths,
+		});
+	}
+
+	it("本地删除 + 远端自 Base 未变 → 提交删除", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		expect(p.deletes).toEqual(["big.mp4"]);
+		expect(p.target_entries["big.mp4"]).toEqual({ state: "deleted" });
+		expect(p.apply_actions).toEqual([]);
+	});
+
+	it("本地删除但远端已改成别的内容 → 不动远端（避免把远端新版本判成丢失）", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(B) }), ["big.mp4"]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(B));
+	});
+
+	it("本地仍有内容 → 不下载不覆盖，保持远端", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({ "big.mp4": oversized(A) }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		expect(p.deletes).toEqual([]);
+		expect(p.puts).toEqual([]);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(A));
+	});
+});

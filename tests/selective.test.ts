@@ -265,6 +265,24 @@ describe("配置目录分类（对齐官方文件名映射）", () => {
 		const f = filter(); // other 默认关
 		expect(f.isExcluded(".obsidian/snippets/tweak.css")).toBe(false);
 	});
+
+	// 配置冲突副本只落本地、不参与同步（planner 的 local_only）。副本名会改写分类匹配：
+	// `core-plugins (conflict …).json` 落进默认开启的「其余顶层 *.json」兜底分类，
+	// 于是下一轮被当普通新文件传上去，变成其他设备永远无人处理的孤儿副本（线上实测）。
+	it("配置目录内的冲突副本一律不同步（含兜底分类与片段副本）", () => {
+		const f = filter({ config: { corePluginData: true, appearanceData: true } });
+		for (const p of [
+			".obsidian/core-plugins (conflict 50bef3 2026-10-10T09-32-03-866Z).json",
+			".obsidian/graph (conflict 50bef3 2026-10-10T09-32-03-866Z 2).json",
+			".obsidian/snippets/tweak (conflict 50bef3 2026-10-10T09-32-03-866Z).css",
+		]) {
+			expect(f.isExcluded(p), p).toBe(true);
+		}
+		// 不误伤：正常配置文件与用户自己的近形名照旧同步
+		expect(f.isExcluded(".obsidian/core-plugins.json")).toBe(false);
+		expect(f.isExcluded(".obsidian/graph.json")).toBe(false);
+		expect(f.isExcluded(".obsidian/snippets/tweak.css")).toBe(false);
+	});
 });
 
 describe("配置目录枚举 scanConfigFiles", () => {

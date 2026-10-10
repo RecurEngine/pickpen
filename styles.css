@@ -52,7 +52,8 @@
 }
 
 .pickpen-status-progress,
-.pickpen-status-path {
+.pickpen-status-path,
+.pickpen-status-transfer {
 	margin-top: 4px;
 	font-size: var(--font-ui-small);
 	color: var(--text-muted);
@@ -303,6 +304,12 @@
 .pickpen-account-section.is-focused {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 2px;
+}
+
+/* 邮箱框改用 type=email 后，Obsidian 自带的 .is-mobile input[type='text']{width:100%} 不再命中，
+   平板（有 is-mobile 无 is-phone）会缩回默认字符宽，这里补回 */
+.is-mobile .pickpen-account-section input[type='email'] {
+	width: 100%;
 }
 
 .pickpen-subscription-card {
