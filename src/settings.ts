@@ -1,6 +1,6 @@
 // 设置面板（Snapshot 同步 v2）：账号登录、仓库绑定、同步范围（选择性同步）、已删除的文件入口与诊断。
 
-import { App, ButtonComponent, Modal, Notice, Platform, PluginSettingTab, Setting, TFile, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
+import { App, ButtonComponent, Notice, Platform, PluginSettingTab, Setting, TFile, type SettingDefinitionGroup, type SettingDefinitionItem } from "obsidian";
 
 import { renderAboutAndFeedback } from "./about";
 import { benefitActivityOpen, refreshBenefitActivity, resetBenefitActivity } from "./benefit-state";
@@ -93,9 +93,16 @@ export class PickpenSettingTab extends PluginSettingTab {
 				"邀请码", "邀请人数", "邀请充值", "邀请用户",
 			]),
 			this.benefitGroup(),
-			this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与调试日志", [
-				"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "调试日志", "日志",
-			]),
+			// 正式渠道包（prod）不展示调试日志入口，搜索索引同步摘掉相关关键词（避免搜到却无此项）。
+			// 这里直接比较 process.env.PICKPEN_ENV（不提前赋给变量）：构建期 define 替换为字面量后，
+			// minify 才能常量折叠并剔除正式包里另一分支的关键词与 aliases
+			process.env.PICKPEN_ENV === "prod"
+				? this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID 与构建环境", [
+						"诊断", "远端地址", "设备 ID", "构建环境", "插件版本",
+					])
+				: this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与调试日志", [
+						"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "调试日志", "日志",
+					]),
 			this.sectionGroup("about", "关于与反馈", "产品简介、反馈入口与相关链接", [
 				"关于", "反馈", "版本", "隐私", "帮助",
 			]),
@@ -702,7 +709,7 @@ class PickpenSettingsView {
 		);
 	}
 
-	/** 诊断：远端地址、设备 / 构建信息与调试日志面板 */
+	/** 诊断：远端地址与设备 / 构建信息；调试日志面板仅内部构建（local/test）展示 */
 	private renderDiagnostics(containerEl: HTMLElement, settings: PluginSettings): void {
 		// 分区标题由声明式分组提供
 		const diagnosticsSectionEl = containerEl.createDiv({ cls: "pickpen-settings-section" });
@@ -724,8 +731,10 @@ class PickpenSettingsView {
 				: `插件版本：${this.plugin.manifest.version}`,
 		});
 
-		// 调试日志开关 + 开启后实时日志面板（仅插件主动写入的脱敏日志）
-		this.renderDebugSection(diagnosticsSectionEl);
+		// 调试日志开关 + 开启后实时日志面板（仅插件主动写入的脱敏日志）。
+		// 正式渠道包不展示该入口（内部排查用）。内联比较而非提为变量：define 替换后
+		// 条件成为字面量，minify 时整段调用从正式包中剔除
+		if (process.env.PICKPEN_ENV !== "prod") this.renderDebugSection(diagnosticsSectionEl);
 	}
 
 	// 系统设置页 hide：取消订阅防泄漏
@@ -860,50 +869,6 @@ class PickpenSettingsView {
 		this.debugCleanup = debugLog.subscribe((entry) => {
 			if (levelFilter === "all" || entry.level === levelFilter) appendLine(entry);
 		});
-
-		// —— 提醒效果预览（仅调试观感，不动真实用量判断）——
-		new Setting(containerEl)
-			.setName("提醒效果预览")
-			.setDesc("触发示例提醒，评估移动端观感与文案；不影响真实用量。")
-			.addButton((btn) =>
-				btn.setButtonText("接近上限").onClick(() => {
-					new Notice("Pickpen Sync：云端存储已使用 82%，即将用满。为避免同步中断，可升级容量或联系支持。");
-				}),
-			)
-			.addButton((btn) =>
-				btn.setButtonText("已超限").onClick(() => {
-					const n = new Notice("Pickpen Sync：云端存储已用满，笔记同步已暂停。升级后可自动恢复同步。", 0);
-					n.messageEl.addClass("pickpen-notice-alert");
-				}),
-			)
-			.addButton((btn) =>
-				btn.setButtonText("升级引导").onClick(() => {
-					// 内联 Modal：说明原因 + 行动按钮（去升级当前为预留占位）
-					const modal = new (class extends Modal {
-						onOpen(): void {
-							this.setTitle("Pickpen Sync 用量提醒");
-							this.contentEl.createDiv({
-								text: "你的云端存储用量已达上限，新改动暂时无法上传。升级后可继续同步，你的笔记不会丢失。",
-							});
-							new Setting(this.contentEl)
-								.setName("下一步")
-								.addButton((b) =>
-									b.setButtonText("知道了").onClick(() => modal.close()),
-								)
-								.addButton((b) =>
-									b
-										.setButtonText("去升级")
-										.setCta()
-										.onClick(() => {
-											modal.close();
-											new Notice("预留：将打开充值/开通页（后端接入后生效）");
-										}),
-								);
-						}
-					})(this.app);
-					modal.open();
-				}),
-			);
 	}
 
 	// renderStatusCard 状态卡片：状态点、阶段进度和当前路径（class 由 deriveStatus 决定）

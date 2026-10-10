@@ -58,10 +58,15 @@ export function renderAboutAndFeedback(containerEl: HTMLElement, plugin: Pickpen
 		text: "Obsidian 笔记的多端快照同步插件：同一账号多设备同时使用、自动合并冲突并保留副本、支持版本历史。本地优先，数据随时可从云端恢复。",
 	});
 
-	// 邮件反馈：自动附带诊断上下文
+	// 邮件反馈：自动附带诊断上下文。正式渠道包不提供调试日志开关（见 settings.ts 诊断区），
+	// 文案不再提示附带日志——否则用户找不到该开关
 	new Setting(root)
 		.setName("意见反馈")
-		.setDesc("反馈问题或建议。点击会在本地生成邮件草稿并附带版本、账号和设备信息；仅在调试日志已开启时附带日志，发送前可自行检查或删除。")
+		.setDesc(
+			process.env.PICKPEN_ENV === "prod"
+				? "反馈问题或建议。点击会在本地生成邮件草稿并附带版本、账号和设备信息，发送前可自行检查或删除。"
+				: "反馈问题或建议。点击会在本地生成邮件草稿并附带版本、账号和设备信息；仅在调试日志已开启时附带日志，发送前可自行检查或删除。",
+		)
 		.addButton((btn) =>
 			btn
 				.setButtonText("邮件反馈")

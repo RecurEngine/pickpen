@@ -1254,13 +1254,6 @@ body.is-mobile .pickpen-password-field {
 	font-size: 12px;
 }
 
-/* 提醒效果预览：“已超限”Notice 的警示配色（真实提醒接入后沿用）。
-   用 .notice 叠加提高选择器特异性做覆盖（Notice 根元素即带 .notice），不使用强制覆盖。 */
-.notice.pickpen-notice-alert {
-	background: var(--background-modifier-error, #e5534b);
-	color: var(--text-on-accent, #fff);
-}
-
 /* 工具按钮（复制/清空）：小号中性，不抢视觉 */
 .pickpen-debug-log-bar button {
 	min-height: 0;

@@ -2,7 +2,7 @@
 // 本测试锁住分区顺序与关键词，防止又长出一个独立分区、或把已下线的条目（排除项追加 / 冲突策略 / 变更防抖）加回来。
 
 import { App, type SettingDefinitionGroup } from "obsidian";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type PickpenPlugin from "../src/index";
 import { PickpenSettingTab } from "../src/settings";
@@ -70,6 +70,21 @@ describe("设置页分区", () => {
 		const text = indexText(sectionGroups());
 		for (const removed of ["排除项追加", "冲突策略", "变更防抖"]) {
 			expect(text).not.toContain(removed);
+		}
+	});
+
+	it("正式构建（PICKPEN_ENV=prod）不索引调试日志：入口与搜索关键词同步下线", () => {
+		// 对照组：非正式构建下诊断区仍可检索到调试日志
+		expect(indexText(sectionGroups())).toContain("调试日志");
+
+		vi.stubEnv("PICKPEN_ENV", "prod");
+		try {
+			const groups = sectionGroups();
+			// 分区结构不变（诊断区仍在），只是不再把调试日志列为可检索项
+			expect(groups.map((g) => g.heading)).toContain("诊断");
+			expect(indexText(groups)).not.toContain("调试日志");
+		} finally {
+			vi.unstubAllEnvs();
 		}
 	});
 });
