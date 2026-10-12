@@ -7,7 +7,7 @@ import { App, Platform, normalizePath } from "obsidian";
 
 import { openForLocal, remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
-import { isFileIDMoved, isInvalidHash, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
+import { isFileIDMoved, isInvalidHash, isManifestMismatch, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
 import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgress } from "./progress";
@@ -149,6 +149,8 @@ export class ReconcileSession {
 	private blockedPaths: string[] = [];
 	/** 远端内容超过当前套餐单文件上限的路径（降档后的存量文件）：不下载、不覆盖、不删除 */
 	private oversizedRemotePaths: string[] = [];
+	/** 本轮强制改走完整 Manifest 取远端真值（12018 后设一次；下一轮消费即清，避免空转） */
+	private manifestRefetchForced = false;
 	/** 上次中断在传输中的大文件（启动首次读取一次；成功跑完一轮后清除） */
 	private interruptedTransfer: TransferMark | null = null;
 	private interruptedChecked = false;
@@ -510,10 +512,12 @@ export class ReconcileSession {
 			return;
 		}
 
-		// 6. 构建完整 R（Head 未变 → 服务端 root == Base root，用 Base entries 等价；
-		//    Head 变 → GetManifest 下载完整 Manifest 并校验 root，§7.6）
+		// 6. 构建完整 R（Head 未变且未要求强拉 → 服务端 root == Base root，用 Base entries 等价；
+		//    否则 GetManifest 下载完整 Manifest 并校验 root，§7.6）
 		let remoteEntries: Record<string, import("./types").Entry>;
-		if (head.unchanged && base) {
+		const forceManifest = this.manifestRefetchForced;
+		this.manifestRefetchForced = false; // 消费即清：强拉只作用于一轮，仍失败就按普通错误上报
+		if (head.unchanged && base && !forceManifest) {
 			remoteEntries = base.entries;
 		} else {
 			this.beginPhase("remote");
@@ -576,8 +580,13 @@ export class ReconcileSession {
 		};
 
 		if (!hasWork) {
-			// L 与 R 已一致（或仅 blocked 差异）：确认 Base 收敛
-			if (localRoot !== base?.base_root_hash) {
+			// L 与 R 已一致（或仅 blocked 差异）：确认 Base 收敛。
+			// 只有目标树确实等于远端 Head 才能把它记成新 Base：本轮没有 mutations，目标树理应
+			// 就是 R；历史缺陷（阻塞路径的目标条目钉在过期 Base 上）曾让二者不等，却仍把那份
+			// 目标树连同 Head 的 root 落成新 Base —— 此后 Head 看似匹配、快路径拿过期条目当
+			// 远端真值，凡有本地改动都算错 target_root_hash（12018，提交失败 ⇒ Base 不前进 ⇒
+			// 死循环）。不等就保持旧 Base（落后无害：下一轮 Head 不再匹配，自然改走完整 Manifest）
+			if (localRoot !== base?.base_root_hash && planResult.target_root_hash === head.rootHash) {
 				this.beginPhase("finishing");
 				await baseStore.saveBase({
 					schema_version: 2,
@@ -587,6 +596,8 @@ export class ReconcileSession {
 					base_root_hash: head.rootHash,
 					entries: planResult.target_entries,
 				}, unverified);
+			} else if (planResult.target_root_hash !== head.rootHash) {
+				debugLog.warn("[pickpen] 目标树与远端 Head 不符，本轮不写 Base（避免落盘不自洽的基线）");
 			}
 			this.finishRound();
 			return;
@@ -696,6 +707,16 @@ export class ReconcileSession {
 				deletes: planResult.deletes,
 			});
 		} catch (err) {
+			if (isManifestMismatch(err) && !forceManifest) {
+				// 12018：客户端算的目标树与服务端重算不符。计划本身自洽时，最常见成因是本地
+				// 基线不自洽（老版本曾把阻塞路径的目标条目钉在过期 Base 上落盘，而 Head 恰好
+				// 匹配 → 快路径把过期条目当成了远端真值）。强制下一轮拉完整 Manifest 取远端
+				// 真值再对账一次：成功则新 Base 落地即自愈；仍失败才按普通错误上报（不空转）。
+				this.manifestRefetchForced = true;
+				this.rerunRequested = true;
+				debugLog.warn("[pickpen] CommitSnapshot 12018（清单校验失败），强制拉取远端完整清单后重试一轮");
+				return;
+			}
 			if (!isFileIDMoved(err)) throw err;
 			// 12023：file_id 身份冲突。planner fix-up 后理论上不可达，此处为兜底
 			// （历史脏数据双 active 同 file_id 时服务端对占用路径的裁决顺序不可复现、

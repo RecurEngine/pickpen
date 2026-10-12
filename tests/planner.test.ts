@@ -251,7 +251,19 @@ describe("目录条目（kind=2）", () => {
 });
 
 describe("阻塞路径（§9.2/§16.5）", () => {
-	it("超限/读失败路径保留 Base/Remote 原状态，禁止提交 delete", () => {
+	// 阻塞路径不进入 L（超限/读失败/大小写冲突的文件被扫描跳过），因此 local 通常为空
+	function runBlocked(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[]) {
+		return plan({
+			base,
+			local,
+			remote,
+			deviceId: "dev-001",
+			now: new Date("2026-08-28T12:00:00Z"),
+			blockedPaths: paths,
+		});
+	}
+
+	it("超限/读失败路径不 put 不 delete，目标钉住远端", () => {
 		const b = snap({ "big.zip": active(A) });
 		const p = plan({
 			base: b,
@@ -260,9 +272,26 @@ describe("阻塞路径（§9.2/§16.5）", () => {
 			deviceId: "dev-001",
 			blockedPaths: ["big.zip"],
 		});
+		expect(p.puts).toEqual([]);
 		expect(p.deletes).toEqual([]);
 		expect(p.blocked_paths).toEqual(["big.zip"]);
-		expect(p.target_entries["big.zip"].state).toBe("active");
+		expect(p.target_entries["big.zip"]).toEqual(active(A));
+	});
+
+	it("阻塞期间远端已变 → 目标仍是远端而非过期 Base（钉 Base 会 12018 死循环）", () => {
+		const b = snap({ "big.zip": active(A) });
+		const p = runBlocked(b, snap({}), snap({ "big.zip": active(C) }), ["big.zip"]);
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["big.zip"]).toEqual(active(C)); // 远端新值，不是 Base 的 A
+	});
+
+	it("阻塞期间远端已删 → 目标为 tombstone，且不提交 delete", () => {
+		const b = snap({ "big.zip": active(A) });
+		const p = runBlocked(b, snap({}), snap({ "big.zip": deleted }), ["big.zip"]);
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["big.zip"]).toEqual({ state: "deleted" });
 	});
 });
 

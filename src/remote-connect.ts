@@ -105,6 +105,12 @@ export function isFileIDMoved(err: unknown): boolean {
 	return errorCode(err) === ErrCode.FileIDMoved;
 }
 
+// isManifestMismatch 判断清单校验失败（12018）：重算 root 与声明不符，
+// 需强拉一次完整 Manifest 取远端真值再对账（本地基线可能与 Head 声明不符）
+export function isManifestMismatch(err: unknown): boolean {
+	return errorCode(err) === ErrCode.ManifestMismatch;
+}
+
 // isInvalidHash 判断声明哈希被拒（12006）：上传前对本地竞态有预检，这里是防御性兜底，标脏重排即可恢复
 export function isInvalidHash(err: unknown): boolean {
 	return errorCode(err) === ErrCode.InvalidHash;

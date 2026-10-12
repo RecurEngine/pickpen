@@ -19,7 +19,9 @@ export interface PlanInput {
 	local: Snapshot;
 	remote: Snapshot;
 	deviceId: string;
-	/** 本地被阻塞路径（超限/读失败/大小写冲突）：保留 Base/Remote 原状态，禁止提交 delete（§9.2） */
+	/** 本地被阻塞路径（超限/读失败/大小写冲突）：不 put 不 delete（§9.2 规则 5）。
+	 * 目标条目必须钉住远端——钉过期 Base 会在「阻塞期间远端已变」时把 target_root_hash
+	 * 算错（12018）；提交永不成功 ⇒ Base 永不前进，形成死循环 */
 	blockedPaths?: string[];
 	/** 远端内容超出当前套餐单文件上限的路径：不下载、不上传、不提交 delete。
 	 * 与 blockedPaths 分开：这些路径的远端状态是明确的（就是 R），目标树必须等于 R，
@@ -173,8 +175,11 @@ export function plan(input: PlanInput): SyncPlan {
 			continue;
 		}
 		if (blockedSet.has(p)) {
-			// 本地状态未知：保留 Base/Remote 原状态，禁止提交 delete/put（§9.2）
-			const keep = base?.entries[p] ?? remote.entries[p];
+			// 本地状态未知（超限/读失败/大小写冲突）：不 put 不 delete（§9.2 规则 5）。
+			// 目标树必须钉住远端：提交后远端保留的就是 R[p]。钉过期 Base 会在「阻塞期间远端
+			// 已变」时让 target_root_hash 永远算不对（12018，且提交失败 ⇒ Base 不前进 ⇒ 死循环）。
+			// R 缺行（正常不会发生，远端删路径会留 tombstone）时退回 Base 仅作防御
+			const keep = remote.entries[p] ?? base?.entries[p];
 			if (keep) targetEntries[p] = keep;
 			continue;
 		}
