@@ -14,6 +14,21 @@ import type { Entry, Snapshot } from "./types";
 
 export type BaseLoadResult = "ok" | "no-base" | "corrupt";
 
+export interface BaseSaveOptions {
+	/**
+	 * 本轮**没有**校验过磁盘内容的路径（被选择性同步排除、被阻塞等）。
+	 * 它们的 content_hash 来自远端/旧基线而非实测，绝不能记 local_*——否则下一轮快路径
+	 * 会拿这份 stat 冒充「磁盘与 Base 一致」，把此期间的本地改动永久漏掉。
+	 */
+	unverified?: (path: string) => boolean;
+	/**
+	 * 本轮**不在同步范围内**的路径（被选择性同步排除）：条目内容只是远端回声，
+	 * 标记 out_of_scope 交给 planner 按 Bootstrap 裁决。
+	 * 缺省（如卸载时的 flush）沿用条目上已有的标记，不把「不在范围内」这个事实丢掉。
+	 */
+	outOfScope?: (path: string) => boolean;
+}
+
 export class BaseStore {
 	private readonly app: App;
 	private readonly deviceId: string;
@@ -63,6 +78,16 @@ export class BaseStore {
 			debugLog.warn("[pickpen] sync-base.json 结构异常或 device 不匹配，进入安全 Bootstrap");
 			return "corrupt";
 		}
+		// 老基线（写它时还没有 out_of_scope 口径）一次性迁移：active 条目缺 local_* 说明
+		// 写基线时本设备没校验过它的本地内容（被选择性同步排除，或当时被阻塞），content_hash
+		// 只是远端回声。不补标记的话，升级后首次打开某个同步分类，本地旧内容仍会被当成
+		// 「仅本地修改」传上去覆盖远端。标记随下一次 saveBase 归一（被阻塞的路径随之清掉）。
+		if (!parsed.scope_marked) {
+			for (const e of Object.values(parsed.entries)) {
+				if (e.state === "active" && !e.local_mtime) e.out_of_scope = true;
+			}
+			parsed.scope_marked = true;
+		}
 		this.base = parsed;
 		debugLog.info(`[pickpen] Base Snapshot 已加载（${Object.keys(parsed.entries).length} 条）`);
 		return "ok";
@@ -72,18 +97,21 @@ export class BaseStore {
 	 * 写新 Base。写盘前对每个 active 条目重新 stat，记录实际落盘 mtime/size；
 	 * 磁盘上已不存在的 active 条目删除其 local_* 快路径字段（下一轮按 dirty 处理）。
 	 *
-	 * unverified：本轮**没有**校验过磁盘内容的路径（被选择性同步排除、被阻塞等）。
-	 * 它们的 content_hash 来自远端/旧基线而非实测，绝不能记 local_*——否则下一轮快路径
-	 * 会拿这份 stat 冒充「磁盘与 Base 一致」，把此期间的本地改动永久漏掉。
+	 * base-only 字段（local_*、out_of_scope）一律由本方法按本轮实况重写，不让它们随条目回流：
+	 * 写盘前先剥掉，再按 unverified / outOfScope 两个判定重新落。
 	 */
-	async saveBase(snapshot: Snapshot, unverified?: (path: string) => boolean): Promise<void> {
+	async saveBase(snapshot: Snapshot, opts: BaseSaveOptions = {}): Promise<void> {
 		// 把「写这份基线时用的内容密钥代次」一并落盘：它是判断内容寻址口径是否变化的唯一可靠依据，
 		// 只放在内存里的话，转换中途失败/关闭 Obsidian 后重开就会误判成「没有工作可做」
-		snapshot = { ...snapshot, key_epoch: vaultKeys.getEpoch() };
+		snapshot = { ...snapshot, key_epoch: vaultKeys.getEpoch(), scope_marked: true };
 		const entries: Record<string, Entry> = {};
 		for (const [path, e] of Object.entries(snapshot.entries)) {
-			if (e.state !== "active" || unverified?.(path)) {
-				const { local_mtime: _m, local_size: _s, ...rest } = e;
+			const { local_mtime: _m, local_size: _s, out_of_scope: _o, ...rest } = e;
+			if (opts.outOfScope ? opts.outOfScope(path) : e.out_of_scope) {
+				entries[path] = { ...rest, out_of_scope: true };
+				continue;
+			}
+			if (e.state !== "active" || opts.unverified?.(path)) {
 				entries[path] = rest;
 				continue;
 			}
@@ -95,12 +123,11 @@ export class BaseStore {
 			}
 			if (stat) {
 				entries[path] = {
-					...e,
+					...rest,
 					local_mtime: String(stat.mtime),
 					local_size: String(stat.size),
 				};
 			} else {
-				const { local_mtime: _m, local_size: _s, ...rest } = e;
 				entries[path] = rest;
 			}
 		}

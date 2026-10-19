@@ -94,10 +94,13 @@ export async function resolveConflictsByMerge(args: {
 			note("仅 .md 参与内容合并");
 			continue;
 		}
-		// Base 记录是三方合并的前提：缺失即无共同祖先（首次绑定 / 换绑 / 已被裁剪）
+		// Base 记录是三方合并的前提：缺失即无共同祖先（首次绑定 / 换绑 / 已被裁剪）。
+		// out_of_scope 的 Base 同理不可用：它只是远端回声（写基线时该路径不在同步范围内），
+		// 拿它当共同祖先会把远端内容当成「没变过」，合并结果直接等于本地内容 ——
+		// 于是 planner 刚裁定的「远端胜」被就地合并推翻，本地旧内容又传上去覆盖远端。
 		const b = base?.entries[path];
 		const r = remote.entries[path];
-		if (!b || b.state !== "active" || !b.content_hash || !b.file_id) {
+		if (!b || b.out_of_scope || b.state !== "active" || !b.content_hash || !b.file_id) {
 			note("无可用 Base 版本（首次绑定或历史已裁剪）");
 			continue;
 		}

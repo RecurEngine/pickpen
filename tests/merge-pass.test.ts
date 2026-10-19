@@ -26,6 +26,8 @@ async function scenario(args: {
 	theirsText: string;
 	path?: string;
 	hasBase?: boolean;
+	/** Base 条目只是远端回声（写基线时该路径不在同步范围内） */
+	outOfScopeBase?: boolean;
 }): Promise<Scenario> {
 	const path = args.path ?? "x.md";
 	const [hBase, hOurs, hTheirs] = await Promise.all([
@@ -48,7 +50,9 @@ async function scenario(args: {
 		base_root_hash: "root1",
 		entries: e,
 	});
-	const base = args.hasBase === false ? null : snap({ [path]: entry(hBase, args.baseText) });
+	const baseEntry = entry(hBase, args.baseText);
+	if (args.outOfScopeBase) baseEntry.out_of_scope = true;
+	const base = args.hasBase === false ? null : snap({ [path]: baseEntry });
 	const local = snap({ [path]: entry(hOurs, args.oursText) });
 	const remote = snap({ [path]: entry(hTheirs, args.theirsText) });
 	const p = plan({ base, local, remote, deviceId: "dev-001", now: new Date("2026-09-24T12:00:00Z") });
@@ -165,6 +169,9 @@ describe("不满足合并条件时原样保留冲突副本", () => {
 		["非 .md（按扩展名跳过）", { baseText: "a\n", oursText: "b\n", theirsText: "c\n", path: "x.canvas" }, () => null, () => false],
 		["配置文件（远端胜规则）", { baseText: "a\n", oursText: "b\n", theirsText: "c\n", path: ".obsidian/app.json" }, () => null, (p) => p.startsWith(".obsidian/")],
 		["无 Base（首次绑定）", { baseText: "a\n", oursText: "b\n", theirsText: "c\n", hasBase: false }, () => null, () => false],
+		// Base 条目只是远端回声时（上轮不在同步范围内）绝不可当共同祖先：baseText 与远端同内容，
+		// 拿它做三方合并会把「远端没变过」当成前提，合并结果直接等于本地内容 → 就地提交覆盖远端
+		["Base 只是远端回声（上轮不在同步范围内）", { baseText: "a\nb\n", oursText: "a\nOURS\n", theirsText: "a\nb\n", outOfScopeBase: true }, () => null, () => false],
 		["base 取回失败（超保留期）", { baseText: "1\n2\n3\n", oursText: "1\nX\n2\n3\n", theirsText: "1\nY\n2\n3\n" }, () => ({ readBase: async () => { throw new Error("12021 不在存活期"); } }), () => false],
 		["内容含 NUL 字节（二进制伪装）", { baseText: "1\n2\n3\n", oursText: "1\nX\n2\n3\n", theirsText: "1\nY\n2\n3\n" }, () => ({ readLocal: async () => enc.encode("1\n\u0000X\n2\n3\n") }), () => false],
 		["超过大小上限", { baseText: "1\n2\n3\n", oursText: "1\nX\n2\n3\n", theirsText: "1\nY\n2\n3\n" }, () => null, () => false],

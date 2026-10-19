@@ -164,9 +164,11 @@ export function plan(input: PlanInput): SyncPlan {
 			const r = remote.entries[p];
 			const b = base?.entries[p];
 			const l = local.entries[p];
-			if (l?.state === "deleted" && b?.state === "active" && entriesEqual(b, r)) {
+			if (l?.state === "deleted" && b?.state === "active" && !b.out_of_scope && entriesEqual(b, r)) {
 				// 例外：本地已删除且远端自 Base 未变——删除意图明确、无需取回内容，照常传播。
-				// 否则降档用户把大文件删掉也释放不出配额，远端会永远留着那份超限内容
+				// 否则降档用户把大文件删掉也释放不出配额，远端会永远留着那份超限内容。
+				// out_of_scope 的 Base 不算「已达成一致」：本设备只是从没同步过该路径，
+				// 它报出的删除不是用户意图，不能据此删掉远端
 				deletes.push(p);
 				targetEntries[p] = { state: "deleted", kind: r.kind };
 				continue;
@@ -187,7 +189,11 @@ export function plan(input: PlanInput): SyncPlan {
 		const l = local.entries[p];
 		const r = remote.entries[p];
 
-		if (!b) {
+		// out_of_scope：写 Base 时该路径不在同步范围内（被选择性同步排除），条目只是远端回声，
+		// 本设备从未与远端就它达成过一致 —— 按「Base 无该路径」的 Bootstrap 裁决（§8.4）。
+		// 否则开关一打开，「本地与远端不同」会被当成「仅 Local 变」：本地旧内容直接上传覆盖远端；
+		// 本地没有该文件时更糟——Local 合成出删除，被当成「仅 Local 变（删除）」把远端那份删掉。
+		if (!b || b.out_of_scope) {
 			// ===== Base 无该路径（首次绑定/新建，§8.4 Bootstrap 语义）=====
 			if (l && r) {
 				if (entriesEqual(l, r)) continue; // 两边同路径同 hash：直接建立

@@ -140,11 +140,19 @@ async function makeEnv(remoteEntries: Record<string, Entry> = {}): Promise<Env> 
 			this.base = null;
 		},
 		async flush(): Promise<void> {},
-		async saveBase(snapshot: Snapshot, unverified?: (path: string) => boolean): Promise<void> {
+		// 与真实 BaseStore.saveBase 同口径（base-only 字段一律按本轮实况重写）
+		async saveBase(
+			snapshot: Snapshot,
+			opts: { unverified?: (path: string) => boolean; outOfScope?: (path: string) => boolean } = {},
+		): Promise<void> {
 			const entries: Record<string, Entry> = {};
 			for (const [path, e] of Object.entries(snapshot.entries)) {
-				if (e.state !== "active" || unverified?.(path)) {
-					const { local_mtime: _m, local_size: _s, ...rest } = e;
+				const { local_mtime: _m, local_size: _s, out_of_scope: _o, ...rest } = e;
+				if (opts.outOfScope ? opts.outOfScope(path) : e.out_of_scope) {
+					entries[path] = { ...rest, out_of_scope: true };
+					continue;
+				}
+				if (e.state !== "active" || opts.unverified?.(path)) {
 					entries[path] = rest;
 					continue;
 				}
@@ -154,11 +162,8 @@ async function makeEnv(remoteEntries: Record<string, Entry> = {}): Promise<Env> 
 				} catch {
 					stat = null;
 				}
-				if (stat) entries[path] = { ...e, local_mtime: String(stat.mtime), local_size: String(stat.size) };
-				else {
-					const { local_mtime: _m, local_size: _s, ...rest } = e;
-					entries[path] = rest;
-				}
+				if (stat) entries[path] = { ...rest, local_mtime: String(stat.mtime), local_size: String(stat.size) };
+				else entries[path] = rest;
 			}
 			this.base = { ...snapshot, entries };
 		},

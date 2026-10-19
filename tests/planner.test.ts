@@ -690,6 +690,84 @@ describe("选择性同步（filter 排除路径）", () => {
 	});
 });
 
+// ===== Base 条目只是「远端回声」（out_of_scope）：按 Bootstrap 裁决，不得当成已达成的基线 =====
+
+describe("out_of_scope 的 Base 条目（上轮不在同步范围内）", () => {
+	/** 写 Base 时该路径被选择性同步排除：content_hash 是远端回声，本设备从未据此校验过本地内容 */
+	const echo = (hash: string, size = "10"): Entry => ({ ...active(hash, size), out_of_scope: true });
+	const configFilter = () =>
+		createSyncFilter({
+			selective: defaultSelectiveSettings(),
+			configDir: ".obsidian",
+			selfDir: ".obsidian/plugins/pickpen",
+			selfId: "pickpen",
+		});
+
+	it("普通文件：本地与远端不同 → 远端胜（本地留冲突副本），不上传覆盖远端", () => {
+		const p = runPlan(snap({ "x.md": echo(A) }), snap({ "x.md": active(B) }), snap({ "x.md": active(A) }));
+		expect(p.puts.map((m) => m.path)).toEqual([expect.stringContaining("(conflict ")]); // 只有副本上传
+		expect(p.conflict_copies).toHaveLength(1);
+		expect(p.apply_actions).toEqual([{ kind: "write", path: "x.md", content_hash: A, size: "10" }]);
+		expect(p.target_entries["x.md"]).toEqual({ state: "active", content_hash: A, size: "10" });
+	});
+
+	it("配置文件：远端胜 + 本地副本只落盘（与真 Bootstrap 同一口径）", () => {
+		const p = plan({
+			base: snap({ ".obsidian/app.json": echo(A) }),
+			local: snap({ ".obsidian/app.json": active(B) }),
+			remote: snap({ ".obsidian/app.json": active(A) }),
+			deviceId: "dev-001",
+			filter: configFilter(),
+		});
+		expect(p.puts).toEqual([]);
+		expect(p.conflict_copies).toHaveLength(1);
+		expect(p.conflict_copies[0].local_only).toBe(true);
+		expect(p.apply_actions).toEqual([
+			{ kind: "write", path: ".obsidian/app.json", content_hash: A, size: "10" },
+		]);
+	});
+
+	it("本地没有该文件 → 下载远端，绝不把远端那份删掉", () => {
+		const p = runPlan(snap({ "x.md": echo(A) }), snap({ "x.md": deleted }), snap({ "x.md": active(A) }));
+		expect(p.deletes).toEqual([]);
+		expect(p.apply_actions).toEqual([{ kind: "write", path: "x.md", content_hash: A, size: "10" }]);
+		expect(p.target_entries["x.md"].state).toBe("active");
+	});
+
+	it("本地与远端一致 → 无操作（回声转正，不当成修改）", () => {
+		const p = runPlan(snap({ "x.md": echo(A) }), snap({ "x.md": active(A) }), snap({ "x.md": active(A) }));
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.conflict_copies).toEqual([]);
+	});
+
+	it("远端也变了 → 双方各执一词，仍按冲突保留双份", () => {
+		const p = runPlan(snap({ "x.md": echo(A) }), snap({ "x.md": active(B) }), snap({ "x.md": active(C) }));
+		expect(p.conflict_copies).toHaveLength(1);
+		expect(p.target_entries["x.md"]).toEqual({ state: "active", content_hash: C, size: "10" });
+	});
+
+	it("远端超限且本地缺失 → 不据回声传播删除", () => {
+		const big = (hash: string): Entry => ({ ...echo(hash), size: "104857600" });
+		const p = plan({
+			base: snap({ "big.mp4": big(A) }),
+			local: snap({ "big.mp4": deleted }),
+			remote: snap({ "big.mp4": big(A) }),
+			deviceId: "dev-001",
+			remoteOversizedPaths: ["big.mp4"],
+		});
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["big.mp4"].state).toBe("active");
+	});
+
+	it("对照：正常 Base（未标记）时同样的输入仍按「仅 Local 变」上传", () => {
+		const p = runPlan(snap({ "x.md": active(A) }), snap({ "x.md": active(B) }), snap({ "x.md": active(A) }));
+		expect(p.puts).toEqual([expect.objectContaining({ path: "x.md", content_hash: B })]);
+		expect(p.conflict_copies).toEqual([]);
+	});
+});
+
 describe("远端超限（降档后仓库里的存量文件）：本轮完全无操作", () => {
 	const oversized = (hash: string): Entry => ({ state: "active", content_hash: hash, size: "104857600" });
 	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[]) {

@@ -15,6 +15,14 @@ export interface Entry {
 	/** 仅 Base 快路径用（不参与远端语义与 Merkle hash，spec §6.4） */
 	local_mtime?: string;
 	local_size?: string;
+	/**
+	 * 仅 Base 用：写这份基线时该路径不在同步范围内（被选择性同步排除），
+	 * content_hash/size 只是「远端回声」，本设备从未据此校验过本地内容（不参与 Merkle hash）。
+	 * planner 见到它按 Bootstrap 裁决——否则开关一打开，「本地与远端不同」会被误判成
+	 * 「仅 Local 变」而把本地旧内容传上去覆盖远端（本地没有该文件时更会删掉远端那份）。
+	 * 由 BaseStore.saveBase 按本轮同步范围统一改写，planner 只读。
+	 */
+	out_of_scope?: boolean;
 }
 
 /** Base Snapshot（sync-base.json，schema v2）与 Local/Remote Snapshot 的统一形状 */
@@ -28,6 +36,9 @@ export interface Snapshot {
 	/** 写入本基线时所用内容密钥的寻址代次（未加密仓库为 ""；老基线缺省视为 ""）。
 	 * 与当前代次不一致 = 内容寻址口径变了，本地必须重算全部寻址哈希。 */
 	key_epoch?: string;
+	/** 本基线的条目是否已按 out_of_scope 口径标注过。老基线缺省 → 载入时一次性迁移
+	 * （见 BaseStore.load）：不迁移的话，升级后首次打开某个同步分类仍会命中旧缺陷。 */
+	scope_marked?: boolean;
 }
 
 /** 提交给服务端的 put mutation（spec §11.3） */

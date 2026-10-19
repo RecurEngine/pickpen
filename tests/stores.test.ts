@@ -115,13 +115,81 @@ describe("BaseStore", () => {
 					"kept.md": { state: "active", content_hash: "b".repeat(64), size: "1" },
 				},
 			}),
-			(path) => path === "excluded.txt",
+			{ unverified: (path) => path === "excluded.txt" },
 		);
 		const parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
 		// 被排除路径：下一轮必须重新读盘算哈希，否则期间的本地改动会被快路径永久漏掉
 		expect(parsed.entries["excluded.txt"].local_mtime).toBeUndefined();
 		expect(parsed.entries["excluded.txt"].content_hash).toBe("a".repeat(64)); // 内容哈希保留（远端状态）
 		expect(parsed.entries["kept.md"].local_mtime).toBe("1700000000000");
+	});
+
+	it("outOfScope 的条目带 out_of_scope 标记（planner 据此按 Bootstrap 裁决），离开范围后清掉", async () => {
+		const m = mockAdapter({}, ["plugin.js"]);
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		const entry = { state: "active" as const, content_hash: "a".repeat(64), size: "1" };
+		await store.saveBase(baseSnapshot({ entries: { "plugin.js": entry } }), {
+			unverified: () => true,
+			outOfScope: () => true,
+		});
+		let parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
+		// 远端回声：内容哈希保留（目标树要用），但不带 local_*，且标记为「不在范围内」
+		expect(parsed.entries["plugin.js"].out_of_scope).toBe(true);
+		expect(parsed.entries["plugin.js"].content_hash).toBe("a".repeat(64));
+		expect(parsed.entries["plugin.js"].local_mtime).toBeUndefined();
+
+		// 开关打开后该路径进入范围：标记必须清掉，否则用户后续的本地修改只会生成冲突副本
+		await store.saveBase(baseSnapshot({ entries: { "plugin.js": entry } }), {
+			unverified: () => false,
+			outOfScope: () => false,
+		});
+		parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
+		expect(parsed.entries["plugin.js"].out_of_scope).toBeUndefined();
+		expect(parsed.entries["plugin.js"].local_mtime).toBe("1700000000000");
+	});
+
+	it("卸载落盘（未提供 outOfScope）沿用条目上已有的 out_of_scope 标记", async () => {
+		const m = mockAdapter({}, ["plugin.js"]);
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		const snap = baseSnapshot({
+			entries: {
+				"plugin.js": {
+					state: "active" as const,
+					content_hash: "a".repeat(64),
+					size: "1",
+					out_of_scope: true,
+				},
+			},
+		});
+		await store.saveBase(snap);
+		const parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
+		expect(parsed.entries["plugin.js"].out_of_scope).toBe(true);
+	});
+
+	it("老基线（无 scope_marked）载入时一次性迁移：缺 local_* 的 active 条目按远端回声标注", async () => {
+		const m = mockAdapter({
+			".obsidian/plugins/pickpen/sync-base.json": JSON.stringify(
+				baseSnapshot({
+					entries: {
+						// 被选择性同步排除的路径：写基线时没校验过本地内容（无 local_*）
+						"plugin.js": { state: "active", content_hash: "a".repeat(64), size: "1" },
+						// 已校验的路径：带 local_*，不是回声
+						"note.md": {
+							state: "active",
+							content_hash: "b".repeat(64),
+							size: "1",
+							local_mtime: "1",
+							local_size: "1",
+						},
+					},
+				}),
+			),
+		});
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		expect(await store.load()).toBe("ok");
+		const entries = store.getBase()!.entries;
+		expect(entries["plugin.js"].out_of_scope).toBe(true);
+		expect(entries["note.md"].out_of_scope).toBeUndefined();
 	});
 
 	it("磁盘不存在的 active 条目清除 local_* 快路径字段", async () => {

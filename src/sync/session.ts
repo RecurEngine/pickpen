@@ -476,6 +476,17 @@ export class ReconcileSession {
 			throw new Error("服务端返回的单文件上限非法");
 		}
 
+		// Base 里「上轮不在同步范围内、本轮已进入范围」的路径（用户刚打开某个分类）：
+		// 这些条目只是远端回声，planner 会按 Bootstrap 裁决并给出新状态。但若本轮恰好没有
+		// 任何工作（本地内容与远端一致、或快照正好相等），下面两处「无工作即收尾」的短路会跳过
+		// 写 Base —— 标记留在原地，这些路径此后会一直被当成 Bootstrap：用户后续的修改只会
+		// 生成冲突副本、传不出去。因此有这种路径时本轮必须落一次 Base 把标记归一。
+		const scopeExpanded =
+			base !== null &&
+			Object.entries(base.entries).some(
+				([p, e]) => e.out_of_scope === true && !filter.isExcluded(p, (e.kind ?? KIND_FILE) === KIND_DIR),
+			);
+
 		// 4. 消费本轮 dirty；按需完整审计，增量刷新 L。
 		const scanProgress = this.beginPhase("scanning");
 		const localRes = await localBuilder.refresh({
@@ -507,7 +518,12 @@ export class ReconcileSession {
 		this.beginPhase("planning");
 		const localTree = buildTree(local.entries);
 		const localRoot = await localTree.rootHash;
-		if (head.unchanged && base && (localRoot === base.base_root_hash || sameEntriesExcept(filter, local.entries, base.entries))) {
+		if (
+			head.unchanged &&
+			base &&
+			!scopeExpanded &&
+			(localRoot === base.base_root_hash || sameEntriesExcept(filter, local.entries, base.entries))
+		) {
 			this.finishRound(); // 无变化的空轮次也是一次完成的同步
 			return;
 		}
@@ -570,14 +586,16 @@ export class ReconcileSession {
 		// 记录 Session 快照时的目标路径 hash（覆盖前用户改动检测）
 		const expectedHashes = this.captureExpectedHashes(planResult, local);
 
-		// 本轮未校验过磁盘内容的路径（被排除 / 被阻塞）：Base 不得为其记 local_* 快路径字段，
-		// 否则下一轮快路径会拿旧 hash 冒充实测值，把期间的本地改动永久漏掉
-		const blockedNow = new Set([...this.blockedPaths, ...this.oversizedRemotePaths]);
-		const unverified = (path: string): boolean => {
-			if (blockedNow.has(path)) return true;
+		// 本轮不在同步范围内的路径：Base 条目只是远端回声（planner 按 Bootstrap 裁决），
+		// 标记 out_of_scope 交给下一轮，避免开关打开时把本地旧内容当成「仅本地修改」传上去
+		const outOfScope = (path: string): boolean => {
 			const e = planResult.target_entries[path];
 			return filter.isExcluded(path, (e?.kind ?? KIND_FILE) === KIND_DIR);
 		};
+		// 本轮未校验过磁盘内容的路径（被排除 / 被阻塞）：Base 不得为其记 local_* 快路径字段，
+		// 否则下一轮快路径会拿旧 hash 冒充实测值，把期间的本地改动永久漏掉
+		const blockedNow = new Set([...this.blockedPaths, ...this.oversizedRemotePaths]);
+		const unverified = (path: string): boolean => blockedNow.has(path) || outOfScope(path);
 
 		if (!hasWork) {
 			// L 与 R 已一致（或仅 blocked 差异）：确认 Base 收敛。
@@ -586,7 +604,7 @@ export class ReconcileSession {
 			// 目标树连同 Head 的 root 落成新 Base —— 此后 Head 看似匹配、快路径拿过期条目当
 			// 远端真值，凡有本地改动都算错 target_root_hash（12018，提交失败 ⇒ Base 不前进 ⇒
 			// 死循环）。不等就保持旧 Base（落后无害：下一轮 Head 不再匹配，自然改走完整 Manifest）
-			if (localRoot !== base?.base_root_hash && planResult.target_root_hash === head.rootHash) {
+			if ((localRoot !== base?.base_root_hash || scopeExpanded) && planResult.target_root_hash === head.rootHash) {
 				this.beginPhase("finishing");
 				await baseStore.saveBase({
 					schema_version: 2,
@@ -595,7 +613,7 @@ export class ReconcileSession {
 					base_revision: String(head.revision),
 					base_root_hash: head.rootHash,
 					entries: planResult.target_entries,
-				}, unverified);
+				}, { unverified, outOfScope });
 			} else if (planResult.target_root_hash !== head.rootHash) {
 				debugLog.warn("[pickpen] 目标树与远端 Head 不符，本轮不写 Base（避免落盘不自洽的基线）");
 			}
@@ -789,7 +807,7 @@ export class ReconcileSession {
 			base_revision: String(commit.revision),
 			base_root_hash: commit.rootHash,
 			entries: planResult.target_entries,
-		}, (path) => skippedSet.has(path) || unverified(path));
+		}, { unverified: (path) => skippedSet.has(path) || unverified(path), outOfScope });
 		await pendingStore.clear();
 		await this.applier.cleanupTemp(this.tmpDir);
 		this.finishRound();
@@ -840,6 +858,10 @@ export class ReconcileSession {
 					},
 				});
 				this.beginPhase("finishing");
+				const isOutOfScope = (path: string): boolean => {
+					const e = manifest.entries[path];
+					return filter.isExcluded(path, (e?.kind ?? KIND_FILE) === KIND_DIR);
+				};
 				await baseStore.saveBase({
 					schema_version: 2,
 					device_id: settings.deviceId,
@@ -847,11 +869,7 @@ export class ReconcileSession {
 					base_revision: String(head.revision),
 					base_root_hash: head.rootHash,
 					entries: manifest.entries,
-				}, (path) => {
-					if (skippedPaths.has(path)) return true;
-					const e = manifest.entries[path];
-					return filter.isExcluded(path, (e?.kind ?? KIND_FILE) === KIND_DIR);
-				});
+				}, { unverified: (path) => skippedPaths.has(path) || isOutOfScope(path), outOfScope: isOutOfScope });
 				await pendingStore.clear();
 				this.forceAudit = true; // 落地后完整审计校正本地状态
 				this.lastError = "";
