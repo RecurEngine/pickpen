@@ -77,6 +77,7 @@ function refreshCtx(over: {
 	forceAudit?: boolean;
 	maxFileSizeBytes?: number;
 	filter?: ReturnType<typeof testFilter>;
+	caseInsensitive?: boolean;
 }) {
 	return {
 		vault: over.vault,
@@ -85,7 +86,7 @@ function refreshCtx(over: {
 		renameHints: over.renameHints ? new Map(over.renameHints) : undefined,
 		forceAudit: over.forceAudit ?? false,
 		filter: over.filter ?? testFilter(),
-		caseInsensitive: false,
+		caseInsensitive: over.caseInsensitive ?? false,
 		isMobile: false,
 		maxFileSizeBytes: over.maxFileSizeBytes ?? 30 * 1024 * 1024,
 	};
@@ -105,9 +106,67 @@ describe("目录物化（统一规则：磁盘存在的目录一律 active dir e
 			maxFileSizeBytes: 5,
 		}));
 		expect(res.blockedPaths).toContain("large.md");
+		expect(res.blockedDetails).toEqual([{ path: "large.md", reason: "oversized" }]);
 		expect(res.snapshot.entries["large.md"]).toBeUndefined();
 		const unchanged = await b.refresh(refreshCtx({ vault: fakeVault([], [], new Map()) }));
 		expect(unchanged.blockedPaths).toContain("large.md");
+		expect(unchanged.blockedDetails).toEqual([{ path: "large.md", reason: "oversized" }]);
+	});
+
+	it("读取失败与读取正常并存：只标记失败路径，原因可区分", async () => {
+		const b = new LocalSnapshotBuilder();
+		const ok = tf("ok.md", "ok");
+		const broken = tf("broken.md", "broken");
+		const vault = fakeVault([ok, broken], [], new Map([["ok.md", enc("ok")]]));
+		(vault.adapter as unknown as { readBinary: (p: string) => Promise<Uint8Array> }).readBinary = async (p: string) => {
+			if (p === "broken.md") throw new Error("EACCES");
+			return enc("ok");
+		};
+		const res = await b.refresh(refreshCtx({ vault, forceAudit: true }));
+		expect(res.blockedDetails).toEqual([{ path: "broken.md", reason: "read_failed" }]);
+		expect(res.snapshot.entries["ok.md"]).toMatchObject({ state: "active" });
+		expect(res.snapshot.entries["broken.md"]).toBeUndefined();
+	});
+
+	it("大小写不敏感平台上仅大小写不同的路径都标记冲突", async () => {
+		const b = new LocalSnapshotBuilder();
+		const vault = fakeVault(
+			[tf("A.md", "a"), tf("a.md", "b")],
+			[],
+			new Map([["A.md", enc("a")], ["a.md", enc("b")]]),
+		);
+		const res = await b.refresh(refreshCtx({ vault, forceAudit: true, caseInsensitive: true }));
+		expect(res.blockedDetails).toEqual([
+			{ path: "A.md", reason: "case_conflict" },
+			{ path: "a.md", reason: "case_conflict" },
+		]);
+		expect(res.snapshot.entries["A.md"]).toBeUndefined();
+		expect(res.snapshot.entries["a.md"]).toBeUndefined();
+	});
+
+	it("增量轮次：修复后的文件从阻塞明细移除，新超限文件被加入", async () => {
+		const b = new LocalSnapshotBuilder();
+		const big = tf("big.md", "123456");
+		const vault = fakeVault([big], [], new Map([["big.md", enc("123456")]]));
+		const first = await b.refresh(refreshCtx({ vault, forceAudit: true, maxFileSizeBytes: 5 }));
+		expect(first.blockedDetails).toEqual([{ path: "big.md", reason: "oversized" }]);
+
+		// 缩小到上限内后按 dirty 增量重扫：旧原因必须撤销
+		const small = tf("big.md", "123");
+		const fixedVault = fakeVault([small], [], new Map([["big.md", enc("123")]]));
+		const fixed = await b.refresh(
+			refreshCtx({ vault: fixedVault, dirtyPaths: ["big.md"], maxFileSizeBytes: 5 }),
+		);
+		expect(fixed.blockedDetails).toEqual([]);
+		expect(fixed.snapshot.entries["big.md"]).toMatchObject({ state: "active" });
+
+		// 另一个 dirty 文件本轮超限：原因被加入
+		const huge = tf("huge.md", "1234567890");
+		const nextVault = fakeVault([small, huge], [], new Map([["big.md", enc("123")], ["huge.md", enc("1234567890")]]));
+		const next = await b.refresh(
+			refreshCtx({ vault: nextVault, dirtyPaths: ["huge.md"], maxFileSizeBytes: 5 }),
+		);
+		expect(next.blockedDetails).toEqual([{ path: "huge.md", reason: "oversized" }]);
 	});
 
 	it("fullAudit：非空目录物化 active dir，文件条目不受影响", async () => {
@@ -372,6 +431,7 @@ describe("选择性同步：配置文件（配置目录不在 vault 索引里）
 		);
 		expect(res.snapshot.entries[".obsidian/app.json"]).toBeUndefined();
 		expect(res.blockedPaths).toEqual([]);
+		expect(res.blockedDetails).toEqual([]); // 可选能力不产生未同步明细
 	});
 
 	it("增量轮次：配置 dirty 路径经 adapter 判定（hash 更新 / 磁盘消失记删除）", async () => {

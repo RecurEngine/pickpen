@@ -23,17 +23,37 @@ describe("手动同步回执文案", () => {
 		expect(syncResultMessage(input({ changed: true }))).toBe("同步完成");
 	});
 
-	it("有文件被阻塞时在完成文案里点明数量", () => {
-		expect(syncResultMessage(input({ changed: true, blockedCount: 2 }))).toBe("同步完成，但有 2 个文件被阻塞");
-		expect(syncResultMessage(input({ blockedCount: 1 }))).toBe("同步完成，但有 1 个文件被阻塞");
+	it("有未同步文件时在完成文案里点明数量", () => {
+		expect(syncResultMessage(input({ changed: true, blockedCount: 2 }))).toBe("同步完成，但有 2 个文件暂未同步");
+		expect(syncResultMessage(input({ blockedCount: 1 }))).toBe("同步完成，但有 1 个文件暂未同步");
 	});
 
-	it("有冲突副本时单独报，且与被阻塞并存时两者都报", () => {
+	it("只有一个未同步文件时点名文件与原因", () => {
+		expect(
+			syncResultMessage(
+				input({
+					blockedCount: 1,
+					blockedPaths: ["附件/大图.png"],
+					blockedDetails: [{ path: "附件/大图.png", reason: "oversized" }],
+					maxFileSizeBytes: 5 * 1024 * 1024,
+				}),
+			),
+		).toBe("同步完成，但有 1 个文件暂未同步（附件/大图.png：超过单文件上限 5 MB）");
+		// 只有路径、没有原因明细：点名文件但不编造原因
+		expect(syncResultMessage(input({ blockedCount: 1, blockedPaths: ["a.md"] }))).toBe(
+			"同步完成，但有 1 个文件暂未同步（a.md）",
+		);
+	});
+
+	it("有冲突副本时单独报，且与未同步文件并存时两者都报", () => {
 		expect(syncResultMessage(input({ changed: true, conflictCount: 1 }))).toBe("同步完成，但有 1 个冲突副本待处理");
 		// 无变化也要报：副本是存量，不该因为没有新变更就被吞掉
 		expect(syncResultMessage(input({ conflictCount: 3 }))).toBe("同步完成，但有 3 个冲突副本待处理");
 		expect(syncResultMessage(input({ changed: true, blockedCount: 2, conflictCount: 1 }))).toBe(
-			"同步完成，但有 2 个文件被阻塞、1 个冲突副本待处理",
+			"同步完成，但有 2 个文件暂未同步、1 个冲突副本待处理",
+		);
+		expect(syncResultMessage(input({ blockedCount: 1, blockedPaths: ["a.md"], conflictCount: 1 }))).toBe(
+			"同步完成，但有 1 个文件暂未同步（a.md）、1 个冲突副本待处理",
 		);
 	});
 

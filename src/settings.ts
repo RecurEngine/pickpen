@@ -5,6 +5,7 @@ import { App, ButtonComponent, Notice, Platform, PluginSettingTab, Setting, TFil
 import { renderAboutAndFeedback } from "./about";
 import { benefitActivityOpen, refreshBenefitActivity, resetBenefitActivity } from "./benefit-state";
 import { renderBenefitSection } from "./benefit-view";
+import { summarizeBlocked } from "./blocked-status";
 import { copyText } from "./clipboard";
 import { vaultKeys } from "./crypto/vault-key-store";
 import { openDeletedFiles } from "./deleted-files-view";
@@ -279,12 +280,23 @@ class PickpenSettingsView {
 	private statusPathEl: HTMLElement | null = null;
 	/** 上次中断在传输中的大文件提示（崩溃现场；仅提示，不参与状态判定） */
 	private statusTransferEl: HTMLElement | null = null;
+	/** 未同步文件的文件名与原因（有未同步文件时才显示） */
+	private statusBlockedEl: HTMLElement | null = null;
 	/** 冲突副本入口：有存量时才显示（点开第一个，处理入口不在设置页） */
 	private statusConflictEl: HTMLAnchorElement | null = null;
 	private readonly statusRefresh = new StatusRefresh(() => this.refreshStatusCard());
 	private statusListener = () => {
 		const status = deriveStatus(this.plugin.settings, syncState);
-		this.statusRefresh.request(JSON.stringify([status.mod, status.text, syncState.sessionRunning, syncState.progress?.phase]));
+		// 明细行进 key：未同步文件「数量不变但换了一个」时也必须立即刷新
+		this.statusRefresh.request(
+			JSON.stringify([
+				status.mod,
+				status.text,
+				status.detail ?? "",
+				syncState.sessionRunning,
+				syncState.progress?.phase,
+			]),
+		);
 	};
 	private active = false;
 	// 各分区订阅清理（分区重建/被拆除时解除）
@@ -769,6 +781,7 @@ class PickpenSettingsView {
 		this.statusPercentEl = null;
 		this.statusPathEl = null;
 		this.statusTransferEl = null;
+		this.statusBlockedEl = null;
 	}
 
 	// refreshIfActive 就地重建当前已渲染的分区（登录 / 退出 / 仓库变更后刷新）；
@@ -912,6 +925,7 @@ class PickpenSettingsView {
 		this.statusPercentEl = metrics.createDiv({ cls: "pickpen-status-percent" });
 		this.statusPathEl = content.createDiv({ cls: "pickpen-status-path" });
 		this.statusTransferEl = content.createDiv({ cls: "pickpen-status-transfer" });
+		this.statusBlockedEl = content.createDiv({ cls: "pickpen-status-blocked" });
 		// 冲突副本入口。href="#" + preventDefault：链接天然可聚焦、可回车触发，
 		// 不必再用 tabIndex + role 手工补齐无障碍语义
 		this.statusConflictEl = content.createEl("a", { cls: "pickpen-status-conflict", href: "#" });
@@ -962,19 +976,34 @@ class PickpenSettingsView {
 			? `上次同步在${interrupted.kind === "upload" ? "上传" : "下载"} ${interrupted.path}（${formatTransferSize(interrupted.bytes)}）时中断，本次已重新开始`
 			: "";
 		this.statusTransferEl!.hidden = !interrupted;
+		// 未同步文件：点名文件与原因，并说明其他文件不受影响（别让用户以为整轮失败）
+		this.statusBlockedEl!.textContent = s.detail ?? "";
+		this.statusBlockedEl!.hidden = !s.detail;
 		const conflicts = syncState.conflictCopyPaths.length;
 		this.statusConflictEl!.textContent = conflicts > 0 ? `查看冲突副本（${conflicts}）` : "";
 		this.statusConflictEl!.hidden = conflicts === 0;
 	}
 }
 
-// deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 受阻 → 同步中 → 冲突副本 → 已全部同步）
-export function deriveStatus(settings: PluginSettings, state: SyncState): { mod: string; text: string } {
+// deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 未同步文件 → 同步中 → 冲突副本 → 已全部同步）
+// detail：未同步文件的文件名与原因（仅未同步态有），由状态卡片作为副行展示
+export function deriveStatus(
+	settings: PluginSettings,
+	state: SyncState,
+): { mod: string; text: string; detail?: string } {
 	if (!settings.accessToken) return { mod: "yellow", text: "未登录：登录后开始同步" };
 	if (state.pausedReason) return { mod: "yellow", text: `已暂停：${state.pausedReason}` };
 	if (state.storageLimitExceeded) return { mod: "red", text: "同步已暂停：云端存储已满" };
 	if (state.lastError) return { mod: "red", text: `同步出错：${state.lastError}` };
-	if (state.blockedPaths.length > 0) return { mod: "yellow", text: `同步受阻：${state.blockedPaths.length} 个文件被阻塞（超限/冲突）` };
+	// 未同步是「个别文件本轮没传上去」，其他文件都已同步：黄色提醒，措辞不写成失败
+	if (state.blockedPaths.length > 0 || state.blockedDetails.length > 0) {
+		const summary = summarizeBlocked({
+			blockedPaths: state.blockedPaths,
+			blockedDetails: state.blockedDetails,
+			maxFileSizeBytes: state.maxFileSizeBytes,
+		});
+		return { mod: "yellow", text: summary.headline, detail: summary.detail };
+	}
 	if (state.sessionRunning) return { mod: "syncing", text: "同步中：正在准备同步" };
 	// 冲突副本不是同步失败（两边内容都在），所以排在「同步中」之后、完成态之前：黄色提醒而非红色
 	if (state.conflictCopyPaths.length > 0)

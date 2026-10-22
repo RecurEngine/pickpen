@@ -20,6 +20,7 @@ import {
 } from "./transfer-journal";
 import { Applier } from "./applier";
 import { BaseStore } from "./base-store";
+import { mergeBlockedDetails, type BlockedPathInfo } from "./blocked";
 import { sha256Hex } from "./content-hash";
 import { LocalSnapshotBuilder } from "./local-snapshot";
 import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
@@ -86,7 +87,12 @@ export interface SyncStatus {
 	progress: SyncProgress | null;
 	running: boolean;
 	lastError: string;
+	/** 本轮未同步的路径（本地阻塞 + 云端存量超限，已按路径去重） */
 	blockedPaths: string[];
+	/** 与 blockedPaths 对应的原因明细（本地原因优先），供 UI 说明「哪个文件、为什么」 */
+	blockedDetails: BlockedPathInfo[];
+	/** 当前套餐的单文件上限（字节）；0 表示尚未获知 */
+	maxFileSizeBytes: number;
 	/** 磁盘上待处理的冲突副本（存量）：仅提示，不参与 allSynced */
 	conflictCopyPaths: string[];
 	/** 「最后同步」时间戳（毫秒）；0 表示本次运行内还没有完成过一轮同步 */
@@ -147,8 +153,12 @@ export class ReconcileSession {
 	/** 12023 连续触发后的 rename hint 抑制：fileIDFor 退化为新 UUID，保证重试产生不同 plan */
 	private suppressRenameHints = false;
 	private blockedPaths: string[] = [];
+	/** 本轮本地扫描给出的阻塞明细（原因随扫描结果整体更新） */
+	private localBlockedDetails: BlockedPathInfo[] = [];
 	/** 远端内容超过当前套餐单文件上限的路径（降档后的存量文件）：不下载、不覆盖、不删除 */
 	private oversizedRemotePaths: string[] = [];
+	/** 本轮服务端下发的单文件上限（字节）；供状态展示说明具体数值 */
+	private maxFileSizeBytes = 0;
 	/** 本轮强制改走完整 Manifest 取远端真值（12018 后设一次；下一轮消费即清，避免空转） */
 	private manifestRefetchForced = false;
 	/** 上次中断在传输中的大文件（启动首次读取一次；成功跑完一轮后清除） */
@@ -241,7 +251,9 @@ export class ReconcileSession {
 		this.nextDirtyPaths.clear();
 		this.carriedDirtyPaths.clear();
 		this.blockedPaths = [];
+		this.localBlockedDetails = [];
 		this.oversizedRemotePaths = [];
+		this.maxFileSizeBytes = 0;
 		this.interruptedTransfer = null;
 		this.interruptedChecked = false;
 		this.consecutiveFailures = 0;
@@ -302,11 +314,15 @@ export class ReconcileSession {
 		const pending = this.deps.pendingStore.getPending() !== null;
 		const storageLimitConfirmed = this.storageLimitConfirmed;
 		this.storageLimitConfirmed = false;
+		// 展示用的合并（本地原因优先）：只影响状态文案，planner 仍分开消费两个原始数组
+		const blockedDetails = mergeBlockedDetails(this.localBlockedDetails, this.oversizedRemotePaths);
 		this.deps.onStatus?.({
 			running: this.running,
 			progress: this.progress,
 			lastError: this.lastError,
-			blockedPaths: [...this.blockedPaths, ...this.oversizedRemotePaths],
+			blockedPaths: blockedDetails.map((detail) => detail.path),
+			blockedDetails,
+			maxFileSizeBytes: this.maxFileSizeBytes,
 			conflictCopyPaths: [...this.conflictCopyPaths],
 			lastSyncAt: this.lastSyncAt,
 			storageLimitExceeded: this.storageLimitExceeded,
@@ -475,6 +491,7 @@ export class ReconcileSession {
 		if (!Number.isSafeInteger(maxFileSizeBytes) || maxFileSizeBytes <= 0) {
 			throw new Error("服务端返回的单文件上限非法");
 		}
+		this.maxFileSizeBytes = maxFileSizeBytes; // 状态文案要说明「超过哪个上限」
 
 		// Base 里「上轮不在同步范围内、本轮已进入范围」的路径（用户刚打开某个分类）：
 		// 这些条目只是远端回声，planner 会按 Bootstrap 裁决并给出新状态。但若本轮恰好没有
@@ -507,6 +524,7 @@ export class ReconcileSession {
 		this.dirtyScanned = true; // dirty 已落入 Local 快照：此后失败（容量超限、网络等）不再需要放回
 		const local = localRes.snapshot;
 		this.blockedPaths = localRes.blockedPaths;
+		this.localBlockedDetails = localRes.blockedDetails;
 		this.plainHashes = localBuilder.getPlainHashes();
 		// 冲突副本存量：取自 vault 索引而非同步快照——被排除/被阻塞的路径也要计入，
 		// 用户是在文件列表里看到它们、并从这里去处理的（配置目录内的副本不进 vault 索引，不计）

@@ -17,6 +17,7 @@ import { TFolder, type TFile, type Vault } from "obsidian";
 import { debugLog } from "../debug-log";
 import { ProgressTracker, type ProgressCallback } from "./progress";
 import { isTooBig, normalize } from "../excludes";
+import type { BlockedPathInfo, BlockedReason } from "./blocked";
 import type { SyncFilter } from "./selective";
 import { nfcPath, detectCaseConflicts } from "./path";
 import { sealForRemote } from "../crypto/vault-key-store";
@@ -57,6 +58,8 @@ export interface LocalScanContext {
 export interface LocalScanResult {
 	snapshot: Snapshot;
 	blockedPaths: string[];
+	/** 与 blockedPaths 同源的原因明细（供 UI 说明「哪个文件、为什么没同步」） */
+	blockedDetails: BlockedPathInfo[];
 }
 
 /** hash 并发：移动端 1、桌面端 4（spec §10.1） */
@@ -68,7 +71,8 @@ const CONFIG_SWEEP_MS = 30_000;
 export class LocalSnapshotBuilder {
 	/** 内存当前 Local（dirty 增量在其上打补丁；force_audit 全量重建） */
 	private current: Snapshot | null = null;
-	private blockedPaths = new Set<string>();
+	/** 未同步路径 → 原因（单一来源：blockedPaths 由它派生，避免两份状态失同步） */
+	private blockedDetails = new Map<string, BlockedReason>();
 	/** 上次配置 sweep 时刻（节流用；移动端 adapter.stat 走桥，避免每轮都扫） */
 	private lastConfigSweepAt = 0;
 	/** 寻址哈希 → 明文哈希（本轮读盘算过哈希的路径）。提交前复验内容是否变化时用它比较：
@@ -100,9 +104,19 @@ export class LocalSnapshotBuilder {
 	/** 换绑仓库后清空内存状态 */
 	reset(): void {
 		this.current = null;
-		this.blockedPaths.clear();
+		this.blockedDetails.clear();
 		this.plainHashes.clear();
 		this.lastConfigSweepAt = 0;
+	}
+
+	/** 当前扫描结果：blockedPaths 与 blockedDetails 恒来自同一份 Map */
+	private result(): LocalScanResult {
+		const blockedDetails = [...this.blockedDetails].map(([path, reason]) => ({ path, reason }));
+		return {
+			snapshot: this.current!,
+			blockedPaths: blockedDetails.map((detail) => detail.path),
+			blockedDetails,
+		};
 	}
 
 	/**
@@ -123,22 +137,24 @@ export class LocalSnapshotBuilder {
 			}
 		}
 		if (!ctx.forceAudit && (!ctx.dirtyPaths || ctx.dirtyPaths.size === 0)) {
-			return { snapshot: this.current, blockedPaths: [...this.blockedPaths] };
+			return this.result();
 		}
 
-		let blocked: string[] = [];
+		let blocked: BlockedPathInfo[] = [];
 		if (ctx.forceAudit) {
+			// 全量审计整体重建：已修复/已消失的路径随之清掉
 			blocked = await this.fullAudit(ctx, yieldCtl);
-			this.blockedPaths = new Set(blocked);
+			this.blockedDetails = new Map(blocked.map((detail) => [detail.path, detail.reason]));
 		} else {
+			// 增量：dirty 路径先撤销旧原因，成功重扫后不再加回（失败才重新标记）
 			for (const rawPath of ctx.dirtyPaths ?? []) {
 				const path = nfcPath(normalize(rawPath));
-				if (path !== null) this.blockedPaths.delete(path);
+				if (path !== null) this.blockedDetails.delete(path);
 			}
 			blocked = await this.applyDirty(ctx, yieldCtl);
-			for (const path of blocked) this.blockedPaths.add(path);
+			for (const detail of blocked) this.blockedDetails.set(detail.path, detail.reason);
 		}
-		return { snapshot: this.current, blockedPaths: [...this.blockedPaths] };
+		return this.result();
 	}
 
 	/**
@@ -178,7 +194,7 @@ export class LocalSnapshotBuilder {
 	}
 
 	/** 完整审计：枚举全部同步范围文件/目录 + §7.5 删除状态构造（spec §9.2 规则 1-5） */
-	private async fullAudit(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<string[]> {
+	private async fullAudit(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<BlockedPathInfo[]> {
 		// 全量审计重建哈希登记表：控制内存，且本轮所有需要哈希的内容都会重新登记
 		this.plainHashes.clear();
 		const files = ctx.vault.getFiles();
@@ -209,7 +225,7 @@ export class LocalSnapshotBuilder {
 			dirSet.add(path);
 		}
 		// 1c. 配置文件（配置目录不在 vault 索引里，走 adapter 枚举与 stat）。
-		// 超限的配置文件跳过并只记日志：它是可选能力的附属物，不该把状态卡片钉在「同步受阻」
+		// 超限的配置文件跳过并只记日志：它是可选能力的附属物，不该把状态卡片钉在未同步提示上
 		const configStat = new Map<string, { mtime: number; size: number }>();
 		const skippedConfig: string[] = [];
 		for (const path of await ctx.filter.scanConfigFiles(ctx.vault.adapter)) {
@@ -367,18 +383,20 @@ export class LocalSnapshotBuilder {
 			}
 		}
 
-		// 5. blocked = 超限 + 读取失败 + 大小写冲突
-		const blockedPaths = [
-			...oversized,
-			...readFailures,
-			...caseConflicts,
-		];
+		// 5. blocked = 超限 + 读取失败 + 大小写冲突（三类互斥，add 只是防御性去重）
+		const blocked = new Map<string, BlockedPathInfo>();
+		const add = (path: string, reason: BlockedReason): void => {
+			if (!blocked.has(path)) blocked.set(path, { path, reason });
+		};
+		for (const path of oversized) add(path, "oversized");
+		for (const path of readFailures) add(path, "read_failed");
+		for (const path of caseConflicts) add(path, "case_conflict");
 		this.current = this.mount(entries);
-		return blockedPaths;
+		return [...blocked.values()];
 	}
 
 	/** dirty 增量：只刷新 dirty 路径（spec §9.2：普通编辑不扫全库；dirty 可为文件夹） */
-	private async applyDirty(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<string[]> {
+	private async applyDirty(ctx: LocalScanContext, yieldCtl: YieldControl): Promise<BlockedPathInfo[]> {
 		// 预过滤只用「与 kind 无关」的排除项（目录视角）：类型白名单要等拿到路径的真实类型
 		// 之后再判，否则无扩展名的目录会被当成「其他类型文件」误伤
 		const dirty = [...(ctx.dirtyPaths ?? [])].filter(
@@ -386,7 +404,7 @@ export class LocalSnapshotBuilder {
 		);
 		const tracker = new ProgressTracker(dirty.length, ctx.onProgress);
 		const entries: Record<string, Entry> = { ...this.current!.entries };
-		const blockedPaths: string[] = [];
+		const blocked: BlockedPathInfo[] = [];
 		const dirDirty: string[] = [];
 
 		for (const rawPath of dirty) {
@@ -426,7 +444,7 @@ export class LocalSnapshotBuilder {
 				}
 				const stat = file.stat;
 				if (stat && isTooBig(stat.size, ctx.maxFileSizeBytes)) {
-					blockedPaths.push(np);
+					blocked.push({ path: np, reason: "oversized" });
 					continue;
 				}
 				try {
@@ -438,7 +456,7 @@ export class LocalSnapshotBuilder {
 						file_id: this.fileIDFor(np, ctx),
 					};
 				} catch {
-					blockedPaths.push(np);
+					blocked.push({ path: np, reason: "read_failed" });
 				}
 
 			} catch (err) {
@@ -455,7 +473,7 @@ export class LocalSnapshotBuilder {
 		}
 
 		this.current = this.mount(entries);
-		return blockedPaths;
+		return blocked;
 	}
 
 	/**

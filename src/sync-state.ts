@@ -1,5 +1,6 @@
 // 同步运行态（ribbon/状态栏/设置页订阅）
 
+import type { BlockedPathInfo } from "./sync/blocked";
 import type { SyncProgress } from "./sync/progress";
 import type { TransferMark } from "./sync/transfer-journal";
 
@@ -49,7 +50,11 @@ export class SyncState {
 	lastSyncAt = 0;
 	lastError = "";
 	pausedReason = ""; // 非空即同步暂停；原因取值见本文件顶部 PAUSED_* 词汇表
-	blockedPaths: string[] = []; // 被阻塞路径（超限/读失败/大小写冲突/file-dir 冲突）
+	blockedPaths: string[] = []; // 本轮未同步的路径（超限/读失败/大小写冲突/云端存量超限）
+	/** 未同步路径的原因明细（与 blockedPaths 对应）：仅用于展示「哪个文件、为什么」 */
+	blockedDetails: BlockedPathInfo[] = [];
+	/** 当前套餐的单文件上限（字节）；0 表示未知，文案里省略具体数值 */
+	maxFileSizeBytes = 0;
 	/** 磁盘上待处理的冲突副本（存量，含其他设备产生的）。
 	 * 只用于提示，**不参与 allSynced 判定**：冲突副本是「两边内容都在」的提醒，不是同步失败，
 	 * 否则只要有未清理的副本，Ribbon 就永远不会显示「已全部同步」。 */

@@ -26,9 +26,9 @@ describe("ribbonLabel 冲突副本提示", () => {
 	it("有冲突副本时报数，且不再显示「已全部同步」以免盖掉待处理项", () => {
 		expect(ribbonLabel(labelInput({ conflictCount: 2 }))).toBe("Pickpen Sync：2 个冲突副本待处理");
 	});
-	it("与阻塞并存时两个都报，顺序为先副本后被阻塞", () => {
+	it("与未同步文件并存时两个都报，顺序为先副本后未同步", () => {
 		expect(ribbonLabel(labelInput({ conflictCount: 1, blockedCount: 2 }))).toBe(
-			"Pickpen Sync：1 个冲突副本待处理 ｜ 2 个文件被阻塞",
+			"Pickpen Sync：1 个冲突副本待处理 ｜ 2 个文件未同步",
 		);
 	});
 	it("无冲突副本时维持原样（完成态仍显示已全部同步）", () => {
@@ -106,10 +106,10 @@ describe("Ribbon 文案", () => {
 		expect(ribbonLabel(labelInput())).toBe("Pickpen Sync：已全部同步");
 	});
 
-	it("保留最后同步时间与阻塞数量", () => {
+	it("保留最后同步时间与未同步数量", () => {
 		const label = ribbonLabel(labelInput({ lastSyncAt: Date.parse("2026-09-11T08:30:00"), blockedCount: 2 }));
 		expect(label).toContain("最后同步");
-		expect(label).toContain("2 个文件被阻塞");
+		expect(label).toContain("2 个文件未同步");
 	});
 
 	it("已全部同步时同时显示最后同步时间（时间不顶掉完成态）", () => {

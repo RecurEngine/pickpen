@@ -306,3 +306,22 @@ describe("ReconcileSession 最后同步时间", () => {
 		expect(status.lastSyncAt).toBe(0);
 	});
 });
+
+describe("ReconcileSession 未同步文件状态", () => {
+	it("本地阻塞明细与单文件上限透传到状态，且不判为全部同步", async () => {
+		const { deps, base } = fakeDeps();
+		vi.spyOn(deps.localBuilder, "refresh").mockResolvedValue({
+			snapshot: { ...base },
+			blockedPaths: ["附件/大图.png"],
+			blockedDetails: [{ path: "附件/大图.png", reason: "oversized" }],
+		});
+		const session = new ReconcileSession(deps as never);
+		const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
+		await session.requestManualRun();
+		const status = onStatus.mock.calls.at(-1)?.[0] as SyncStatus;
+		expect(status.blockedPaths).toEqual(["附件/大图.png"]);
+		expect(status.blockedDetails).toEqual([{ path: "附件/大图.png", reason: "oversized" }]);
+		expect(status.maxFileSizeBytes).toBe(30 * 1024 * 1024);
+		expect(status.allSynced).toBe(false);
+	});
+});

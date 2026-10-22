@@ -56,7 +56,7 @@ export function ribbonLabel(input: RibbonLabelInput): string {
 		parts.push(input.pausedReason || "有错误");
 	}
 	if (input.conflictCount > 0) parts.push(`${input.conflictCount} 个冲突副本待处理`);
-	if (input.blockedCount > 0) parts.push(`${input.blockedCount} 个文件被阻塞`);
+	if (input.blockedCount > 0) parts.push(`${input.blockedCount} 个文件未同步`);
 	if (input.stage === null && input.allSynced && parts.length === 0) parts.push("已全部同步");
 	if (input.lastSyncAt) {
 		parts.push(`最后同步 ${new Date(input.lastSyncAt).toLocaleTimeString("zh-CN", { hour12: false })}`);

@@ -53,12 +53,22 @@
 
 .pickpen-status-progress,
 .pickpen-status-path,
-.pickpen-status-transfer {
+.pickpen-status-transfer,
+.pickpen-status-blocked {
 	margin-top: 4px;
 	font-size: var(--font-ui-small);
 	color: var(--text-muted);
 	overflow-wrap: anywhere;
 	white-space: normal;
+}
+
+/* 未同步文件明细：文件名行 + 「其他文件不受影响」各占一行（见 summarizeBlocked） */
+.pickpen-status-blocked {
+	white-space: pre-line;
+}
+
+.pickpen-status-blocked[hidden] {
+	display: none;
 }
 
 /* 同步回执里的冲突副本入口 */
