@@ -1,25 +1,35 @@
-// Ribbon 容量状态渲染：真实 DOM 徽标兼容移动端，警告图标作为主题隐藏徽标时的兜底。
+// Ribbon 状态渲染：容量已满/阻塞/本地待同步的真实 DOM 徽标（兼容移动端）。
 
 import type { SetupStage } from "./setup-guide";
 
 export const RIBBON_SYNC_ICON = "refresh-cw";
-export const RIBBON_STORAGE_FULL_ICON = "triangle-alert";
 export const RIBBON_SYNC_TITLE = "Pickpen Sync";
 
-export function ribbonIcon(storageLimitExceeded: boolean): string {
-	return storageLimitExceeded ? RIBBON_STORAGE_FULL_ICON : RIBBON_SYNC_ICON;
+/** 徽标语义：容量超限 > 有阻塞文件 > 有本地待同步改动 */
+export type RibbonBadgeState = "none" | "pending" | "blocked" | "storage";
+
+export function ribbonBadgeState(input: {
+	storageLimitExceeded: boolean;
+	pendingCount: number;
+	blockedCount: number;
+}): RibbonBadgeState {
+	if (input.storageLimitExceeded) return "storage";
+	if (input.blockedCount > 0) return "blocked";
+	if (input.pendingCount > 0) return "pending";
+	return "none";
 }
 
-/** 幂等同步真实徽标节点；不使用 ::after，避免移动端 Ribbon 丢失伪元素。 */
-export function updateRibbonBadge(ribbonEl: HTMLElement, storageLimitExceeded: boolean): void {
+/** 幂等同步真实徽标节点；不使用 ::after，避免移动端 Ribbon 丢失伪元素。
+ *  颜色由 data-state 决定：pending 主题色 / blocked 黄色 / storage 红色。 */
+export function updateRibbonBadge(ribbonEl: HTMLElement, state: RibbonBadgeState): void {
 	const badge = ribbonEl.querySelector<HTMLElement>(".pickpen-ribbon-badge");
-	if (!storageLimitExceeded) {
+	if (state === "none") {
 		badge?.remove();
 		return;
 	}
-	if (badge) return;
-	const created = ribbonEl.createSpan({ cls: "pickpen-ribbon-badge" });
-	created.setAttribute("aria-hidden", "true");
+	const target = badge ?? ribbonEl.createSpan({ cls: "pickpen-ribbon-badge" });
+	target.setAttribute("aria-hidden", "true");
+	target.setAttribute("data-state", state);
 }
 
 /** 移动端把 Ribbon 动态复制为 menu-item，只能用受控标题定位对应菜单项。 */
@@ -33,6 +43,8 @@ export interface RibbonLabelInput {
 	pausedReason: string;
 	lastError: string;
 	blockedCount: number;
+	/** 本地已观察到、尚未确认进入远端的路径数（blocked 不计入） */
+	pendingCount: number;
 	/** 待处理的冲突副本数（存量）：有它时不显示「已全部同步」——那会把待处理的事盖掉 */
 	conflictCount: number;
 	lastSyncAt: number;
@@ -57,6 +69,7 @@ export function ribbonLabel(input: RibbonLabelInput): string {
 	}
 	if (input.conflictCount > 0) parts.push(`${input.conflictCount} 个冲突副本待处理`);
 	if (input.blockedCount > 0) parts.push(`${input.blockedCount} 个文件未同步`);
+	if (input.pendingCount > 0) parts.push(`${input.pendingCount} 项本地改动待同步`);
 	if (input.stage === null && input.allSynced && parts.length === 0) parts.push("已全部同步");
 	if (input.lastSyncAt) {
 		parts.push(`最后同步 ${new Date(input.lastSyncAt).toLocaleTimeString("zh-CN", { hour12: false })}`);

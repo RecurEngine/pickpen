@@ -7,6 +7,7 @@ import { App, Platform, normalizePath } from "obsidian";
 
 import { openForLocal, remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
+import { normalize } from "../excludes";
 import { isFileIDMoved, isInvalidHash, isManifestMismatch, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
@@ -25,6 +26,7 @@ import { sha256Hex } from "./content-hash";
 import { LocalSnapshotBuilder } from "./local-snapshot";
 import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
 import { buildTree } from "./merkle";
+import { nfcPath } from "./path";
 import { PendingStore } from "./pending-store";
 import { entriesEqual, isConflictCopyPath, isRemoteOversized, plan } from "./planner";
 import { SnapshotRemote } from "./remote";
@@ -91,6 +93,8 @@ export interface SyncStatus {
 	blockedPaths: string[];
 	/** 与 blockedPaths 对应的原因明细（本地原因优先），供 UI 说明「哪个文件、为什么」 */
 	blockedDetails: BlockedPathInfo[];
+	/** 本地已观察到、尚未确认进入远端的路径数（仅展示；blocked 路径不重复计入） */
+	pendingCount: number;
 	/** 当前套餐的单文件上限（字节）；0 表示尚未获知 */
 	maxFileSizeBytes: number;
 	/** 磁盘上待处理的冲突副本（存量）：仅提示，不参与 allSynced */
@@ -143,6 +147,9 @@ export class ReconcileSession {
 	/** 扫描前结束的轮次留下的 dirty（等下一次触发时并入，不驱动 run 的续跑——
 	 *  前置检查长期不过时自行续跑会变成空转） */
 	private carriedDirtyPaths = new Set<string>();
+	/** 本地已观察到、尚未确认进入远端的路径（ribbon/状态卡提示用，不参与对账）。
+	 *  由 dirty 事件维护；每轮成功收尾时用「尚未确认的 dirty」重建，失败/暂停时保留。 */
+	private pendingLocalPaths = new Set<string>();
 	/** 本轮 rename 提示（newPath → oldPath）：local-snapshot 据此继承 file_id */
 	private renameHints = new Map<string, string>();
 	private consecutiveFailures = 0;
@@ -210,7 +217,10 @@ export class ReconcileSession {
 		if (opts?.rehashAll) this.rehashAll = true;
 		if (opts?.interactive) this.interactiveRequested = true;
 		if (opts?.dirtyPaths) {
-			for (const p of opts.dirtyPaths) this.nextDirtyPaths.add(p);
+			for (const p of opts.dirtyPaths) {
+				this.nextDirtyPaths.add(p);
+				this.markPendingLocal(p);
+			}
 		}
 		if (this.running) {
 			this.rerunRequested = true;
@@ -250,6 +260,7 @@ export class ReconcileSession {
 		this.dirtyPaths.clear();
 		this.nextDirtyPaths.clear();
 		this.carriedDirtyPaths.clear();
+		this.pendingLocalPaths.clear();
 		this.blockedPaths = [];
 		this.localBlockedDetails = [];
 		this.oversizedRemotePaths = [];
@@ -270,6 +281,7 @@ export class ReconcileSession {
 	/** 本地 dirty 事件入口（local-hint 调用；运行中 → 下一轮） */
 	addDirty(path: string): void {
 		this.nextDirtyPaths.add(path);
+		this.markPendingLocal(path);
 	}
 
 	/** rename 事件入口（local-hint 调用）：记录 new→old 映射并标脏两路径（保 file_id 身份） */
@@ -277,6 +289,21 @@ export class ReconcileSession {
 		this.nextDirtyPaths.add(oldPath);
 		this.nextDirtyPaths.add(newPath);
 		this.renameHints.set(newPath, oldPath);
+		// 旧路径的删除同样属于未同步改动：两条都记（一次 rename 在提示里算 2 项）
+		this.markPendingLocal(oldPath);
+		this.markPendingLocal(newPath);
+	}
+
+	/**
+	 * 登记一条「本地已改动、尚未确认进入远端」的路径（仅展示用）。
+	 * 路径统一成快照键口径（NFC），非法路径直接忽略；运行中不额外上报——
+	 * 本轮已有高频进度上报，下一次 report 会带上新计数。
+	 */
+	private markPendingLocal(path: string): void {
+		const canonical = nfcPath(normalize(path));
+		if (canonical === null || this.pendingLocalPaths.has(canonical)) return;
+		this.pendingLocalPaths.add(canonical);
+		if (!this.running) this.report();
 	}
 
 	/**
@@ -311,17 +338,24 @@ export class ReconcileSession {
 	}
 
 	private report(): void {
-		const pending = this.deps.pendingStore.getPending() !== null;
+		const recoveryPending = this.deps.pendingStore.getPending() !== null;
 		const storageLimitConfirmed = this.storageLimitConfirmed;
 		this.storageLimitConfirmed = false;
 		// 展示用的合并（本地原因优先）：只影响状态文案，planner 仍分开消费两个原始数组
 		const blockedDetails = mergeBlockedDetails(this.localBlockedDetails, this.oversizedRemotePaths);
+		const blockedSet = new Set(blockedDetails.map((detail) => detail.path));
+		// blocked 路径已有「N 个文件未同步」文案，不再计入本地待同步数
+		const pendingCount =
+			blockedSet.size === 0
+				? this.pendingLocalPaths.size
+				: [...this.pendingLocalPaths].filter((path) => !blockedSet.has(path)).length;
 		this.deps.onStatus?.({
 			running: this.running,
 			progress: this.progress,
 			lastError: this.lastError,
 			blockedPaths: blockedDetails.map((detail) => detail.path),
 			blockedDetails,
+			pendingCount,
 			maxFileSizeBytes: this.maxFileSizeBytes,
 			conflictCopyPaths: [...this.conflictCopyPaths],
 			lastSyncAt: this.lastSyncAt,
@@ -334,7 +368,8 @@ export class ReconcileSession {
 				!this.storageLimitExceeded &&
 				this.blockedPaths.length === 0 &&
 				this.oversizedRemotePaths.length === 0 &&
-				!pending,
+				pendingCount === 0 &&
+				!recoveryPending,
 		});
 	}
 
@@ -344,10 +379,33 @@ export class ReconcileSession {
 	 * 与 12015/12023 退避重试都不算同步过，不更新时间戳。
 	 */
 	private finishRound(): void {
+		this.settlePendingLocal();
 		this.lastError = "";
 		this.lastSyncAt = Date.now();
 		// 成功跑完一轮即不再是「中断现场」的提示语境
 		this.interruptedTransfer = null;
+	}
+
+	/**
+	 * 一轮成功收尾后重建「本地待同步」集合：本轮已消化的 dirty 都已确认，
+	 * 只剩运行期间新到、尚未扫描的 dirty（nextDirty/carried）仍未确认。
+	 * 用重建代替「本地快照 vs Base」对比：apply 之后 localBuilder.current 仍是写盘前的旧快照，
+	 * 且空轮次里 oversizedRemotePaths 可能是上一轮的旧值。按当前同步范围过滤掉排除项，
+	 * 避免开关关闭/排除文件夹/隐藏路径让圆点常亮。
+	 */
+	private settlePendingLocal(): void {
+		const filter = this.buildFilter(this.deps.getSettings());
+		const local = this.deps.localBuilder.getCurrent();
+		const base = this.deps.baseStore.getBase();
+		const next = new Set<string>();
+		for (const path of [...this.nextDirtyPaths, ...this.carriedDirtyPaths]) {
+			const canonical = nfcPath(normalize(path));
+			if (canonical === null) continue;
+			const entry = local?.entries[canonical] ?? base?.entries[canonical];
+			if (filter.isExcluded(canonical, (entry?.kind ?? KIND_FILE) === KIND_DIR)) continue;
+			next.add(canonical);
+		}
+		this.pendingLocalPaths = next;
 	}
 
 	private async run(): Promise<void> {
@@ -385,7 +443,7 @@ export class ReconcileSession {
 					// 因此不设 lastError、不计失败次数。连续命中达阈值说明该文件在被持续改写（继续重排只会空转），
 					// 落到下面的普通失败分支报错。
 					if (err instanceof LocalChangedDuringUploadError && ++this.uploadRaceStreak < UPLOAD_RACE_SUPPRESS_AFTER) {
-						this.nextDirtyPaths.add(err.path);
+						this.addDirty(err.path);
 						this.rerunRequested = true;
 						debugLog.warn(`[pickpen] 上传期间本地文件变动（第 ${this.uploadRaceStreak} 次），退避后重新对账：${err.path}`);
 						// 退避基数小：本地改动通常已落盘完成，短暂等待即可（若正写到一半，等它写完）

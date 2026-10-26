@@ -985,7 +985,7 @@ class PickpenSettingsView {
 	}
 }
 
-// deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 未同步文件 → 同步中 → 冲突副本 → 已全部同步）
+// deriveStatus 状态判定（优先级：未登录 → 暂停 → 出错 → 未同步文件 → 同步中 → 本地待同步 → 冲突副本 → 已全部同步）
 // detail：未同步文件的文件名与原因（仅未同步态有），由状态卡片作为副行展示
 export function deriveStatus(
 	settings: PluginSettings,
@@ -1005,6 +1005,8 @@ export function deriveStatus(
 		return { mod: "yellow", text: summary.headline, detail: summary.detail };
 	}
 	if (state.sessionRunning) return { mod: "syncing", text: "同步中：正在准备同步" };
+	// 本地改动尚未到远端（含防抖等待/暂停后恢复）：不能让卡片显示「已全部同步」
+	if (state.pendingCount > 0) return { mod: "syncing", text: `${state.pendingCount} 项本地改动等待同步` };
 	// 冲突副本不是同步失败（两边内容都在），所以排在「同步中」之后、完成态之前：黄色提醒而非红色
 	if (state.conflictCopyPaths.length > 0)
 		return { mod: "yellow", text: `同步完成，有 ${state.conflictCopyPaths.length} 个冲突副本待处理` };

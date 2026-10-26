@@ -65,6 +65,14 @@ describe("进度展示", () => {
 		expect(deriveStatus(settings, state)).toEqual({ mod: "green", text: "已全部同步" });
 	});
 
+	it("本地有未同步改动时不再显示完成态", () => {
+		const settings = { accessToken: "token" } as PluginSettings;
+		const state = new SyncState();
+		state.update({ pendingCount: 3 });
+		expect(deriveStatus(settings, state)).toEqual({ mod: "syncing", text: "3 项本地改动等待同步" });
+		expect(state.allSynced).toBe(false);
+	});
+
 	it("未同步文件点名文件与原因，并说明其他文件不受影响", () => {
 		const settings = { accessToken: "token" } as PluginSettings;
 		const state = new SyncState();

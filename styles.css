@@ -144,6 +144,12 @@
 	.pickpen-status-bar-fill {
 		transition: none;
 	}
+	.pickpen-status-dot,
+	.pickpen-ribbon-badge,
+	.pickpen-ribbon-syncing svg,
+	.pickpen-mobile-ribbon-syncing .menu-item-icon svg {
+		animation: none !important;
+	}
 }
 
 /* 容量已满期间 Ribbon 始终保留真实 DOM 红点；点击图标可重新打开处理弹窗。 */
@@ -157,18 +163,71 @@
 	color: var(--color-red, #e05252);
 }
 
+/* 任一徽标状态都需要定位上下文；颜色由 data-state 区分。 */
+.pickpen-ribbon-has-badge,
+.pickpen-mobile-ribbon-has-badge .menu-item-icon {
+	position: relative;
+}
+
 .pickpen-ribbon-badge {
 	display: block;
 	position: absolute;
-	top: 4px;
-	right: 4px;
-	width: 8px;
-	height: 8px;
-	border: 2px solid var(--background-primary);
+	top: 2px;
+	right: 2px;
+	width: 9px;
+	height: 9px;
+	border: 0;
 	border-radius: 50%;
 	background: var(--color-red, #e05252);
+	/* 用与侧栏同色的外圈做切口：自定义主题下也不会出现 `--background-primary` 色差 */
+	box-shadow: 0 0 0 2px var(--ribbon-background, var(--background-primary));
 	pointer-events: none;
 	z-index: 2;
+}
+
+.pickpen-ribbon-badge[data-state="storage"] {
+	background: var(--color-red, #e05252);
+}
+
+.pickpen-ribbon-badge[data-state="blocked"] {
+	background: var(--color-yellow, #d29922);
+}
+
+/* 待同步：等待防抖期间缓慢呼吸，提示「稍后会自动同步」；同步中改由图标旋转表达。 */
+.pickpen-ribbon-badge[data-state="pending"] {
+	background: var(--interactive-accent, #7c6cf5);
+	animation: pickpen-badge-breathe 2s ease-in-out infinite;
+}
+
+.pickpen-ribbon-syncing:not(.pickpen-ribbon-storage-full) svg {
+	animation: pickpen-spin 1.2s linear infinite;
+	transform-origin: center;
+}
+
+.pickpen-mobile-ribbon-syncing:not(.pickpen-mobile-ribbon-storage-full) .menu-item-icon svg {
+	animation: pickpen-spin 1.2s linear infinite;
+	transform-origin: center;
+}
+
+.pickpen-ribbon-syncing .pickpen-ribbon-badge[data-state="pending"],
+.pickpen-mobile-ribbon-syncing .pickpen-ribbon-badge[data-state="pending"] {
+	animation: none;
+}
+
+@keyframes pickpen-badge-breathe {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.55;
+	}
+}
+
+@keyframes pickpen-spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 .pickpen-storage-limit-modal,

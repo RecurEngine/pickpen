@@ -325,3 +325,43 @@ describe("ReconcileSession 未同步文件状态", () => {
 		expect(status.allSynced).toBe(false);
 	});
 });
+
+describe("ReconcileSession 本地待同步计数", () => {
+	const lastStatus = (onStatus: ReturnType<typeof vi.fn>): SyncStatus => onStatus.mock.calls.at(-1)?.[0] as SyncStatus;
+
+	it("本地事件立即计入待同步，成功空轮次后归零", async () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
+		session.addDirty("笔记/a.md");
+		expect(lastStatus(onStatus).pendingCount).toBe(1);
+		expect(lastStatus(onStatus).allSynced).toBe(false);
+		await session.requestManualRun();
+		expect(lastStatus(onStatus).pendingCount).toBe(0);
+		expect(lastStatus(onStatus).allSynced).toBe(true);
+	});
+
+	it("扫描前失败（取 Head 抛错）时保留待同步计数", async () => {
+		const { deps } = fakeDeps({
+			remote: {
+				pollHead: vi.fn(async () => {
+					throw new Error("网络不可达");
+				}),
+			},
+		});
+		const session = new ReconcileSession(deps as never);
+		const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
+		session.addDirty("笔记/a.md");
+		await session.requestManualRun();
+		expect(lastStatus(onStatus).lastError).not.toBe("");
+		expect(lastStatus(onStatus).pendingCount).toBe(1);
+	});
+
+	it("rename 同时记录旧路径与新路径", () => {
+		const { deps } = fakeDeps();
+		const session = new ReconcileSession(deps as never);
+		const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
+		session.addDirtyRename("旧.md", "新.md");
+		expect(lastStatus(onStatus).pendingCount).toBe(2);
+	});
+});

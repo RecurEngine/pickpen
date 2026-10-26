@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	RIBBON_STORAGE_FULL_ICON,
-	RIBBON_SYNC_ICON,
 	isSyncRibbonMenuItem,
-	ribbonIcon,
+	ribbonBadgeState,
 	ribbonLabel,
 	updateRibbonBadge,
 	type RibbonLabelInput,
@@ -17,6 +15,7 @@ const labelInput = (patch: Partial<RibbonLabelInput> = {}): RibbonLabelInput => 
 	lastError: "",
 	blockedCount: 0,
 	conflictCount: 0,
+	pendingCount: 0,
 	lastSyncAt: 0,
 	allSynced: true,
 	...patch,
@@ -33,6 +32,17 @@ describe("ribbonLabel 冲突副本提示", () => {
 	});
 	it("无冲突副本时维持原样（完成态仍显示已全部同步）", () => {
 		expect(ribbonLabel(labelInput({}))).toBe("Pickpen Sync：已全部同步");
+	});
+});
+
+describe("ribbonLabel 本地待同步提示", () => {
+	it("有本地改动尚未到远端时报数，且不再显示「已全部同步」", () => {
+		expect(ribbonLabel(labelInput({ pendingCount: 3 }))).toBe("Pickpen Sync：3 项本地改动待同步");
+	});
+	it("与未同步文件并存时两个都报，顺序为先未同步后待同步", () => {
+		expect(ribbonLabel(labelInput({ blockedCount: 1, pendingCount: 2 }))).toBe(
+			"Pickpen Sync：1 个文件未同步 ｜ 2 项本地改动待同步",
+		);
 	});
 });
 
@@ -59,26 +69,39 @@ class FakeRibbon {
 	}
 }
 
-describe("移动端 Ribbon 容量状态", () => {
-	it("容量状态选择同步或警告图标", () => {
-		expect(ribbonIcon(false)).toBe(RIBBON_SYNC_ICON);
-		expect(ribbonIcon(true)).toBe(RIBBON_STORAGE_FULL_ICON);
+describe("Ribbon 徽标", () => {
+	it("徽标优先级：容量已满 > 阻塞文件 > 本地待同步 > 无", () => {
+		expect(ribbonBadgeState({ storageLimitExceeded: true, blockedCount: 1, pendingCount: 1 })).toBe("storage");
+		expect(ribbonBadgeState({ storageLimitExceeded: false, blockedCount: 1, pendingCount: 1 })).toBe("blocked");
+		expect(ribbonBadgeState({ storageLimitExceeded: false, blockedCount: 0, pendingCount: 1 })).toBe("pending");
+		expect(ribbonBadgeState({ storageLimitExceeded: false, blockedCount: 0, pendingCount: 0 })).toBe("none");
 	});
 
-	it("重复刷新超限状态只创建一个真实徽标", () => {
+	it("重复刷新同一状态只创建一个真实徽标", () => {
 		const ribbon = new FakeRibbon();
-		updateRibbonBadge(ribbon as unknown as HTMLElement, true);
-		updateRibbonBadge(ribbon as unknown as HTMLElement, true);
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "storage");
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "storage");
 		expect(ribbon.badges).toHaveLength(1);
 		expect(ribbon.badges[0].attributes.get("aria-hidden")).toBe("true");
+		expect(ribbon.badges[0].attributes.get("data-state")).toBe("storage");
 	});
 
-	it("容量恢复时删除徽标，之后可再次创建", () => {
+	it("状态切换复用同一节点并更新 data-state", () => {
 		const ribbon = new FakeRibbon();
-		updateRibbonBadge(ribbon as unknown as HTMLElement, true);
-		updateRibbonBadge(ribbon as unknown as HTMLElement, false);
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "pending");
+		expect(ribbon.badges).toHaveLength(1);
+		expect(ribbon.badges[0].attributes.get("data-state")).toBe("pending");
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "blocked");
+		expect(ribbon.badges).toHaveLength(1);
+		expect(ribbon.badges[0].attributes.get("data-state")).toBe("blocked");
+	});
+
+	it("无状态时删除徽标，之后可再次创建", () => {
+		const ribbon = new FakeRibbon();
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "pending");
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "none");
 		expect(ribbon.badges[0].removed).toBe(true);
-		updateRibbonBadge(ribbon as unknown as HTMLElement, true);
+		updateRibbonBadge(ribbon as unknown as HTMLElement, "storage");
 		expect(ribbon.badges).toHaveLength(2);
 	});
 

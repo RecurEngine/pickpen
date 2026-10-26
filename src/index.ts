@@ -16,7 +16,15 @@ import { installDeletedFilesFeature } from "./deleted-files-view";
 import { installHistoryFeature } from "./history-view";
 import { planLegacyMigration, SessionStore, stripSessionKeys, vaultScopeKey, type KeyValueStore } from "./session-store";
 import { RemoteClient } from "./remote-connect";
-import { isSyncRibbonMenuItem, ribbonIcon, ribbonLabel, RIBBON_SYNC_TITLE, updateRibbonBadge } from "./ribbon-indicator";
+import {
+	isSyncRibbonMenuItem,
+	ribbonBadgeState,
+	ribbonLabel,
+	RIBBON_SYNC_ICON,
+	RIBBON_SYNC_TITLE,
+	updateRibbonBadge,
+	type RibbonBadgeState,
+} from "./ribbon-indicator";
 import { PickpenSettingTab } from "./settings";
 import { setupStage, SetupGuideModal, type SetupStage } from "./setup-guide";
 import { localDateKey, StorageLimitModal } from "./storage-limit-alert";
@@ -253,6 +261,7 @@ export default class PickpenPlugin extends Plugin {
 					lastError: s.lastError,
 					blockedPaths: s.blockedPaths,
 					blockedDetails: s.blockedDetails,
+					pendingCount: s.pendingCount,
 					maxFileSizeBytes: s.maxFileSizeBytes,
 					conflictCopyPaths: s.conflictCopyPaths,
 					lastSyncAt: s.lastSyncAt,
@@ -475,6 +484,7 @@ export default class PickpenPlugin extends Plugin {
 	private updateRibbon(): void {
 		if (!this.ribbonEl) return;
 		const storageLimitExceeded = syncState.storageLimitExceeded;
+		const badgeState = this.currentBadgeState();
 		const label = ribbonLabel({
 			stage: setupStage(this.settings),
 			storageLimitExceeded,
@@ -482,20 +492,32 @@ export default class PickpenPlugin extends Plugin {
 			lastError: syncState.lastError,
 			blockedCount: syncState.blockedPaths.length,
 			conflictCount: syncState.conflictCopyPaths.length,
+			pendingCount: syncState.pendingCount,
 			lastSyncAt: syncState.lastSyncAt,
 			allSynced: syncState.allSynced,
 		});
 		// 提示只走 aria-label（Obsidian 自绘提示读它，与原生 Ribbon 按钮同款：右侧 + 300ms 延迟）。
 		// 不要再写 title：那会额外弹出一个浏览器原生提示，鼠标悬停时两个提示叠在一起。
 		setTooltip(this.ribbonEl, label, { placement: "right", delay: 300 });
-		const icon = ribbonIcon(storageLimitExceeded);
+		const icon = RIBBON_SYNC_ICON;
 		if (this.ribbonEl.dataset.pickpenIcon !== icon) {
 			setIcon(this.ribbonEl, icon);
 			this.ribbonEl.dataset.pickpenIcon = icon;
 		}
-		updateRibbonBadge(this.ribbonEl, storageLimitExceeded);
+		updateRibbonBadge(this.ribbonEl, badgeState);
 		this.ribbonEl.classList.toggle("pickpen-ribbon-storage-full", storageLimitExceeded);
+		this.ribbonEl.classList.toggle("pickpen-ribbon-has-badge", badgeState !== "none");
+		this.ribbonEl.classList.toggle("pickpen-ribbon-syncing", syncState.sessionRunning);
 		if (Platform.isMobile) this.updateMobileRibbonMenu(storageLimitExceeded);
+	}
+
+	/** 徽标状态优先级：容量超限 > 阻塞文件 > 普通本地待同步 */
+	private currentBadgeState(): RibbonBadgeState {
+		return ribbonBadgeState({
+			storageLimitExceeded: syncState.storageLimitExceeded,
+			pendingCount: syncState.pendingCount,
+			blockedCount: syncState.blockedPaths.length,
+		});
 	}
 
 	/**
@@ -525,17 +547,21 @@ export default class PickpenPlugin extends Plugin {
 		storageLimitExceeded: boolean,
 		items: Iterable<HTMLElement> = document.querySelectorAll<HTMLElement>(".menu-item"),
 	): void {
+		const badgeState = this.currentBadgeState();
+		const syncing = syncState.sessionRunning;
 		for (const item of items) {
 			if (!isSyncRibbonMenuItem(item)) continue;
 			const iconEl = item.querySelector<HTMLElement>(".menu-item-icon");
 			if (!iconEl) continue;
-			const icon = ribbonIcon(storageLimitExceeded);
+			const icon = RIBBON_SYNC_ICON;
 			if (iconEl.dataset.pickpenIcon !== icon) {
 				setIcon(iconEl, icon);
 				iconEl.dataset.pickpenIcon = icon;
 			}
-			updateRibbonBadge(iconEl, storageLimitExceeded);
+			updateRibbonBadge(iconEl, badgeState);
 			item.classList.toggle("pickpen-mobile-ribbon-storage-full", storageLimitExceeded);
+			item.classList.toggle("pickpen-mobile-ribbon-has-badge", badgeState !== "none");
+			item.classList.toggle("pickpen-mobile-ribbon-syncing", syncing);
 		}
 	}
 

@@ -46,6 +46,7 @@ export function shouldClearAccountPause(input: {
 }
 
 export class SyncState {
+	/** 本地已观察到、尚未确认进入远端的路径数（仅展示；同步成功后归零） */
 	pendingCount = 0;
 	lastSyncAt = 0;
 	lastError = "";
@@ -87,7 +88,8 @@ export class SyncState {
 			!this.lastError &&
 			!this.pausedReason &&
 			!this.storageLimitExceeded &&
-			this.blockedPaths.length === 0
+			this.blockedPaths.length === 0 &&
+			this.pendingCount === 0
 		);
 	}
 }
