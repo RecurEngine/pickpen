@@ -11,6 +11,7 @@ Pickpen Sync is a local-first cloud sync plugin for Obsidian. It keeps notes ava
 - Synchronizes vault files across desktop and mobile devices.
 - Detects local and remote changes automatically.
 - Preserves both versions as conflict copies instead of silently discarding concurrent edits.
+- Merges concurrent edits line by line; a conflict copy is created only when both sides changed the same region.
 - Provides per-file version history and restore controls.
 - Supports multiple remote vaults under one account.
 - Keeps your working copy in the local Obsidian vault.
@@ -53,7 +54,7 @@ Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作
 
 - 在桌面端和移动端之间同步 Vault 文件。
 - 自动检测本地及远端改动。
-- 两端修改同一篇笔记时自动合并改动（改到不同段落就无需人工处理）；只有真正冲突时才保留冲突副本，双方内容都不会丢。
+- 智能冲突合并：两端修改同一篇笔记时先做行级自动合并，改到不同段落无需人工处理；只有真正改到同一处才保留冲突副本，双方内容都不会丢。
 - 待处理的冲突副本会在同步回执、Ribbon 提示与设置页状态卡片上提示，并可一键跳转。
 - 查看和恢复单个文件的历史版本。
 - 一个账号可管理多个远端仓库。
