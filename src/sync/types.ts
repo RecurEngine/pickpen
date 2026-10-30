@@ -12,6 +12,8 @@ export interface Entry {
 	size?: string; // 十进制字符串（active file 必填）
 	kind?: number; // KIND_FILE | KIND_DIR，缺省按 file
 	file_id?: string; // 稳定身份（UUID，rename 不变），不参与 Merkle hash
+	/** 仅远端边界使用：明文路径密文（路径加密仓库 v2）。Base/pending 不落此字段。 */
+	enc_path?: string;
 	/** 仅 Base 快路径用（不参与远端语义与 Merkle hash，spec §6.4） */
 	local_mtime?: string;
 	local_size?: string;
@@ -39,6 +41,9 @@ export interface Snapshot {
 	/** 本基线的条目是否已按 out_of_scope 口径标注过。老基线缺省 → 载入时一次性迁移
 	 * （见 BaseStore.load）：不迁移的话，升级后首次打开某个同步分类仍会命中旧缺陷。 */
 	scope_marked?: boolean;
+	/** 写这份基线时的路径加密模式（0/1，缺省 0）。与远端模式不一致时必须禁用
+	 * head.unchanged 快路径，因为 base_root_hash 是另一套路径口径下的 root。 */
+	path_mode?: number;
 }
 
 /** 提交给服务端的 put mutation（spec §11.3） */
@@ -48,6 +53,8 @@ export interface PutMutation {
 	size: string; // dir 时为 "0"
 	file_id: string; // 客户端生成 UUID（必填）
 	kind?: number; // KIND_FILE | KIND_DIR，缺省按 file
+	/** 路径加密仓库必填：明文路径密文 */
+	enc_path?: string;
 }
 
 /** 本地应用动作（pending 日志逐条可重复执行，spec §9.4） */
@@ -101,6 +108,8 @@ export interface PendingLog {
 	target_revision: string | null;
 	apply_actions: ApplyAction[];
 	created_at: string;
+	/** 写下这份 pending 时的路径加密模式（0/1，缺省 0）。恢复时与当前模式不一致 → 清除并强制审计。 */
+	path_mode?: number;
 }
 
 /** 下载计划项（planner 输出 → applier 消费） */

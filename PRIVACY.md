@@ -1,6 +1,6 @@
 # Pickpen Sync Privacy Policy / 隐私政策
 
-Effective date: September 7, 2026 / 生效日期：2026 年 9 月 7 日
+Effective date: October 30, 2026 / 生效日期：2026 年 10 月 30 日
 
 ## English
 
@@ -15,7 +15,7 @@ To provide the service, Pickpen Sync processes:
 - Account and session data: email address, user identifier, access/refresh tokens, device identifier, and plugin version.
 - Sync data: remote vault identifiers and names; file paths, file contents, content hashes, timestamps, file identifiers, snapshot metadata, and retained version history.
 - Subscription data: plan, usage, storage limits, order identifiers, payment status, and related transaction metadata. Payment credentials are handled by the payment provider and are not entered into the plugin.
-- Operational server logs: source IP address, request method/path, plugin version, duration, result/error code, internal account/vault/order identifiers, and subscription/payment event metadata such as plan, amount, and status. Request/response bodies, authorization metadata, email addresses, synchronized file paths or contents, SQL statements/parameters, payment URLs, and raw error messages are not intentionally logged. The one exception is the event name and stage that older plugin versions may have reported; the current version reports no events. Rotated application logs are retained for up to 30 days.
+- Operational server logs: source IP address, request method/path, plugin version, duration, result/error code, internal account/vault/order identifiers, and subscription/payment event metadata such as plan, amount, and status. Request/response bodies, authorization metadata, email addresses, synchronized file paths or contents, SQL statements/parameters, payment URLs, and raw error messages are not intentionally logged. The current version does not report usage events; unexpected errors and sync/network failures are handled separately as error diagnostics (see below). Rotated application logs are retained for up to 30 days.
 
 ### Storage and transmission
 
@@ -43,11 +43,11 @@ Pickpen Sync uses infrastructure and service providers including Tencent Cloud O
 
 ### Analytics and diagnostics
 
-The plugin contains no client-side analytics, advertising, or automatic telemetry, and it does not report any events. When diagnostic logging is enabled, the plugin records only its own deliberately emitted, minimized logs in memory. It does not intercept global console output. Clicking **Email feedback** creates a local email draft containing account/device context and, if enabled, recent diagnostic logs. Nothing is sent until you review and send that email.
+The plugin contains no client-side analytics, advertising, behavior tracking, or usage statistics. To help diagnose failures, it sends minimized error diagnostics to the Pickpen Sync service by default. When an uncaught error or a sync/network failure occurs, the plugin reports the error type, a redacted message and stack trace, error code, phase, plugin version, platform/OS, device identifier, bound vault identifier, and whether you were signed in at the time. Reports do not include file contents, file names, vault names, email addresses, access or refresh tokens, request/response bodies, or behavior events. Error diagnostics are retained for at most 90 days and are used only to diagnose and fix faults. You can turn error reporting off at any time in **Settings → Diagnostics**; turning it off stops collection immediately and clears unsent reports. IP addresses are used only for rate limiting and are not stored with diagnostics. When diagnostic logging is enabled, the plugin records only its own deliberately emitted, minimized logs in memory. It does not intercept global console output. Clicking **Email feedback** creates a local email draft containing account/device context and, if enabled, recent diagnostic logs. Nothing is sent until you review and send that email.
 
 ### Retention, deletion, and contact
 
-Sync data and version history are retained while needed to provide your account and plan. You can delete unbound remote vaults from the plugin. To request account/data deletion or ask privacy questions, email [pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com).
+Sync data and version history are retained while needed to provide your account and plan. Error diagnostics are retained for at most 90 days. You can delete unbound remote vaults from the plugin. To request account/data deletion or ask privacy questions, email [pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com).
 
 ## 中文
 
@@ -60,7 +60,7 @@ Sync data and version history are retained while needed to provide your account 
 - 账号与会话：邮箱、用户标识、访问/刷新令牌、设备标识和插件版本。
 - 同步数据：远端仓库标识和名称，以及文件路径、文件内容、内容哈希、时间戳、文件标识、快照元数据和保留的版本历史。
 - 订阅数据：方案、用量、存储限额、订单标识、付款状态及相关交易元数据。付款凭据由支付服务商处理，不会在插件中输入。
-- 服务端运行日志：来源 IP、请求方法/路径、插件版本、耗时、结果/错误码、内部账号/仓库/订单标识，以及方案、金额、状态等订阅付款事件元数据。系统不会有意记录请求/响应正文、认证元数据、邮箱、同步文件路径或内容、SQL 语句/参数、付款链接或原始错误信息；唯一例外是旧版本插件可能上报的事件名与阶段（当前版本已不再上报任何事件）。轮转后的应用日志最长保留 30 天。
+- 服务端运行日志：来源 IP、请求方法/路径、插件版本、耗时、结果/错误码、内部账号/仓库/订单标识，以及方案、金额、状态等订阅付款事件元数据。系统不会有意记录请求/响应正文、认证元数据、邮箱、同步文件路径或内容、SQL 语句/参数、付款链接或原始错误信息。当前版本不上报使用事件；未捕获异常与同步/网络失败作为错误诊断单独处理（见下）。轮转后的应用日志最长保留 30 天。
 
 ### 本地存储、传输和云端存储
 
@@ -88,8 +88,8 @@ Pickpen Sync 使用的基础设施和服务商包括腾讯云对象存储、腾�
 
 ### 统计与诊断
 
-插件不包含客户端统计分析、广告或自动遥测，也不会上报任何事件。开启调试日志后，只会在内存中记录插件主动输出的精简日志，不会拦截全局控制台。点击“邮件反馈”会在本地生成包含账号/设备上下文的邮件草稿；仅在调试日志已开启时附带最近日志。你检查并主动发送前，不会传出这些诊断信息。
+插件不包含客户端统计分析、广告、行为追踪或使用统计。为帮助定位故障，插件默认向 Pickpen Sync 服务发送最小化的错误诊断信息：发生未捕获异常或同步/网络失败时，上报错误类型、已脱敏的错误消息与调用栈、错误码、阶段、插件版本、平台/系统、设备标识、绑定仓库标识，以及上报时是否处于登录态。上报内容**不包含**文件内容、文件名、仓库名、邮箱、访问/刷新令牌、请求/响应正文或行为事件。错误诊断最长保留 90 天，仅用于定位和修复故障。你可以在“设置 → 诊断”中随时关闭错误诊断上报；关闭后立即停止采集并清空未发送的记录。IP 仅用于限流，不会与诊断记录一起保存。开启调试日志后，只会在内存中记录插件主动输出的精简日志，不会拦截全局控制台。点击“邮件反馈”会在本地生成包含账号/设备上下文的邮件草稿；仅在调试日志已开启时附带最近日志。你检查并主动发送前，不会传出这些诊断信息。
 
 ### 保留、删除与联系
 
-同步数据和版本历史会在提供账号及订阅服务所需期间保留。你可以在插件中删除未绑定的远端仓库。如需申请删除账号/数据或咨询隐私问题，请联系 [pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com)。
+同步数据和版本历史会在提供账号及订阅服务所需期间保留；错误诊断最长保留 90 天。你可以在插件中删除未绑定的远端仓库。如需申请删除账号/数据或咨询隐私问题，请联系 [pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com)。

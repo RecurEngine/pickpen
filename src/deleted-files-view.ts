@@ -2,16 +2,17 @@
 // 数据源是服务端的删除记录（同一路径多次「删除 → 重建 → 再删除」各自独立成条，重命名不出现）；
 // 列表只含保留期内的记录，与版本历史同一口径。
 // 目录条目不提供预览与恢复（空目录没有内容可恢复）；加密仓库的列表本身无需解锁，
-// 只有预览与恢复会要求先解锁。
+// 只有预览与恢复会要求先解锁。路径加密（v2）仓库例外：路径本身是密文，列表也需要先解锁。
 // 列表/预览沿用版本历史弹窗的样式类与「桌面双栏 / 移动端两级页」结构（结构一致，不再写一套视觉规则）。
 
 import { App, ButtonComponent, Component, MarkdownRenderer, Modal, Notice, Platform } from "obsidian";
 
-import { openForLocal } from "./crypto/vault-key-store";
+import { openForLocal, vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
 import { formatHistorySize, formatHistoryTime, isBinaryContent } from "./history-view";
 import type PickpenPlugin from "./index";
 import { isUnauthenticated } from "./remote-connect";
+import { decodeStoredPath } from "./sync/path-codec";
 import { createSyncFilter } from "./sync/selective";
 import { writeLocalFile } from "./sync/vault-io";
 import { captureOpenViews, refreshOpenViews } from "./view-sync";
@@ -63,6 +64,8 @@ class DeletedFilesModal extends Modal {
 	private readonly plugin: PickpenPlugin;
 
 	private files: DeletedFile[] = [];
+	/** path_encrypted=true 但 enc_path 无法还原的条目：禁止恢复，避免把占位文本当路径写盘 */
+	private undecodable = new Set<DeletedFile>();
 	private pageToken = "";
 	private hasMore = false;
 	private loading = false;
@@ -93,6 +96,18 @@ class DeletedFilesModal extends Modal {
 	}
 
 	async onOpen(): Promise<void> {
+		// 路径加密仓库的删除记录 path 是 token：列表/恢复都需要内容密钥还原明文路径
+		if (vaultKeys.isPathEncrypted() && vaultKeys.isLocked()) {
+			const ok = await this.plugin.ensureVaultUnlocked(true);
+			if (!ok) {
+				this.contentEl.empty();
+				this.contentEl.createDiv({
+					cls: "pickpen-vault-message is-error",
+					text: "需要解锁仓库后才能查看已删除的文件",
+				});
+				return;
+			}
+		}
 		const { contentEl } = this;
 		contentEl.empty();
 		if (Platform.isMobile) {
@@ -128,6 +143,7 @@ class DeletedFilesModal extends Modal {
 		this.selectionGeneration++;
 		this.disposeMarkdown();
 		this.files = [];
+		this.undecodable.clear();
 		this.contentEl.empty();
 	}
 
@@ -148,10 +164,20 @@ class DeletedFilesModal extends Modal {
 		const actions = this.mainEl.createDiv({ cls: "pickpen-history-mobile-actions" });
 		new ButtonComponent(actions).setButtonText("返回列表").onClick(() => this.mountMobileList());
 		this.actionRowEl = this.mainEl.createDiv({ cls: "pickpen-history-restore is-mobile" });
+		this.renderMobileActions();
 		this.previewHeadEl = this.mainEl.createDiv({ cls: "pickpen-history-preview-head is-mobile" });
 		this.previewBodyEl = this.mainEl.createDiv({
 			cls: "pickpen-history-preview-body is-mobile markdown-preview-view",
 		});
+	}
+
+	/** 移动端恢复按钮：详情页挂载时创建（此时内容未加载，先禁用），内容就绪后由 updateActions 启用 */
+	private renderMobileActions(): void {
+		this.actionRowEl.empty();
+		this.restoreButton = new ButtonComponent(this.actionRowEl)
+			.setButtonText("恢复到原路径")
+			.setDisabled(true)
+			.onClick(() => void this.restore());
 	}
 
 	private disposeMarkdown(): void {
@@ -166,6 +192,7 @@ class DeletedFilesModal extends Modal {
 		this.loading = true;
 		if (first) {
 			this.files = [];
+			this.undecodable.clear();
 			this.selected = null;
 			this.selectedVersion = null;
 			this.selectedContent = null;
@@ -177,6 +204,28 @@ class DeletedFilesModal extends Modal {
 		try {
 			const resp = await this.plugin.remote.listDeletedFiles(PAGE_SIZE, this.pageToken);
 			if (this.closed) return;
+			// 冷启动时 Head 可能还没带回 pathEncryptionVersion：以响应里的逐行标志为准补解锁
+			if (resp.files.some((f) => f.pathEncrypted) && vaultKeys.isLocked()) {
+				const unlocked = await this.plugin.ensureVaultUnlocked(true);
+				if (!unlocked) {
+					if (first) this.listEl.empty();
+					this.listEl.createDiv({
+						cls: "pickpen-vault-message is-error",
+						text: "需要解锁仓库后才能查看已删除的文件",
+					});
+					return;
+				}
+			}
+			// 路径加密仓库：path 是 token，展示/恢复前用 enc_path 还原；
+			// 迁移前的旧记录 path_encrypted=false，原样保留明文路径。
+			for (const file of resp.files) {
+				try {
+					file.path = await decodeStoredPath(file.path, file.encPath, file.pathEncrypted);
+				} catch {
+					this.undecodable.add(file);
+					file.path = "（无法解密路径）";
+				}
+			}
 			this.files.push(...resp.files);
 			this.pageToken = resp.nextPageToken;
 			this.hasMore = resp.hasMore;
@@ -362,6 +411,10 @@ class DeletedFilesModal extends Modal {
 		const file = this.selected;
 		const content = this.selectedContent;
 		if (!file || !content || this.restoring) return;
+		if (this.undecodable.has(file)) {
+			new Notice("该记录的路径无法解密，不能恢复");
+			return;
+		}
 		if (await this.pathExists(file.path)) {
 			this.confirmOverwrite(file.path, content);
 			return;
@@ -383,14 +436,8 @@ class DeletedFilesModal extends Modal {
 		new ButtonComponent(this.actionRowEl)
 			.setButtonText("取消")
 			.onClick(() => {
-				if (Platform.isMobile) {
-					this.actionRowEl.empty();
-					this.restoreButton = new ButtonComponent(this.actionRowEl)
-						.setButtonText("恢复到原路径")
-						.onClick(() => void this.restore());
-				} else {
-					this.renderDesktopActions();
-				}
+				if (Platform.isMobile) this.renderMobileActions();
+				else this.renderDesktopActions();
 				this.updateActions();
 			});
 	}

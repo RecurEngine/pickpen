@@ -13,10 +13,11 @@ import {
 	ToggleComponent,
 } from "obsidian";
 
-import { openForLocal } from "./crypto/vault-key-store";
+import { openForLocal, vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { FileVersionState, type FileVersionInfo } from "./gen/proto/sync/sync.ext_pb";
+import { decodeStoredPath } from "./sync/path-codec";
 import { isBlobNotReferenced, isUnauthenticated } from "./remote-connect";
 import { normalize } from "./excludes";
 import { diffTexts, type DiffLine } from "./history-diff";
@@ -147,6 +148,18 @@ class HistoryModal extends Modal {
 	}
 
 	async onOpen(): Promise<void> {
+		// 路径加密仓库的历史路径需要内容密钥才能还原；未解锁时先弹解锁，绝不展示 token
+		if (vaultKeys.isPathEncrypted() && vaultKeys.isLocked()) {
+			const ok = await this.plugin.ensureVaultUnlocked(true);
+			if (!ok) {
+				this.contentEl.empty();
+				this.contentEl.createDiv({
+					cls: "pickpen-vault-message is-error",
+					text: "需要解锁仓库后才能查看历史版本",
+				});
+				return;
+			}
+		}
 		if (Platform.isMobile) {
 			await this.openMobile();
 			return;
@@ -466,6 +479,28 @@ class HistoryModal extends Modal {
 		try {
 			const resp = await this.plugin.remote.listFileVersions(this.fileId, PAGE_SIZE, this.pageToken);
 			if (this.closed) return;
+			// 冷启动时 Head 可能还没把 pathEncryptionVersion 带回来：以响应里的逐行标志为准，
+			// 需要时补一次解锁，避免整页都显示「无法解密路径」。
+			if (resp.versions.some((v) => v.pathEncrypted) && vaultKeys.isLocked()) {
+				const unlocked = await this.plugin.ensureVaultUnlocked(true);
+				if (!unlocked) {
+					if (first) this.listEl.empty();
+					this.listEl.createDiv({
+						cls: "pickpen-vault-message is-error",
+						text: "需要解锁仓库后才能查看历史版本",
+					});
+					return;
+				}
+			}
+			// 路径加密仓库：历史行的 path 是 token，展示前用 enc_path 还原；
+			// 迁移前的旧行 path_encrypted=false，原样保留明文路径。
+			for (const version of resp.versions) {
+				try {
+					version.path = await decodeStoredPath(version.path, version.encPath, version.pathEncrypted);
+				} catch {
+					version.path = "（无法解密路径）";
+				}
+			}
 			if (first) this.versions = [];
 			this.versions.push(...resp.versions);
 			this.pageToken = resp.nextPageToken;

@@ -247,6 +247,46 @@
 	color: var(--text-muted);
 }
 
+/* ===== 版本升级弹窗（强制 / 软提醒） =====
+ * 强制档不可关闭：关闭按钮直接隐藏，真正的关闭门闩在 VersionGateModal.close()。
+ * 其余拦截（Esc/遮罩）只是为了不让宿主先闪一下再被门闩挡回。软提醒沿用原生关闭按钮。 */
+.pickpen-version-modal {
+	width: min(480px, 92vw);
+}
+
+.pickpen-version-gate-modal .modal-close-button {
+	display: none;
+}
+
+.pickpen-version-message {
+	margin-bottom: var(--size-4-4);
+	line-height: var(--line-height-normal);
+}
+
+/* 服务端下发的升级说明：纯文本原样展示，保留换行；过长时在区块内滚动，避免把按钮挤出视口 */
+.pickpen-version-description {
+	margin-bottom: var(--size-4-4);
+	padding: var(--size-4-3);
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	max-height: 40vh;
+	overflow-y: auto;
+	line-height: var(--line-height-normal);
+}
+
+.pickpen-version-steps {
+	margin: 0 0 var(--size-4-4);
+	padding-left: var(--size-4-6);
+	color: var(--text-muted);
+}
+
+/* 设置页「关于与反馈」里的版本状态行：用警示色与普通说明行区分 */
+.pickpen-version-status {
+	border-left: 3px solid var(--text-warning);
+}
+
 /* ===== 桌面订阅与支付宝付款 ===== */
 
 /*
@@ -1574,4 +1614,9 @@ body.is-mobile .pickpen-password-field {
 
 .pickpen-exclude-path {
 	overflow-wrap: anywhere; /* 长路径换行而不是撑破卡片 */
+}
+
+/* 通用二次确认弹窗正文：保留换行 */
+.pickpen-confirm-body {
+	white-space: pre-line;
 }

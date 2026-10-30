@@ -30,6 +30,10 @@ export interface PluginSettings {
 	/** 选择性同步（类型白名单 / 排除文件夹 / 配置目录分类）；载入时经 normalizeSelectiveSettings 补齐 */
 	selective: SelectiveSettings;
 	debugLog: boolean; // 调试日志开关：开启后设置面板实时展示插件内部 console 输出
+	/** 异常诊断上报开关：默认值随构建环境（正式包开、local/test 关），所有构建均可在设置页开关 */
+	errorReport: boolean;
+	/** 首次升级的一次性说明是否已展示（避免每次启动重复提示） */
+	errorReportNoticeShown?: boolean;
 	// persist 落盘回调（index.ts 装配时注入 plugin.saveData，仅写 data.json 非会话键，不随 data.json 序列化）
 	persist?: () => Promise<void>;
 }
@@ -69,6 +73,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	// 共享引用会被代码里的原地改写污染（见 index.ts 载入时的 normalizeSelectiveSettings）
 	selective: defaultSelectiveSettings(),
 	debugLog: false,
+	// 与 reporter 的 BUILD_ENABLED 保持同一口径：正式包默认开，local/test 默认关（inline 比较便于 minify 折叠）
+	errorReport: process.env.PICKPEN_ERROR_REPORT === "1",
 };
 
 // VaultInfo 仓库信息（proto sync.VaultInfo 镜像：int64 → 十进制字符串）
@@ -81,6 +87,10 @@ export interface VaultInfo {
 	encrypted: boolean;
 	/** 密钥版本；每次创建加密仓库/转换为加密/改密码 +1 */
 	keyVersion: string;
+	/** 路径加密版本：0 = 仅内容加密（或未加密），1 = 路径与文件名加密 */
+	pathEncryptionVersion: number;
+	/** 该仓库要求客户端声明的最低加密能力版本：0/1/2 */
+	requiredE2eeVersion: number;
 	/** 解锁所需的密钥包装参数（未加密仓库为 undefined） */
 	keyParams?: VaultKeyParams;
 }

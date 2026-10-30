@@ -27,7 +27,11 @@ export interface PlanInput {
 	 * 与 blockedPaths 分开：这些路径的远端状态是明确的（就是 R），目标树必须等于 R，
 	 * 不能像 blockedPaths 那样回退 Base——否则 target_root_hash 会与提交后服务端状态不符。 */
 	remoteOversizedPaths?: string[];
-	/** 选择性同步过滤（类型/排除文件夹/配置分类）：被排除路径本轮完全无操作 */
+	/** 本轮确实由用户删除事件标记的路径。只有这些路径才允许把「本地 tombstone」
+	 *  传播成超限远端文件的删除；扫描/切 vault 等场景合成出的 tombstone 不在此集合，
+	 *  避免降档后把远端存量文件误删。 */
+	confirmedDeletePaths?: ReadonlySet<string>;
+	/** 选择性同步过滤（类型/文件夹/配置分类）：被排除路径本轮完全无操作 */
 	filter?: SyncFilter;
 	now?: Date; // 测试注入
 }
@@ -164,11 +168,16 @@ export function plan(input: PlanInput): SyncPlan {
 			const r = remote.entries[p];
 			const b = base?.entries[p];
 			const l = local.entries[p];
-			if (l?.state === "deleted" && b?.state === "active" && !b.out_of_scope && entriesEqual(b, r)) {
-				// 例外：本地已删除且远端自 Base 未变——删除意图明确、无需取回内容，照常传播。
-				// 否则降档用户把大文件删掉也释放不出配额，远端会永远留着那份超限内容。
-				// out_of_scope 的 Base 不算「已达成一致」：本设备只是从没同步过该路径，
-				// 它报出的删除不是用户意图，不能据此删掉远端
+			if (
+				l?.state === "deleted" &&
+				b?.state === "active" &&
+				!b.out_of_scope &&
+				entriesEqual(b, r) &&
+				input.confirmedDeletePaths?.has(p)
+			) {
+				// 例外：本地删除且远端自 Base 未变——删除意图明确、无需取回内容，照常传播。
+				// 必须同时有本轮真实删除事件（confirmedDeletePaths）：降档/切 vault/索引缺文件
+				// 都可能让本地快照合成 tombstone，不能据此删掉远端唯一的超限文件。
 				deletes.push(p);
 				targetEntries[p] = { state: "deleted", kind: r.kind };
 				continue;

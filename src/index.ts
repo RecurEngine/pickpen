@@ -3,7 +3,8 @@
 // → onLayoutReady：注册 vault 事件 → pending 检查 → 启动轮询 → requestRun({forceAudit:true})
 // 启动、切回前台、定时轮询、本地 dirty hint 都只请求运行同一个串行 Session。
 
-import { addIcon, Notice, Platform, Plugin, setIcon, setTooltip, TFile } from "obsidian";
+import { addIcon, FileSystemAdapter, getLanguage, Notice, Platform, Plugin, setIcon, setTooltip, TFile } from "obsidian";
+import { create } from "@bufbuild/protobuf";
 
 import pickpenIconSvg from "./assets/pickpen.svg";
 import { AuthManager } from "./auth";
@@ -11,11 +12,17 @@ import { requestPassword } from "./crypto/password-modal";
 import { resolveAutoUnlockPrompt, unlockPromptKey, type UnlockPromptCopy } from "./crypto/unlock-prompt";
 import { createVaultKey, unwrapDek, wrapDekWithPassword, WrongPasswordError } from "./crypto/vault-crypto";
 import { vaultKeys } from "./crypto/vault-key-store";
+import { canEncodePath } from "./crypto/path-crypto";
 import { debugLog } from "./debug-log";
 import { installDeletedFilesFeature } from "./deleted-files-view";
+import { installGlobalCapture } from "./error-report/capture";
+import { errorReporter, reportError, reportMessage } from "./error-report/reporter";
+import type { QueuedReport } from "./error-report/types";
+import { ErrorReportItemSchema, ReportErrorsRequestSchema } from "./gen/proto/errorreport/error_report_pb";
 import { installHistoryFeature } from "./history-view";
-import { planLegacyMigration, SessionStore, stripSessionKeys, vaultScopeKey, type KeyValueStore } from "./session-store";
-import { RemoteClient } from "./remote-connect";
+import { createLocalKV } from "./local-kv";
+import { planLegacyMigration, SessionStore, stripSessionKeys, vaultScopeKey } from "./session-store";
+import { RemoteClient, getClientOS, isSnapshotChanged } from "./remote-connect";
 import {
 	isSyncRibbonMenuItem,
 	ribbonBadgeState,
@@ -29,6 +36,8 @@ import { PickpenSettingTab } from "./settings";
 import { setupStage, SetupGuideModal, type SetupStage } from "./setup-guide";
 import { localDateKey, StorageLimitModal } from "./storage-limit-alert";
 import { syncResultMessage } from "./sync-result";
+import { evaluateVersionPolicy, shouldNotifyVersion, versionModalKey, type UpdateVerdict, type VersionModalMode } from "./version-check";
+import { VersionGateModal } from "./version-gate";
 import {
 	PAUSED_BY_LOCK,
 	PAUSED_NO_VAULT,
@@ -37,7 +46,17 @@ import {
 	syncState,
 } from "./sync-state";
 import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings, type VaultInfo } from "./types";
-import { createRemoteVault, enableRemoteVaultEncryption, fetchVaults, openVaultManager, updateRemoteVaultKey } from "./vault-manager";
+import { PATH_MODE_ENCRYPTED, PATH_MODE_PLAIN, treeRoot } from "./sync/path-codec";
+import {
+	createRemoteVault,
+	enableRemoteVaultEncryption,
+	enableRemoteVaultPathEncryption,
+	fetchVaults,
+	fetchVaultsAndCapability,
+	openVaultManager,
+	updateRemoteVaultKey,
+	type PathRekeyInput,
+} from "./vault-manager";
 import { BaseStore } from "./sync/base-store";
 import { LocalHint } from "./sync/local-hint";
 import { LocalSnapshotBuilder } from "./sync/local-snapshot";
@@ -54,6 +73,10 @@ const PICKPEN_ICON_SVG = pickpenIconSvg.replace(/^\s*<svg[^>]*>/, "").replace(/<
 // 启动提醒延迟：等工作区与 ribbon 渲染完再提示，避免与宿主启动界面、其他插件通知抢注意力
 const STARTUP_REMINDER_DELAY_MS = 1500;
 
+// 版本检查节奏：成功后低频复查即可；失败（离线/服务端未部署）稍后重试，避免离线用户长时间收不到强制提示
+const VERSION_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const VERSION_CHECK_RETRY_MS = 5 * 60 * 1000;
+
 // LegacyDataJson：data.json 的读取视图——正常设置字段（Partial<PluginSettings>）
 // 叠加历史残留字段（旧版本写入、现已不再使用，读取时一律剥离）。
 interface LegacyDataJson extends Partial<PluginSettings> {
@@ -63,16 +86,6 @@ interface LegacyDataJson extends Partial<PluginSettings> {
 	token?: unknown;
 	expiresAtMs?: unknown;
 	extraExcludes?: unknown;
-}
-
-// createLocalKV 探测 localStorage 可用性；不可用（隐私模式/禁用站点存储）→ 调用方降级为仅内存，
-// 本次运行可登录但不跨重启，且会告警一次
-function createLocalKV(): KeyValueStore | null {
-	try {
-		return window.localStorage; // 与 KeyValueStore 接口同形；访问 getter 本身在禁用时抛错
-	} catch {
-		return null;
-	}
 }
 
 function createSessionStore(scopeKey: string): SessionStore {
@@ -95,6 +108,13 @@ export default class PickpenPlugin extends Plugin {
 	private ribbonEl?: HTMLElement;
 	private storageLimitModal: StorageLimitModal | null = null;
 	private guideModal: SetupGuideModal | null = null;
+	// 版本弹窗（强制/软提醒共用）与定时器：打开期间抑制引导/容量弹窗，卸载时放行关闭
+	private versionModal: VersionGateModal | null = null;
+	/** 当前弹窗形态（force/soft + 目标版本）：不变时不重建，避免「重新检查」时闪烁 */
+	private versionModalKey = "";
+	private versionCheckTimer: number | null = null;
+	/** 最近一次版本检查结果（设置页展示用）；ok 时 targetVersion 为空 */
+	versionStatus: UpdateVerdict = { level: "ok", targetVersion: "" };
 	// startupReminderTimer 启动提醒定时器；setupGuideShown 本会话是否已展示过引导弹窗
 	private startupReminderTimer: number | null = null;
 	private setupGuideShown = false;
@@ -112,7 +132,10 @@ export default class PickpenPlugin extends Plugin {
 	// Obsidian 的 onload 是同步接口（返回 void 值）：异步初始化整体收进 startup()，
 	// 首个 await 之前的注册逻辑（图标、会话装配）仍在 onload 调用栈内同步完成，时序不变。
 	onload(): void {
-		void this.startup();
+		// 上报器先于 startup 初始化：启动失败本身也需要被采集。
+		this.initErrorReporter();
+		installGlobalCapture(this);
+		void this.startup().catch((err) => reportError("startup", err));
 	}
 
 	private async startup(): Promise<void> {
@@ -169,6 +192,14 @@ export default class PickpenPlugin extends Plugin {
 		this.settings.persist = () => this.persistSettings();
 		this.sessionStore.applyTo(this.settings);
 		debugLog.setEnabled(this.settings.debugLog);
+		errorReporter.setEnabled(this.settings.errorReport);
+		// 首次升级说明：仅在真正启用上报时提示一次，避免「默认开启」显得偷偷摸摸。
+		// 落盘不 await：这只是提示标记，写 data.json 不应拖慢启动；失败最多下次再提示一次。
+		if (!this.settings.errorReportNoticeShown && errorReporter.isEnabled()) {
+			this.settings.errorReportNoticeShown = true;
+			void this.persistSettings().catch(() => {});
+			new Notice("已开启错误诊断上报：仅发送脱敏后的异常信息，可在「设置 → 诊断」中关闭。");
+		}
 		// 迁移/残留会话键 → 剔除后重写 data.json（防 iCloud 晚到副本把会话键回灌文件）
 		if (action !== "fresh") {
 			await this.persistSettings();
@@ -235,6 +266,7 @@ export default class PickpenPlugin extends Plugin {
 					vaultId: head.vaultId,
 					encrypted: head.encrypted,
 					keyVersion: String(head.keyVersion),
+					pathEncryptionVersion: head.pathEncryptionVersion,
 				});
 			},
 		);
@@ -332,7 +364,7 @@ export default class PickpenPlugin extends Plugin {
 		// 启动时序：全部挂在 onLayoutReady 内
 		this.app.workspace.onLayoutReady(() => {
 			this.scheduleStartupSetupReminder(); // 每次启动都判定：配置未完成时延迟提醒
-			void this.onLayoutReady();
+			void this.onLayoutReady().catch((err) => reportError("layout", err));
 		});
 
 		debugLog.info("[pickpen] Pickpen Sync 插件已加载");
@@ -341,6 +373,9 @@ export default class PickpenPlugin extends Plugin {
 	private async onLayoutReady(): Promise<void> {
 		// ① Base 与 pending 加载（pending 存在 → 第一个 Session 先走恢复，spec §9.4）
 		const loadResult = await this.baseStore.load();
+		if (loadResult === "corrupt") {
+			reportMessage("startup", "sync_base_corrupt", { baseLoadResult: loadResult });
+		}
 		await this.pendingStore.load();
 		// ② 注册 vault 事件（只维护 dirty_paths + requestRun，spec §5）
 		this.localHint.register();
@@ -351,6 +386,8 @@ export default class PickpenPlugin extends Plugin {
 		const forceAudit = loadResult !== "ok" || this.pendingStore.getPending() !== null;
 		this.session.requestRun({ forceAudit: true, interactive: true });
 		void forceAudit;
+		// ⑤ 版本检查：与是否登录、是否绑定仓库无关（服务端接口免鉴权）
+		this.startVersionCheck();
 		debugLog.info("[pickpen] 启动时序完成：Base 加载 + 事件注册 + 轮询 + Session");
 	}
 
@@ -375,6 +412,115 @@ export default class PickpenPlugin extends Plugin {
 		this.startupReminderTimer = null;
 	}
 
+	// —— 版本检查：服务端下发最低支持版本与最新版本，客户端据此强制弹窗 / 软提醒 ——
+
+	// startVersionCheck 延迟到工作区渲染完成后首次检查，之后按固定节奏复查。
+	// 服务端不可达时静默重试：版本检查失败不能变成用户可见的错误，更不能挡住同步。
+	private startVersionCheck(): void {
+		this.versionCheckTimer = window.setTimeout(() => void this.checkPluginVersion(), STARTUP_REMINDER_DELAY_MS);
+		this.register(() => this.clearVersionCheckTimer());
+	}
+
+	private clearVersionCheckTimer(): void {
+		if (this.versionCheckTimer === null) return;
+		window.clearTimeout(this.versionCheckTimer);
+		this.versionCheckTimer = null;
+	}
+
+	private async checkPluginVersion(): Promise<void> {
+		this.clearVersionCheckTimer();
+		if (this.unloaded) return;
+		let nextDelay = VERSION_CHECK_INTERVAL_MS;
+		try {
+			const reply = await this.client.clientConfigClient.getClientConfig({});
+			if (this.unloaded) return;
+			const verdict = evaluateVersionPolicy(this.manifest.version, {
+				minSupported: reply.minSupportedVersion,
+				latest: reply.latestVersion,
+			});
+			// 两档说明完全隔离：强制只看 min_supported_notes，软提醒只看 latest_notes
+			const notes = verdict.level === "force" ? reply.minSupportedNotes : reply.latestNotes;
+			this.applyVersionVerdict(verdict, notes);
+		} catch (err) {
+			// 离线、服务端尚未部署该接口等场景：不提示、不上报同步错误，稍后重试
+			nextDelay = VERSION_CHECK_RETRY_MS;
+			debugLog.warn(`[pickpen][版本检查] 失败：${(err as { message?: string } | undefined)?.message ?? "unknown"}`);
+		} finally {
+			if (!this.unloaded) {
+				this.versionCheckTimer = window.setTimeout(() => void this.checkPluginVersion(), nextDelay);
+			}
+		}
+	}
+
+	private applyVersionVerdict(verdict: UpdateVerdict, notes: string): void {
+		this.versionStatus = verdict;
+		if (verdict.level === "force") {
+			this.showVersionModal("force", verdict.targetVersion, notes);
+		} else if (verdict.level === "soft") {
+			// 已忽略过的版本不再弹；服务端发新版（目标变化）后重新提醒
+			if (shouldNotifyVersion(verdict.targetVersion, this.sessionStore.versionNoticeVersion)) {
+				this.showVersionModal("soft", verdict.targetVersion, notes);
+			} else {
+				this.dismissVersionModal();
+			}
+		} else {
+			this.dismissVersionModal();
+		}
+	}
+
+	// showVersionModal 显示版本弹窗。形态、目标版本或该档说明变化时重建，确保文案与服务端一致。
+	private showVersionModal(mode: VersionModalMode, targetVersion: string, notes: string): void {
+		const key = versionModalKey(mode, targetVersion, notes);
+		if (this.versionModal) {
+			if (this.versionModalKey === key) return;
+			this.dismissVersionModal();
+		}
+		// 版本弹窗优先：先收掉可关闭的引导/容量弹窗，避免叠两层
+		this.guideModal?.close();
+		this.storageLimitModal?.close();
+		this.versionModalKey = key;
+		const modal = new VersionGateModal(this, {
+			mode,
+			currentVersion: this.manifest.version,
+			targetVersion,
+			notes,
+			onRecheck: () => void this.recheckVersion(),
+			onIgnore: () => this.ignoreVersion(targetVersion),
+			onClosed: () => {
+				// 重建时旧弹窗的 onClosed 可能晚于新实例赋值，只允许当前实例清空引用
+				if (this.versionModal !== modal) return;
+				this.versionModal = null;
+				this.versionModalKey = "";
+			},
+		});
+		this.versionModal = modal;
+		modal.open();
+	}
+
+	private dismissVersionModal(): void {
+		const modal = this.versionModal;
+		if (!modal) return;
+		// 门闩默认阻止关闭（强制档），只有这里（版本已满足 / 忽略 / 卸载）才放行
+		modal.markClosable();
+		modal.close();
+		this.versionModalKey = "";
+	}
+
+	// ignoreVersion 「忽略此版本」：按目标版本设备本地去重，之后同版本不再弹窗
+	private ignoreVersion(targetVersion: string): void {
+		this.sessionStore.markVersionNoticeShown(targetVersion);
+		this.dismissVersionModal();
+	}
+
+	// recheckVersion 「重新检查」按钮（仅强制档）：给用户明确回执——市场索引有延迟，静默无反馈会被当成坏了
+	private async recheckVersion(): Promise<void> {
+		const before = this.versionStatus.targetVersion;
+		await this.checkPluginVersion();
+		if (this.versionStatus.level === "force" && this.versionStatus.targetVersion === before) {
+			new Notice(`已重新检查：仍需要升级到 ${this.versionStatus.targetVersion}，请稍后再试。`);
+		}
+	}
+
 	// onUserEnable 用户点击启用插件那一刻（冷启动不会触发）：布局就绪后给出一次性引导。
 	// 不落任何持久化标记——该回调本身就是「用户此刻明确启用了插件」的信号。
 	// 冷启动时未完成配置由 scheduleStartupSetupReminder 提醒，两者重复触发由 showSetupGuide 去重。
@@ -391,6 +537,8 @@ export default class PickpenPlugin extends Plugin {
 	// showSetupGuide 弹出引导弹窗；已有其他弹窗时不叠加。
 	// 会话标记与弹窗守卫各挡一类重复：守卫挡同时/重叠触发，标记挡「先弹的已被用户关掉、后弹的又来」
 	private showSetupGuide(stage: SetupStage): void {
+		// 版本弹窗优先：它可能不可关闭，再叠引导窗只会挡住用户
+		if (this.versionModal) return;
 		if (this.guideModal || this.storageLimitModal) return;
 		const modal = new SetupGuideModal(this.app, stage, {
 			onPrimary: () => {
@@ -576,6 +724,7 @@ export default class PickpenPlugin extends Plugin {
 
 	private showStorageLimitAlert(force: boolean): void {
 		if (!syncState.storageLimitExceeded || this.storageLimitModal) return;
+		if (this.versionModal) return; // 版本弹窗在前：不叠加
 		if (!force && this.guideModal) return; // 引导弹窗在前：不叠加第二个弹窗
 		const today = localDateKey();
 		if (!force && this.sessionStore.storageLimitAlertDate === today) return;
@@ -597,6 +746,77 @@ export default class PickpenPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.persistSettings();
+	}
+
+	/** 初始化异常上报：文件系统路径与元信息都用 getter 延迟读取，避免 startup 前 settings 尚未赋值。 */
+	private initErrorReporter(): void {
+		const adapter = this.app.vault.adapter;
+		errorReporter.init({
+			kv: createLocalKV(),
+			scopeKey: vaultScopeKey(this.app),
+			secrets: () => ({
+				vaultName: this.settings?.vaultName ?? "",
+				vaultBasePath: adapter instanceof FileSystemAdapter ? adapter.getBasePath() : "",
+			}),
+			meta: () => ({
+				deviceId: this.settings?.deviceId ?? "",
+				pluginVersion: this.manifest.version,
+				vaultId: this.settings?.vaultId ?? "",
+				platform: Platform.isMobileApp ? "mobile" : "desktop",
+				os: getClientOS(),
+				signedIn: !!this.settings?.accessToken,
+				vaultBound: !!this.settings?.vaultId,
+				encrypted: vaultKeys.isEncrypted(),
+				locked: vaultKeys.isLocked(),
+				syncRunning: syncState.sessionRunning,
+				pendingCount: syncState.pendingCount,
+				appVersion: (this.app as unknown as { apiVersion?: string }).apiVersion ?? "",
+				locale: this.readLocale(),
+			}),
+			send: (items) => this.sendErrorReports(items),
+		});
+	}
+
+	private readLocale(): string {
+		try {
+			return getLanguage();
+		} catch {
+			return "";
+		}
+	}
+
+	/** 批量发送异常上报；int64 字段一律转 bigint。30 秒超时，避免请求悬挂导致后续上报永久停摆。 */
+	private async sendErrorReports(items: QueuedReport[]): Promise<{ accepted: number; retryAfterMs: number }> {
+		const client = this.client?.errorReportClient;
+		if (!client) return { accepted: 0, retryAfterMs: 30_000 };
+		const reply = await client.reportErrors(
+			create(ReportErrorsRequestSchema, {
+				items: items.map((item) =>
+					create(ErrorReportItemSchema, {
+						reportId: item.reportId,
+						fingerprint: item.clientFingerprint,
+						occurredAtMs: BigInt(item.occurredAtMs),
+						level: item.level,
+						phase: item.phase,
+						errorName: item.errorName,
+						message: item.message,
+						code: item.code,
+						httpStatus: item.httpStatus,
+						stack: item.stack,
+						contextJson: item.contextJson,
+						deviceId: item.deviceId,
+						pluginVersion: item.pluginVersion,
+						platform: item.platform,
+						os: item.os,
+						signedIn: item.signedIn,
+						vaultId: BigInt(item.vaultId || "0"),
+						suppressedCount: item.suppressedCount,
+					}),
+				),
+			}),
+			{ signal: AbortSignal.timeout(30_000) },
+		);
+		return { accepted: reply.accepted, retryAfterMs: Number(reply.retryAfterMs) };
 	}
 
 	/** 调试开关变更时同步私有日志与只读诊断入口。 */
@@ -633,6 +853,7 @@ export default class PickpenPlugin extends Plugin {
 						keyVersion: vaultKeys.keyVersion,
 						hasKeyParams: !!vaultKeys.getParams(),
 						remember: vaultKeys.remember,
+						pathEncrypted: vaultKeys.isPathEncrypted(),
 					},
 					base: base
 						? { revision: base.base_revision, entryCount: Object.keys(base.entries).length }
@@ -685,6 +906,7 @@ export default class PickpenPlugin extends Plugin {
 		vaultId: string;
 		encrypted: boolean;
 		keyVersion: string;
+		pathEncryptionVersion: number;
 	}): Promise<void> {
 		// 在途的 Head 响应可能属于换绑前的旧仓库：按响应自带的仓库 ID 判别，不是当前绑定就丢弃
 		if (!state.vaultId || state.vaultId !== this.settings.vaultId) return;
@@ -755,7 +977,12 @@ export default class PickpenPlugin extends Plugin {
 	private async adoptVaultState(vaultId: string): Promise<VaultInfo | undefined> {
 		const info = await this.fetchVaultInfo(vaultId);
 		if (!info || info.vaultId !== this.settings.vaultId) return info;
-		vaultKeys.syncRemote({ vaultId: info.vaultId, encrypted: info.encrypted, keyVersion: info.keyVersion });
+		vaultKeys.syncRemote({
+			vaultId: info.vaultId,
+			encrypted: info.encrypted,
+			keyVersion: info.keyVersion,
+			pathEncryptionVersion: info.pathEncryptionVersion,
+		});
 		vaultKeys.setParams(info.vaultId, info.keyParams);
 		return info;
 	}
@@ -841,12 +1068,24 @@ export default class PickpenPlugin extends Plugin {
 		vaultKeys.setRemember(enabled);
 	}
 
-	/** 新建仓库；password 非空 = 创建端到端加密仓库（就地生成内容密钥并接管解锁态） */
-	async createVaultWithOptions(name: string, password: string | null): Promise<VaultInfo> {
+	/** 新建仓库；password 非空 = 创建端到端加密仓库（就地生成内容密钥并接管解锁态）。
+	 * pathEncrypted=true 时要求服务端支持 v2（新建即内容+文件名/目录加密）。 */
+	async createVaultWithOptions(name: string, password: string | null, pathEncrypted = false): Promise<VaultInfo> {
+		if (pathEncrypted) {
+			// 旧服务端会忽略 path_encrypted 字段，先探能力，避免建出只有内容加密的仓库
+			const capability = await fetchVaultsAndCapability(this.client);
+			if (capability.serverE2eeVersion < 2) {
+				throw new Error("当前服务端暂不支持文件名加密，请稍后重试");
+			}
+		}
 		const params = password ? (await createVaultKey(password)).params : undefined;
 		this.localKeyOp++; // 变更在途：不让 Head 响应把本机自己的操作当成「别处在改密钥」
 		try {
-			const info = await createRemoteVault(this.client, name, params);
+			const info = await createRemoteVault(this.client, name, params, pathEncrypted);
+			if (pathEncrypted && info.pathEncryptionVersion !== 1) {
+				// 服务端回显不符：绝不能继续上传（会以明文路径写进一个只加密内容的仓库）
+				throw new Error("服务端未启用文件名加密，请更新服务端后重试");
+			}
 			// 只在「当前没有绑定」或「建的就是当前绑定仓库」时接管密钥：
 			// 否则在已绑定并解锁仓库 A 的情况下新建加密仓库 B，会把 A 的内容密钥顶掉，
 			// 还在途的同步轮次会拿 B 的密钥去加密 A 的内容（本机与其它设备都将无法解密）
@@ -863,7 +1102,12 @@ export default class PickpenPlugin extends Plugin {
 	 * 同时让本地基线作废——加密仓库的内容寻址与明文口径完全不同。
 	 */
 	private async adoptVaultKey(info: VaultInfo, password: string): Promise<void> {
-		vaultKeys.syncRemote({ vaultId: info.vaultId, encrypted: true, keyVersion: info.keyVersion });
+		vaultKeys.syncRemote({
+			vaultId: info.vaultId,
+			encrypted: true,
+			keyVersion: info.keyVersion,
+			pathEncryptionVersion: info.pathEncryptionVersion,
+		});
 		vaultKeys.setParams(info.vaultId, info.keyParams);
 		await vaultKeys.unlock(password);
 	}
@@ -894,6 +1138,86 @@ export default class PickpenPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * 把已内容加密的当前绑定仓库原地升级为路径加密（v2）。
+	 * 只重写清单路径，内容 Blob 不重传；迁移前的历史/删除记录路径保持明文（已知边界）。
+	 */
+	async enableVaultPathEncryption(vaultId: string): Promise<void> {
+		if (vaultId !== this.settings.vaultId) throw new Error("只有当前绑定的仓库可以升级文件名加密");
+		if (!vaultKeys.isEncrypted() || vaultKeys.isLocked()) throw new Error("请先解锁仓库后再升级文件名加密");
+		if (vaultKeys.isPathEncrypted()) throw new Error("仓库已启用文件名加密");
+		const capability = await fetchVaultsAndCapability(this.client);
+		if (capability.serverE2eeVersion < 2) throw new Error("当前服务端暂不支持文件名加密，请稍后重试");
+
+		const prevPaused = syncState.pausedReason;
+		let migrated = false;
+		this.pauseSync("仓库路径加密迁移中");
+		this.session.pauseForMigration();
+		try {
+			await this.session.waitIdle();
+			const head = await this.remote.getHead();
+			if (!head) throw new Error("获取仓库状态失败，请稍后重试");
+			if (head.pathEncryptionVersion === 1) return; // 别的设备已完成
+			// 迁移会把 Base 的 revision/root 直接推进到迁移后的 Head；若本地 Base 落后于
+			// 服务端最新清单，保留旧 entries 会破坏 base_root_hash == root(entries) 不变量，
+			// 之后快路径会误判「已全部同步」而漏掉别的设备新增/删除的文件。
+			const base = this.baseStore.getBase();
+			if (!base) throw new Error("请先完成一次同步后再启用文件名加密");
+			if (base.base_revision !== String(head.revision) || base.base_root_hash !== head.rootHash) {
+				throw new Error("本地基线尚未同步到最新，请先完成一次同步再重试");
+			}
+			if (this.pendingStore.getPending()) {
+				throw new Error("有同步操作尚未完成，请先等待同步结束再重试");
+			}
+			// 迁移前仓库是 v1 口径：manifest 直接是明文路径
+			const manifest = await this.remote.getManifest(head.revision, head.rootHash, PATH_MODE_PLAIN);
+			const unencodable = Object.keys(manifest.entries).filter((path) => !canEncodePath(path));
+			if (unencodable.length > 0) {
+				const listed = unencodable.slice(0, 5).join("、");
+				throw new Error(
+					`以下路径过深或名称无法加密，暂不能启用文件名加密：${listed}${unencodable.length > 5 ? " 等" : ""}`,
+				);
+			}
+			const cipher = await vaultKeys.pathCryptoUnlocked();
+			const rekeys: PathRekeyInput[] = [];
+			for (const [path, e] of Object.entries(manifest.entries)) {
+				const { key, encPath } = await cipher.encode(path);
+				rekeys.push({ fileId: e.file_id ?? "", oldPath: path, newPath: key, encPath });
+			}
+			const targetRoot = await treeRoot(manifest.entries, PATH_MODE_ENCRYPTED);
+			const info = await enableRemoteVaultPathEncryption(
+				this.client,
+				vaultId,
+				head.revision,
+				head.rootHash,
+				targetRoot,
+				rekeys,
+			);
+			// 只更新 Base 的 Head 口径，不重建 entries：磁盘内容没变，token 路径也已由同一 DEK 派生。
+			// 不能用 saveBase（会重新 stat 把未校验的新 mtime 写进基线），否则迁移窗口内的本地改动
+			// 会被下一轮快路径漏掉。
+			await this.baseStore.updateHead(info.revision, info.rootHash, PATH_MODE_ENCRYPTED);
+			vaultKeys.syncRemote({
+				vaultId: info.vaultId,
+				encrypted: true,
+				keyVersion: info.keyVersion,
+				pathEncryptionVersion: info.pathEncryptionVersion,
+			});
+			migrated = true;
+			new Notice("已启用文件名与目录加密");
+		} catch (err) {
+			if (isSnapshotChanged(err)) {
+				throw new Error("仓库刚发生变化，请重新同步后重试");
+			}
+			throw err;
+		} finally {
+			this.session.resumeAfterMigration();
+			if (!prevPaused) this.resumeSync();
+			else this.pauseSync(prevPaused);
+			if (migrated && !prevPaused) this.session.requestRun({ forceAudit: true, interactive: true });
+		}
+	}
+
 	/** 用口令解开指定仓库的内容密钥（改密码前的核验；不改动运行时解锁态） */
 	async verifyVaultPassword(vaultId: string, password: string): Promise<Uint8Array> {
 		// 只取参数用于本地核验，绝不写回运行时状态：这是给别人仓库核验密码，
@@ -911,7 +1235,12 @@ export default class PickpenPlugin extends Plugin {
 			const info = await updateRemoteVaultKey(this.client, vaultId, params);
 			if (vaultId !== this.settings.vaultId) return;
 			// 内容密钥未变 → 本地基线仍然有效；用新参数重新装载以保持解锁态与记忆
-			vaultKeys.syncRemote({ vaultId: info.vaultId, encrypted: true, keyVersion: info.keyVersion });
+			vaultKeys.syncRemote({
+				vaultId: info.vaultId,
+				encrypted: true,
+				keyVersion: info.keyVersion,
+				pathEncryptionVersion: info.pathEncryptionVersion,
+			});
 			vaultKeys.setParams(info.vaultId, info.keyParams);
 			await vaultKeys.unlock(newPassword);
 			this.syncVaultLockState();
@@ -1019,12 +1348,15 @@ export default class PickpenPlugin extends Plugin {
 
 	// 同 onload：onunload 也是同步接口，异步收尾收进 shutdown()，清理顺序与原先一致。
 	onunload(): void {
-		void this.shutdown();
+		void this.shutdown().catch((err) => reportError("unknown", err));
 	}
 
 	private async shutdown(): Promise<void> {
 		this.unloaded = true;
 		delete (window as unknown as Record<string, unknown>).__pickpenDebug;
+		// 版本检查定时器不属于 Obsidian 生命周期；弹窗必须先放行关闭，否则卸载后仍被门闩挡住
+		this.clearVersionCheckTimer();
+		this.dismissVersionModal();
 		// 卸载不会中断已启动的 Promise 链：必须显式停掉，否则旧实例会在「禁用→启用」
 		// 或插件更新后与新实例并存——并发同步同一仓库，并继续消耗两边共享的 refresh token
 		this.session?.dispose();
@@ -1032,6 +1364,8 @@ export default class PickpenPlugin extends Plugin {
 		this.poller.stop();
 		this.localHint.unload();
 		await this.baseStore.flush();
+		// 卸载前尽力发一次：队列已持久化，移动端进程被杀时下次启动会补报。
+		errorReporter.dispose();
 		debugLog.info("[pickpen] Pickpen Sync 插件已卸载");
 		debugLog.setEnabled(false);
 	}

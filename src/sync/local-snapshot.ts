@@ -20,6 +20,7 @@ import { isTooBig, normalize } from "../excludes";
 import type { BlockedPathInfo, BlockedReason } from "./blocked";
 import type { SyncFilter } from "./selective";
 import { nfcPath, detectCaseConflicts } from "./path";
+import { canEncodePath } from "../crypto/path-crypto";
 import { sealForRemote } from "../crypto/vault-key-store";
 import { KIND_DIR, KIND_FILE } from "./types";
 import type { Entry, Snapshot } from "./types";
@@ -51,6 +52,8 @@ export interface LocalScanContext {
 	isMobile: boolean;
 	/** 服务端按当前套餐下发的单文件上限。 */
 	maxFileSizeBytes: number;
+	/** 本轮是否处于路径加密（v2）口径：无法编码为 token 的路径必须阻塞，不能进 buildTree。 */
+	pathEncrypted?: boolean;
 	yieldControl?: YieldControl;
 	onProgress?: ProgressCallback;
 }
@@ -128,6 +131,13 @@ export class LocalSnapshotBuilder {
 		if (!this.current) {
 			// 冷启动：以 Base（若有）为骨架，等 force_audit 校正
 			this.current = ctx.base ? cloneSnapshot(ctx.base) : emptyLocal(ctx.base);
+		}
+		if (ctx.pathEncrypted) {
+			// 仓库在別处刚切换为 v2 时，内存里的 current 可能还留着 v1 时代扫到的
+			// 超过 30 层/无法编码的路径；每轮先剔除并标记 blocked，避免 treeRoot 抛错拖垮整轮。
+			for (const detail of this.sanitizeUnencodable()) {
+				this.blockedDetails.set(detail.path, detail.reason);
+			}
 		}
 		if (!ctx.forceAudit) {
 			// 配置 sweep 先于「无 dirty 直接返回」：否则设置改动要等 15min 周期对账才会被发现
@@ -333,15 +343,21 @@ export class LocalSnapshotBuilder {
 			},
 		);
 		const readFailures = new Set<string>();
+		const unencodable: string[] = [];
 		for (const h of hashed) {
 			if (!h) continue;
 			if (caseConflicts.has(h.path)) continue;
 			const np = nfcPath(h.path);
-			entries[np ?? h.path] = {
+			const key = np ?? h.path;
+			if (ctx.pathEncrypted && !canEncodePath(key)) {
+				unencodable.push(key);
+				continue;
+			}
+			entries[key] = {
 				state: "active",
 				content_hash: h.hash,
 				size: String(h.size),
-				file_id: this.fileIDFor(np ?? h.path, ctx),
+				file_id: this.fileIDFor(key, ctx),
 			};
 		}
 		for (let i = 0; i < needHash.length; i++) {
@@ -358,6 +374,10 @@ export class LocalSnapshotBuilder {
 				await yieldCtl.tick(100, 50);
 				if (caseConflicts.has(dir)) continue;
 				const np = nfcPath(dir) ?? dir;
+				if (ctx.pathEncrypted && !canEncodePath(np)) {
+					unencodable.push(np);
+					continue;
+				}
 				entries[np] = { state: "active", kind: KIND_DIR, file_id: this.fileIDFor(np, ctx) };
 
 			} catch (err) {
@@ -370,8 +390,12 @@ export class LocalSnapshotBuilder {
 
 		// 4. §7.5 删除状态构造：Base 有而磁盘缺失 → deleted；Base deleted 磁盘缺失 → 保持。
 		// 被排除路径必须先跳过：枚举本身是过滤后的，「Base 有、枚举里没有」并不等于磁盘上没有，
-		// 合成 deleted 会被 planner 当成「本地删除」提交远端删除（并让整轮在写盘校验处静默放弃）
-		if (base) {
+		// 合成 deleted 会被 planner 当成「本地删除」提交远端删除（并让整轮在写盘校验处静默放弃）。
+		// 另：存在无法编码的路径时，不合成任何删除——它可能是某个文件的 rename 目标（新路径
+		// 传不上去，旧路径已不在磁盘），此时把旧路径判成删除会连带删掉云端原文件。宁可延迟删除。
+		if (base && unencodable.length > 0) {
+			debugLog.warn("[pickpen] 存在无法加密的路径，本轮跳过缺失路径的删除推断");
+		} else if (base) {
 			for (const [path, e] of Object.entries(base.entries)) {
 				if (ctx.filter.isExcluded(path, (e.kind ?? KIND_FILE) === KIND_DIR)) continue;
 				if (disk.has(path) || entries[path] || dirSet.has(path)) continue; // 磁盘存在（或已 active）
@@ -391,8 +415,22 @@ export class LocalSnapshotBuilder {
 		for (const path of oversized) add(path, "oversized");
 		for (const path of readFailures) add(path, "read_failed");
 		for (const path of caseConflicts) add(path, "case_conflict");
+		for (const path of unencodable) add(path, "path_unencodable");
 		this.current = this.mount(entries);
 		return [...blocked.values()];
+	}
+
+	/** 剔除内存 Local 中无法编码为 token 的路径（v2 模式）；返回 blocked 明细。
+	 * 只在调用方已确认 pathEncrypted 时使用。 */
+	private sanitizeUnencodable(): BlockedPathInfo[] {
+		if (!this.current) return [];
+		const blocked: BlockedPathInfo[] = [];
+		for (const path of Object.keys(this.current.entries)) {
+			if (canEncodePath(path)) continue;
+			delete this.current.entries[path];
+			blocked.push({ path, reason: "path_unencodable" });
+		}
+		return blocked;
 	}
 
 	/** dirty 增量：只刷新 dirty 路径（spec §9.2：普通编辑不扫全库；dirty 可为文件夹） */
@@ -406,6 +444,9 @@ export class LocalSnapshotBuilder {
 		const entries: Record<string, Entry> = { ...this.current!.entries };
 		const blocked: BlockedPathInfo[] = [];
 		const dirDirty: string[] = [];
+		// 重命名到「无法加密的路径」时，旧路径不能合成为删除：旧文件已不在磁盘，
+		// 但新路径又传不上去。把旧路径钉回 Base（blocked，planner 保留远端），避免云端被删。
+		const pinned = new Set<string>();
 
 		for (const rawPath of dirty) {
 			const finishProgress = tracker.start(rawPath);
@@ -415,6 +456,23 @@ export class LocalSnapshotBuilder {
 				const path = normalize(rawPath);
 				const np = nfcPath(path);
 				if (np === null) continue;
+				if (ctx.pathEncrypted && !canEncodePath(np)) {
+					// 无法编码为 token：绝不把明文路径/无法还原的条目送进 buildTree；
+					// 若这是 rename 的新路径，把旧路径钉回 Base（blocked），否则旧路径会被
+					// 合成为 deleted 并删除云端及其它设备上的原文件。
+					const oldPath = ctx.renameHints?.get(np);
+					if (oldPath) {
+						const kept = this.current?.entries[oldPath] ?? ctx.base?.entries[oldPath];
+						if (kept && kept.state === "active") {
+							entries[oldPath] = kept;
+							pinned.add(oldPath);
+							blocked.push({ path: oldPath, reason: "path_unencodable" });
+						}
+					}
+					delete entries[np];
+					blocked.push({ path: np, reason: "path_unencodable" });
+					continue;
+				}
 				// 配置文件不在 vault 索引里（getAbstractFileByPath 恒为 null）：只能按 adapter 判定，
 				// 否则会把「索引里没有」误判成真实删除
 				if (ctx.filter.isConfigPath(np)) {
@@ -437,7 +495,7 @@ export class LocalSnapshotBuilder {
 					// Base/current 有该路径 → deleted；否则忽略（未同步过的路径无状态变化）。
 					// 不做磁盘 stat 探测：delete 后文件已移入系统回收站，stat 失败会误判 blocked
 					// 导致删除不传播（§9.2 的读失败保护仅适用于索引中存在但读不出的情况，见下方 catch）
-					if (prev) {
+					if (prev && !pinned.has(np)) {
 						entries[np] = { state: "deleted", kind: prev.kind };
 					}
 					continue;
@@ -485,6 +543,11 @@ export class LocalSnapshotBuilder {
 		path: string,
 		entries: Record<string, Entry>,
 	): Promise<void> {
+		if (ctx.pathEncrypted && !canEncodePath(path)) {
+			delete entries[path];
+			debugLog.warn(`[pickpen] 配置文件路径无法加密，跳过：${path}`);
+			return;
+		}
 		let stat: { size: number } | null = null;
 		try {
 			stat = await ctx.vault.adapter.stat(path);

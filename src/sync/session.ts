@@ -7,8 +7,9 @@ import { App, Platform, normalizePath } from "obsidian";
 
 import { openForLocal, remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
+import { reportError } from "../error-report/reporter";
 import { normalize } from "../excludes";
-import { isFileIDMoved, isInvalidHash, isManifestMismatch, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
+import { errorCode, isFileIDMoved, isInvalidHash, isManifestMismatch, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
 import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgress } from "./progress";
@@ -25,15 +26,15 @@ import { mergeBlockedDetails, type BlockedPathInfo } from "./blocked";
 import { sha256Hex } from "./content-hash";
 import { LocalSnapshotBuilder } from "./local-snapshot";
 import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
-import { buildTree } from "./merkle";
 import { nfcPath } from "./path";
+import { encodeDeletes, encodePuts, indexPaths, PATH_MODE_ENCRYPTED, PATH_MODE_PLAIN, treeRoot } from "./path-codec";
 import { PendingStore } from "./pending-store";
 import { entriesEqual, isConflictCopyPath, isRemoteOversized, plan } from "./planner";
 import { SnapshotRemote } from "./remote";
 import { createSyncFilter, type SyncFilter } from "./selective";
 import { KIND_DIR, KIND_FILE } from "./types";
 import type { Entry, Snapshot, SyncPlan } from "./types";
-import { backoffMs, createYieldControl } from "./utils";
+import { backoffMs, createYieldControl, newUUID } from "./utils";
 
 /** 12023 连续次数达此值 → 抑制 rename hint 继承（强制新身份，切断复发） */
 const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
@@ -133,6 +134,8 @@ export interface SessionDeps {
 export class ReconcileSession {
 	private readonly deps: SessionDeps;
 	private running = false;
+	/** 路径加密迁移期间暂停新轮次：迁移必须独占 Head/Base，避免并发 saveBase 互相覆盖 */
+	private pausedForMigration = false;
 	private progress: SyncProgress | null = null;
 	private progressVersion = 0;
 	private rerunRequested = false;
@@ -164,6 +167,10 @@ export class ReconcileSession {
 	private localBlockedDetails: BlockedPathInfo[] = [];
 	/** 远端内容超过当前套餐单文件上限的路径（降档后的存量文件）：不下载、不覆盖、不删除 */
 	private oversizedRemotePaths: string[] = [];
+	/** 本轮由真实删除事件标记的路径（允许传播超限远端文件的删除） */
+	private confirmedDeletePaths = new Set<string>();
+	/** 本轮开始时快照的删除意图；成功收尾后只清掉这些，保留轮次期间新到的事件 */
+	private roundConfirmedDeletes = new Set<string>();
 	/** 本轮服务端下发的单文件上限（字节）；供状态展示说明具体数值 */
 	private maxFileSizeBytes = 0;
 	/** 本轮强制改走完整 Manifest 取远端真值（12018 后设一次；下一轮消费即清，避免空转） */
@@ -250,6 +257,22 @@ export class ReconcileSession {
 		return this.running;
 	}
 
+	/** 等待当前轮（含已排队的续跑）结束；无运行时立即返回。迁移等独占操作使用。 */
+	waitIdle(): Promise<void> {
+		if (!this.running) return Promise.resolve();
+		return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
+	}
+
+	/** 路径加密迁移：禁止开启新轮次（当前轮会在当前轮次结束后停下）。 */
+	pauseForMigration(): void {
+		this.pausedForMigration = true;
+	}
+
+	/** 迁移结束：恢复调度；调用方负责按需 requestRun 收尾。 */
+	resumeAfterMigration(): void {
+		this.pausedForMigration = false;
+	}
+
 	getBlockedPaths(): string[] {
 		return this.blockedPaths;
 	}
@@ -264,6 +287,8 @@ export class ReconcileSession {
 		this.blockedPaths = [];
 		this.localBlockedDetails = [];
 		this.oversizedRemotePaths = [];
+		this.confirmedDeletePaths.clear();
+		this.roundConfirmedDeletes.clear();
 		this.maxFileSizeBytes = 0;
 		this.interruptedTransfer = null;
 		this.interruptedChecked = false;
@@ -282,6 +307,13 @@ export class ReconcileSession {
 	addDirty(path: string): void {
 		this.nextDirtyPaths.add(path);
 		this.markPendingLocal(path);
+	}
+
+	/** 真实删除事件：标脏并登记「用户删除意图」。只有这类路径允许在降档后
+	 *  传播超限远端文件的删除；扫描/切 vault 合成出的 tombstone 不登记。 */
+	addConfirmedDelete(path: string): void {
+		this.confirmedDeletePaths.add(path);
+		this.addDirty(path);
 	}
 
 	/** rename 事件入口（local-hint 调用）：记录 new→old 映射并标脏两路径（保 file_id 身份） */
@@ -380,6 +412,8 @@ export class ReconcileSession {
 	 */
 	private finishRound(): void {
 		this.settlePendingLocal();
+		for (const path of this.roundConfirmedDeletes) this.confirmedDeletePaths.delete(path);
+		this.roundConfirmedDeletes.clear();
 		this.lastError = "";
 		this.lastSyncAt = Date.now();
 		// 成功跑完一轮即不再是「中断现场」的提示语境
@@ -409,6 +443,14 @@ export class ReconcileSession {
 	}
 
 	private async run(): Promise<void> {
+		if (this.pausedForMigration) {
+			// 迁移独占：不开启新轮次；dirty 与 rerun 意图保留，恢复后由调用方触发完整审计
+			this.rerunRequested = true;
+			const waiters = this.idleWaiters;
+			this.idleWaiters = [];
+			for (const resolve of waiters) resolve();
+			return;
+		}
 		this.running = true;
 		this.report();
 		try {
@@ -458,6 +500,9 @@ export class ReconcileSession {
 					} else {
 						this.lastError = `同步失败：${(err as Error).message ?? String(err)}`;
 						debugLog.error("[pickpen] Session 失败", err);
+						// 只报兜底分支：11002/12025 与可重试错误在上面的分支已消化，
+						// 预期错误由上报模块按错误码/错误名过滤。
+						reportError("sync", err, { code: errorCode(err) });
 					}
 					this.consecutiveFailures++;
 					// 不在此处 report：storageLimitConfirmed 是一次性标志，在 report 内被消费，
@@ -465,7 +510,7 @@ export class ReconcileSession {
 					// 立即带出错误，循环结束则 finally 上报，两种路径都不会漏。
 				}
 				await new Promise((r) => window.setTimeout(r, 0)); // 轮间让出事件循环
-			} while (!this.disposed && (this.rerunRequested || this.nextDirtyPaths.size > 0));
+			} while (!this.disposed && !this.pausedForMigration && (this.rerunRequested || this.nextDirtyPaths.size > 0));
 		} finally {
 			this.running = false;
 			this.clearProgress();
@@ -550,6 +595,9 @@ export class ReconcileSession {
 			throw new Error("服务端返回的单文件上限非法");
 		}
 		this.maxFileSizeBytes = maxFileSizeBytes; // 状态文案要说明「超过哪个上限」
+		// 本轮路径口径固定取自本次 Head，不读可变的 vaultKeys 全局：
+		// 期间若别处完成路径加密，Head/Manifest 的 CAS 会让本轮重试，避免一轮内编码口径撕裂。
+		const pathMode = head.pathEncryptionVersion === 1 ? PATH_MODE_ENCRYPTED : PATH_MODE_PLAIN;
 
 		// Base 里「上轮不在同步范围内、本轮已进入范围」的路径（用户刚打开某个分类）：
 		// 这些条目只是远端回声，planner 会按 Bootstrap 裁决并给出新状态。但若本轮恰好没有
@@ -576,6 +624,7 @@ export class ReconcileSession {
 			caseInsensitive: this.deps.caseInsensitive,
 			isMobile: Platform.isMobile,
 			maxFileSizeBytes,
+			pathEncrypted: pathMode === PATH_MODE_ENCRYPTED,
 			yieldControl: createYieldControl(),
 		});
 		this.renameHints.clear(); // 本轮 hint 已消费
@@ -590,13 +639,15 @@ export class ReconcileSession {
 
 		// 5. Head 未变且 L == B → 结束（§9.1 步骤 5）。
 		// 被排除路径不进 L（扫描时已过滤）而可能仍留在 B，直接比 root 会永远不相等：
-		// 改用「排除项之外逐条一致」的等价判定，避免每轮都白跑一次全量 plan + saveBase
+		// 改用「排除项之外逐条一致」的等价判定，避免每轮都白跑一次全量 plan + saveBase。
+		// 注意 root 是远端口径：Base 的 path_mode 与本轮不一致时旧 root 不可比，必须完整拉取。
 		this.beginPhase("planning");
-		const localTree = buildTree(local.entries);
-		const localRoot = await localTree.rootHash;
+		const localRoot = await treeRoot(local.entries, pathMode);
+		const baseModeMatches = (base?.path_mode ?? PATH_MODE_PLAIN) === pathMode;
 		if (
 			head.unchanged &&
 			base &&
+			baseModeMatches &&
 			!scopeExpanded &&
 			(localRoot === base.base_root_hash || sameEntriesExcept(filter, local.entries, base.entries))
 		) {
@@ -607,14 +658,20 @@ export class ReconcileSession {
 		// 6. 构建完整 R（Head 未变且未要求强拉 → 服务端 root == Base root，用 Base entries 等价；
 		//    否则 GetManifest 下载完整 Manifest 并校验 root，§7.6）
 		let remoteEntries: Record<string, import("./types").Entry>;
+		let remoteRepairs: string[] = [];
 		const forceManifest = this.manifestRefetchForced;
 		this.manifestRefetchForced = false; // 消费即清：强拉只作用于一轮，仍失败就按普通错误上报
-		if (head.unchanged && base && !forceManifest) {
+		if (head.unchanged && base && baseModeMatches && !forceManifest) {
 			remoteEntries = base.entries;
 		} else {
 			this.beginPhase("remote");
-			const manifest = await remote.getManifest(head.revision, head.rootHash);
+			// 先把本地/Base 已知明文路径灌入 token 反向索引：manifest 解码优先命中，避免逐条 AES
+			if (pathMode === PATH_MODE_ENCRYPTED) {
+				await indexPaths([...Object.keys(local.entries), ...(base ? Object.keys(base.entries) : [])], pathMode);
+			}
+			const manifest = await remote.getManifest(head.revision, head.rootHash, pathMode);
 			remoteEntries = manifest.entries;
+			remoteRepairs = manifest.repairs ?? [];
 		}
 		const remoteSnap: Snapshot = {
 			schema_version: 2,
@@ -633,6 +690,7 @@ export class ReconcileSession {
 
 		// 7. 三方对账（§9.1 步骤 7）
 		this.beginPhase("planning");
+		this.roundConfirmedDeletes = new Set(this.confirmedDeletePaths);
 		const planResult = plan({
 			base,
 			local,
@@ -640,6 +698,7 @@ export class ReconcileSession {
 			deviceId: settings.deviceId,
 			blockedPaths: this.blockedPaths,
 			remoteOversizedPaths: this.oversizedRemotePaths,
+			confirmedDeletePaths: this.roundConfirmedDeletes,
 			filter,
 		});
 		// 7b. 内容级合并（§8.2 扩展）：把能在内容层干净合并的冲突副本就地消解。
@@ -652,7 +711,32 @@ export class ReconcileSession {
 			expectedRevision: head.revision,
 			expectedRootHash: head.rootHash,
 		});
-		planResult.target_root_hash = await (buildTree(planResult.target_entries)).rootHash;
+		// 7c. enc_path 修复：远端 token 能匹配本地已知路径，但密文与确定性值不一致
+		//（某次错误写入/异常中断）。目标树已按正确密文计算，这里补同内容的 put/delete，
+		// 让服务端 root 收敛到目标；否则本轮 root 永远对不上（12018）。
+		// 这些 mutation 只改路径密文、不传内容（Blob 已在服务端），因此不参与本地内容复验。
+		const repairOnlyPuts = new Set<string>();
+		const repairOnlyDeletes = new Set<string>();
+		for (const path of remoteRepairs) {
+			const e = planResult.target_entries[path];
+			if (!e) continue;
+			if (e.state === "active") {
+				if (planResult.puts.some((p) => p.path === path)) continue;
+				const kind = e.kind ?? KIND_FILE;
+				planResult.puts.push({
+					path,
+					content_hash: kind === KIND_DIR ? "" : e.content_hash ?? "",
+					size: kind === KIND_DIR ? "0" : e.size ?? "0",
+					file_id: e.file_id ?? newUUID(),
+					kind,
+				});
+				repairOnlyPuts.add(path);
+			} else if (!planResult.deletes.includes(path)) {
+				planResult.deletes.push(path);
+				repairOnlyDeletes.add(path);
+			}
+		}
+		planResult.target_root_hash = await treeRoot(planResult.target_entries, pathMode);
 		const hasWork =
 			planResult.puts.length > 0 ||
 			planResult.deletes.length > 0 ||
@@ -689,6 +773,7 @@ export class ReconcileSession {
 					base_revision: String(head.revision),
 					base_root_hash: head.rootHash,
 					entries: planResult.target_entries,
+					path_mode: pathMode,
 				}, { unverified, outOfScope });
 			} else if (planResult.target_root_hash !== head.rootHash) {
 				debugLog.warn("[pickpen] 目标树与远端 Head 不符，本轮不写 Base（避免落盘不自洽的基线）");
@@ -719,7 +804,14 @@ export class ReconcileSession {
 
 		// 9. 提交前重新 stat/hash 复查（§9.1 步骤 9）：发现内容已不是计划里那份即放弃本轮，
 		//    不应用已下载临时文件；由 catch 侧的「本地已变」路径标脏该路径并退避重排（下一轮即收敛）
-		await this.verifyLocalUnchanged(planResult, expectedHashes, mergePass.mergedPaths, this.beginPhase("verifying"));
+		await this.verifyLocalUnchanged(
+			planResult,
+			expectedHashes,
+			mergePass.mergedPaths,
+			this.beginPhase("verifying"),
+			repairOnlyPuts,
+			repairOnlyDeletes,
+		);
 
 		// 10. PutBlob 预上传服务端缺失的内容 Blob（§9.1 步骤 10）
 		// 携带源路径与计划声明的体积（明文口径）：大文件上传前先落一条中断痕迹
@@ -788,6 +880,7 @@ export class ReconcileSession {
 			target_root_hash: planResult.target_root_hash,
 			apply_actions: planResult.apply_actions,
 			created_at: new Date().toISOString(),
+			path_mode: pathMode,
 		});
 
 		// 12. CAS 提交（§9.1 步骤 11 / §9.3）
@@ -797,8 +890,8 @@ export class ReconcileSession {
 				expectedRevision: head.revision,
 				expectedRootHash: head.rootHash,
 				targetRootHash: planResult.target_root_hash,
-				puts: planResult.puts,
-				deletes: planResult.deletes,
+				puts: await encodePuts(planResult.puts, pathMode),
+				deletes: await encodeDeletes(planResult.deletes, pathMode),
 			});
 		} catch (err) {
 			if (isManifestMismatch(err) && !forceManifest) {
@@ -883,6 +976,7 @@ export class ReconcileSession {
 			base_revision: String(commit.revision),
 			base_root_hash: commit.rootHash,
 			entries: planResult.target_entries,
+			path_mode: pathMode,
 		}, { unverified: (path) => skippedSet.has(path) || unverified(path), outOfScope });
 		await pendingStore.clear();
 		await this.applier.cleanupTemp(this.tmpDir);
@@ -901,15 +995,24 @@ export class ReconcileSession {
 		let head;
 		try {
 			head = await remote.getHead();
-		} catch {
+		} catch (err) {
+			reportError("recover", err);
 			return; // 网络失败：保留 pending，下次 Session 再试
 		}
 		if (!head) return;
+		const pathMode = head.pathEncryptionVersion === 1 ? PATH_MODE_ENCRYPTED : PATH_MODE_PLAIN;
+		// pending 是上一轮路径口径下的目标；仓库在期间完成/回退了路径加密时，
+		// apply_actions 本身仍是明文路径，但 target_root_hash 已不可比，重新对账更安全。
+		if ((pending.path_mode ?? PATH_MODE_PLAIN) !== pathMode) {
+			await pendingStore.clear();
+			this.forceAudit = true;
+			return;
+		}
 
 		if (head.rootHash === pending.target_root_hash) {
 			// Commit 已成功：完成本地落地并更新 Base
 			try {
-				const manifest = await remote.getManifest(head.revision, head.rootHash);
+				const manifest = await remote.getManifest(head.revision, head.rootHash, pathMode);
 				const filter = this.buildFilter(settings);
 				const skippedPaths = new Set<string>();
 				await pendingStore.markApplying();
@@ -945,12 +1048,14 @@ export class ReconcileSession {
 					base_revision: String(head.revision),
 					base_root_hash: head.rootHash,
 					entries: manifest.entries,
+					path_mode: pathMode,
 				}, { unverified: (path) => skippedPaths.has(path) || isOutOfScope(path), outOfScope: isOutOfScope });
 				await pendingStore.clear();
 				this.forceAudit = true; // 落地后完整审计校正本地状态
 				this.lastError = "";
 			} catch (err) {
 				debugLog.error("[pickpen] pending 恢复失败（保留 pending 重试）", err);
+				reportError("recover", err);
 			}
 			return;
 		}
@@ -1061,13 +1166,18 @@ export class ReconcileSession {
 		expectedHashes: Map<string, string>,
 		mergedPaths: Set<string>,
 		onProgress: ProgressCallback,
+		skipPuts: ReadonlySet<string> = new Set(),
+		skipDeletes: ReadonlySet<string> = new Set(),
 	): Promise<void> {
 		const { app } = this.deps;
 		// puts：源内容必须仍是计划的 hash（dir 无内容，跳过）
 		// 冲突副本 put 的 path 是待创建的副本路径（磁盘尚不存在），校验对象是其 source_path
 		const conflictSources = new Map(planResult.conflict_copies.map((c) => [c.path, c.source_path]));
-		const filePuts = planResult.puts.filter((p) => p.kind !== KIND_DIR);
-		const tracker = new ProgressTracker(filePuts.length + planResult.deletes.length, onProgress);
+		// enc_path 修复 put/delete 是元数据 mutation：目标内容在远端/本地可能尚未落地，
+		// 不能用「磁盘内容 == 目标 hash」来判定本地竞态，否则修复永远被误判成本地已变。
+		const filePuts = planResult.puts.filter((p) => p.kind !== KIND_DIR && !skipPuts.has(p.path));
+		const deleteTargets = planResult.deletes.filter((d) => !skipDeletes.has(d));
+		const tracker = new ProgressTracker(filePuts.length + deleteTargets.length, onProgress);
 		for (const p of filePuts) {
 			const srcPath = conflictSources.get(p.path) ?? p.path;
 			const finish = tracker.start(srcPath);
@@ -1094,7 +1204,7 @@ export class ReconcileSession {
 		}
 		// deletes：目标路径在 Session 期间重现 → 标脏重排（下一轮对账）；
 		// 目录删除目标做存在性检查（无内容 hash）
-		for (const d of planResult.deletes) {
+		for (const d of deleteTargets) {
 			const finish = tracker.start(d);
 			let processed = false;
 			try {

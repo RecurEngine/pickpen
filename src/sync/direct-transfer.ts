@@ -29,6 +29,17 @@ export class DirectTransferUnavailableError extends Error {
 	}
 }
 
+/** 直连 HTTP 非 2xx：保留状态码供异常上报提取，文案与原先一致（会展示给用户）。 */
+export class DirectTransferHttpError extends Error {
+	readonly status: number;
+
+	constructor(action: string, status: number) {
+		super(`${action}（HTTP ${status}）`);
+		this.name = "DirectTransferHttpError";
+		this.status = status;
+	}
+}
+
 /** 取字节数对应的精确 ArrayBuffer：Uint8Array 可能是更大 buffer 的视图（如 protobuf subarray），
  * 必须按 byteOffset/byteLength 截取，否则会把相邻数据一并上传。 */
 export function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -74,7 +85,7 @@ async function mobileGet(url: string, sizeHint?: number): Promise<Uint8Array> {
 		throw new DirectTransferUnavailableError();
 	}
 	if (resp.status !== 200) {
-		throw new Error(`直下失败（HTTP ${resp.status}）`);
+		throw new DirectTransferHttpError("直下失败", resp.status);
 	}
 	return new Uint8Array(await resp.arrayBuffer());
 }
@@ -99,7 +110,7 @@ async function mobilePut(url: string, body: Uint8Array): Promise<void> {
 		throw new DirectTransferUnavailableError();
 	}
 	if (resp.status < 200 || resp.status >= 300) {
-		throw new Error(`直传失败（HTTP ${resp.status}）`);
+		throw new DirectTransferHttpError("直传失败", resp.status);
 	}
 }
 
@@ -107,7 +118,7 @@ async function mobilePut(url: string, body: Uint8Array): Promise<void> {
 async function requestGet(url: string): Promise<Uint8Array> {
 	const resp = await requestUrl({ url, throw: false });
 	if (resp.status !== 200) {
-		throw new Error(`直下失败（HTTP ${resp.status}）`);
+		throw new DirectTransferHttpError("直下失败", resp.status);
 	}
 	return new Uint8Array(resp.arrayBuffer);
 }
@@ -120,6 +131,6 @@ async function requestPut(url: string, body: Uint8Array): Promise<void> {
 		throw: false,
 	});
 	if (resp.status < 200 || resp.status >= 300) {
-		throw new Error(`直传失败（HTTP ${resp.status}）`);
+		throw new DirectTransferHttpError("直传失败", resp.status);
 	}
 }

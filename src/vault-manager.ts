@@ -47,6 +47,8 @@ export function vaultInfoFromProto(v: {
 	rootHash: string;
 	encrypted: boolean;
 	keyVersion: bigint;
+	pathEncryptionVersion: number;
+	requiredE2eeVersion: number;
 	keyParams?: { version: number; kdf: number; kdfSalt: string; kdfIterations: number; wrapNonce: string; wrappedKey: string };
 }): VaultInfo {
 	return {
@@ -56,6 +58,8 @@ export function vaultInfoFromProto(v: {
 		rootHash: v.rootHash,
 		encrypted: v.encrypted,
 		keyVersion: String(v.keyVersion),
+		pathEncryptionVersion: v.pathEncryptionVersion,
+		requiredE2eeVersion: v.requiredE2eeVersion,
 		keyParams: v.keyParams
 			? {
 					version: v.keyParams.version,
@@ -75,6 +79,14 @@ export async function fetchVaults(client: RemoteClient): Promise<VaultInfo[]> {
 	return resp.vaults.map(vaultInfoFromProto);
 }
 
+// fetchVaultsAndCapability 列表 + 服务端最高加密能力版本（旧服务端不回该字段 → 0）
+export async function fetchVaultsAndCapability(
+	client: RemoteClient,
+): Promise<{ vaults: VaultInfo[]; serverE2eeVersion: number }> {
+	const resp = await client.syncClient.listVaults({});
+	return { vaults: resp.vaults.map(vaultInfoFromProto), serverE2eeVersion: resp.serverE2eeVersion };
+}
+
 // fetchVaultQuota 从订阅接口获取已创建数量和当前套餐总上限。
 export async function fetchVaultQuota(client: RemoteClient): Promise<VaultQuota | undefined> {
 	const [plansReply, subscriptionReply] = await Promise.all([
@@ -84,13 +96,16 @@ export async function fetchVaultQuota(client: RemoteClient): Promise<VaultQuota 
 	return resolveVaultQuota(plansReply.plans, subscriptionReply.current?.planId, subscriptionReply.vaultCount);
 }
 
-// createRemoteVault 显式新建仓库（同名幂等返回已有仓库）；keyParams 非空 = 新建端到端加密仓库
+// createRemoteVault 显式新建仓库（同名幂等返回已有仓库）；keyParams 非空 = 新建端到端加密仓库。
+// 新版插件创建加密仓库时恒定 pathEncrypted=true（内容+路径）；旧服务端会忽略该字段，
+// 调用方必须检查返回的 pathEncryptionVersion。
 export async function createRemoteVault(
 	client: RemoteClient,
 	name: string,
 	keyParams?: VaultKeyParams,
+	pathEncrypted = false,
 ): Promise<VaultInfo> {
-	const resp = await client.syncClient.createVault({ name, keyParams });
+	const resp = await client.syncClient.createVault({ name, keyParams, pathEncrypted });
 	return vaultInfoFromProto(resp.vault!);
 }
 
@@ -120,6 +135,38 @@ export async function updateRemoteVaultKey(
 	return vaultInfoFromProto(resp.vault!);
 }
 
+export interface PathRekeyInput {
+	fileId: string;
+	oldPath: string;
+	newPath: string;
+	encPath: string;
+}
+
+// enableRemoteVaultPathEncryption 已内容加密仓库原地升级为路径加密（v2）。
+// 服务端原子替换清单，内容 Blob 不重传；rekeys 必须覆盖当前清单全部条目。
+export async function enableRemoteVaultPathEncryption(
+	client: RemoteClient,
+	vaultId: string,
+	expectedRevision: bigint,
+	expectedRootHash: string,
+	targetRootHash: string,
+	rekeys: PathRekeyInput[],
+): Promise<VaultInfo> {
+	const resp = await client.syncClient.enableVaultPathEncryption({
+		vaultId: BigInt(vaultId),
+		expectedRevision,
+		expectedRootHash,
+		targetRootHash,
+		rekeys: rekeys.map((r) => ({
+			fileId: r.fileId,
+			oldPath: r.oldPath,
+			newPath: r.newPath,
+			encPath: r.encPath,
+		})),
+	});
+	return vaultInfoFromProto(resp.vault!);
+}
+
 // deleteRemoteVault 删除仓库（远端数据不可恢复）
 export async function deleteRemoteVault(client: RemoteClient, vaultId: string): Promise<void> {
 	await client.syncClient.deleteVault({ vaultId: BigInt(vaultId) });
@@ -142,6 +189,8 @@ class VaultManagerModal extends Modal {
 	private onChange?: () => void;
 	private vaults: VaultInfo[] = [];
 	private quota: VaultQuota | undefined;
+	/** 服务端支持的最高加密能力版本；<2 时新版插件不能创建加密仓库（新建即内容+路径） */
+	private serverE2eeVersion = 0;
 	private descEl!: HTMLElement;
 	private quotaEl!: HTMLElement;
 	private actionsEl!: HTMLElement;
@@ -188,7 +237,7 @@ class VaultManagerModal extends Modal {
 		this.listEl.empty();
 		const loading = this.listEl.createDiv({ cls: "pickpen-vault-message", text: "加载中…" });
 		const [vaultsResult, quotaResult] = await Promise.allSettled([
-			fetchVaults(this.plugin.client),
+			fetchVaultsAndCapability(this.plugin.client),
 			fetchVaultQuota(this.plugin.client),
 		]);
 		if (quotaResult.status === "fulfilled") {
@@ -198,6 +247,11 @@ class VaultManagerModal extends Modal {
 			debugLog.error(`[pickpen] 仓库额度加载失败，错误码：${errorCode(quotaResult.reason) ?? "unknown"}`);
 		}
 		this.quotaEl.textContent = formatVaultQuota(this.quota);
+		// 能力位必须先于 renderCreateAction 落定：新建加密仓库（内容+路径）依赖它决定是否可用
+		if (vaultsResult.status === "fulfilled") {
+			this.vaults = vaultsResult.value.vaults;
+			this.serverE2eeVersion = vaultsResult.value.serverE2eeVersion;
+		}
 		this.renderCreateAction(bound);
 
 		if (vaultsResult.status === "rejected") {
@@ -213,7 +267,6 @@ class VaultManagerModal extends Modal {
 			this.listEl.createDiv({ cls: "pickpen-vault-message is-error", text: `列表加载失败：${e.rawMessage ?? String(err)}（可点击刷新重试）` });
 			return;
 		}
-		this.vaults = vaultsResult.value;
 		loading.remove();
 		if (this.vaults.length === 0) {
 			this.listEl.createDiv({
@@ -231,24 +284,33 @@ class VaultManagerModal extends Modal {
 		let newName = "";
 		let encrypt = false;
 		const atLimit = this.quota?.atLimit ?? false;
+		const canCreateEncrypted = this.serverE2eeVersion >= 2;
 		const createCard = this.actionsEl.createDiv({ cls: "pickpen-vault-card pickpen-vault-create" });
 		new TextComponent(createCard)
 			.setPlaceholder(this.plugin.app.vault.getName())
 			.setDisabled(atLimit)
 			.onChange((value) => (newName = value.trim()));
-		// 端到端加密开关：默认不加密（与既有仓库行为一致），勾选后在创建时设置仓库密码
+		// 端到端加密开关：新版插件新建加密仓库即「内容+文件名/目录」加密，不再提供只加密内容的选项。
+		// 旧服务端不支持路径加密，此时禁用开关（避免建出只有内容加密的仓库）。
 		const encryptRow = createCard.createDiv({ cls: "pickpen-vault-encrypt" });
 		new ToggleComponent(encryptRow)
-			.setDisabled(atLimit)
-			.setTooltip("内容在本机加密后再上传，服务端与文件内容均不可读；密码忘记后无法恢复")
+			.setDisabled(atLimit || !canCreateEncrypted)
+			.setTooltip(
+				canCreateEncrypted
+					? "内容、文件名与目录名都在本机加密后再上传；服务端不可读。密码忘记后无法恢复，所有设备都需要新版插件"
+					: "服务端暂不支持文件名加密，请稍后更新服务端后重试",
+			)
 			.onChange((value) => (encrypt = value));
-		encryptRow.createDiv({ cls: "pickpen-vault-encrypt-label", text: "端到端加密" });
+		encryptRow.createDiv({ cls: "pickpen-vault-encrypt-label", text: "端到端加密（含文件名与目录）" });
+		if (!canCreateEncrypted) {
+			encryptRow.createDiv({ cls: "pickpen-vault-encrypt-hint", text: "服务端版本过低，暂不可用" });
+		}
 		// 整行可点：移动端没有 hover，标签与留白区点击也切换开关。
 		// 转发到开关自身的原生 click，与手指直接点开关走同一条链路——实测 ToggleComponent.setValue 不写回
 		// input.checked、也不触发 onChange，走它会导致开关看着切了、encrypt 却仍是 false；
 		// 点在开关本体上时跳过，交回原生行为，避免切换两次。
 		encryptRow.addEventListener("click", (evt) => {
-			if (atLimit || (evt.target as HTMLElement).closest("input, .checkbox-container")) return;
+			if (atLimit || !canCreateEncrypted || (evt.target as HTMLElement).closest("input, .checkbox-container")) return;
 			encryptRow.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
 		});
 		const createButtonText = atLimit ? "已达仓库上限" : bound ? "新建仓库" : "新建并绑定";
@@ -278,8 +340,9 @@ class VaultManagerModal extends Modal {
 		await requestPassword(this.plugin.app, {
 			title: "新建加密仓库",
 			description:
-				"仓库内容会在本机加密后再上传，服务端只保存密文与文件名等元数据。" +
-				"仓库密码与账号登录无关、不会上传；忘记密码将无法恢复仓库内容。",
+				"仓库内容、文件名与目录名都会在本机加密后再上传，服务端只保存密文与不透明路径。" +
+				"仓库密码与账号登录无关、不会上传；忘记密码将无法恢复仓库内容。" +
+				"所有需要访问该仓库的设备都必须使用新版插件。",
 			submitLabel: "创建",
 			confirm: true,
 			remember: { initial: vaultKeys.remember },
@@ -304,7 +367,7 @@ class VaultManagerModal extends Modal {
 	private async createWithPassword(name: string, password: string): Promise<VaultInfo> {
 		if (this.quota?.atLimit) throw new Error("仓库数量已达当前套餐上限");
 		try {
-			return await this.plugin.createVaultWithOptions(name, password);
+			return await this.plugin.createVaultWithOptions(name, password, true);
 		} catch (err) {
 			if (isUnauthenticated(err)) {
 				this.close();
@@ -347,6 +410,31 @@ class VaultManagerModal extends Modal {
 				return null;
 			},
 		});
+	}
+
+	// startEnablePathEncryption 已内容加密仓库原地升级为路径加密（文件名/目录）
+	private async startEnablePathEncryption(v: VaultInfo): Promise<void> {
+		new ConfirmActionModal(
+			this.plugin.app,
+			"启用文件名与目录加密",
+			`「${v.name}」将把文件名、扩展名与目录名也加密后再上传。\n\n` +
+				"· 只重写清单路径，已同步的内容不会重新上传；\n" +
+				"· 迁移前已产生的历史版本与已删除记录中的旧路径仍以明文保留；\n" +
+				"· 操作不可撤销，旧版插件将无法再访问该仓库。\n\n" +
+				"建议先让其他设备同步完成，再执行迁移。",
+			"确认启用",
+			() => {
+				void (async () => {
+					try {
+						await this.plugin.enableVaultPathEncryption(v.vaultId);
+						await this.refresh();
+					} catch (err) {
+						debugLog.error(`[pickpen] 启用文件名加密失败，错误码：${errorCode(err) ?? "unknown"}`);
+						new Notice(reasonText(err, "启用文件名加密失败"));
+					}
+				})();
+			},
+		).open();
 	}
 
 	// startChangePassword 修改仓库密码：先核验当前密码，再设置新密码（内容不重加密）
@@ -398,7 +486,12 @@ class VaultManagerModal extends Modal {
 		const badges = head.createDiv({ cls: "pickpen-vault-badges" });
 		if (isBound) badges.createDiv({ cls: "pickpen-vault-badge is-bound", text: "当前绑定" });
 		if (isEmpty) badges.createDiv({ cls: "pickpen-vault-badge is-empty", text: "空仓库" });
-		if (v.encrypted) badges.createDiv({ cls: "pickpen-vault-badge is-encrypted", text: "已加密" });
+		if (v.encrypted) {
+			badges.createDiv({
+				cls: "pickpen-vault-badge is-encrypted",
+				text: v.pathEncryptionVersion === 1 ? "内容+文件名已加密" : "仅内容加密",
+			});
+		}
 		// 底部行：操作按钮组
 		const foot = card.createDiv({ cls: "pickpen-vault-card-foot" });
 		const actions = foot.createDiv({ cls: "pickpen-vault-actions" });
@@ -419,6 +512,20 @@ class VaultManagerModal extends Modal {
 			new ButtonComponent(actions)
 				.setButtonText("修改密码")
 				.onClick(() => void this.startChangePassword(v));
+			if (v.pathEncryptionVersion !== 1) {
+				const pathButton = new ButtonComponent(actions).setButtonText("启用文件名加密");
+				if (isBound && this.serverE2eeVersion >= 2) {
+					pathButton.onClick(() => void this.startEnablePathEncryption(v));
+				} else {
+					pathButton
+						.setDisabled(true)
+						.setTooltip(
+							!isBound
+								? "只有当前绑定仓库可以升级文件名加密"
+								: "服务端暂不支持文件名加密，请稍后重试",
+						);
+				}
+			}
 		} else {
 			const encryptButton = new ButtonComponent(actions).setButtonText("启用加密");
 			if (isBound) {
@@ -592,5 +699,38 @@ class VaultManagerModal extends Modal {
 		} else {
 			this.plugin.resumeSync();
 		}
+	}
+}
+
+/** 通用二次确认弹窗（启用文件名加密等不可逆操作）。 */
+class ConfirmActionModal extends Modal {
+	constructor(
+		app: App,
+		private readonly titleText: string,
+		private readonly bodyText: string,
+		private readonly submitLabel: string,
+		private readonly onConfirm: () => void,
+	) {
+		super(app);
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: this.titleText });
+		const body = contentEl.createEl("p", { cls: "pickpen-confirm-body" });
+		body.setText(this.bodyText);
+		const row = contentEl.createDiv({ cls: "modal-button-container" });
+		new ButtonComponent(row).setButtonText("取消").onClick(() => this.close());
+		new ButtonComponent(row)
+			.setButtonText(this.submitLabel)
+			.setCta()
+			.onClick(() => {
+				this.close();
+				this.onConfirm();
+			});
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
 	}
 }

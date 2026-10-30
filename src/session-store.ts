@@ -30,6 +30,9 @@ export interface SessionState {
 	vaultOwner?: { vaultId: string; email: string };
 	// 存储已满提醒按设备去重；YYYY-MM-DD，本地日期。容量恢复后清除。
 	storageLimitAlertDate?: string;
+	// 新版本软提醒按设备去重：记录最近一次已提醒的最新版本号。
+	// 与 storageLimitAlertDate 同理放设备本地——放 data.json 会随 vault 同步，导致一台设备看过、其余设备都不再提醒。
+	versionNoticeVersion?: string;
 }
 
 /** 落 data.json 时必须剔除的会话键（= localStorage 独有，禁止随 vault 同步） */
@@ -81,7 +84,7 @@ export function planLegacyMigration(dataJsonHasSession: boolean, storedSessionEx
 }
 
 // FNV-1a 32bit → hex（同步、确定性，用于把 vault 稳定标识散列为定长 key 后缀）
-function fnv1aHex(input: string): string {
+export function fnv1aHex(input: string): string {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < input.length; i++) {
 		h ^= input.charCodeAt(i);
@@ -284,6 +287,16 @@ export class SessionStore {
 	clearStorageLimitAlert(): void {
 		if (!this.state.storageLimitAlertDate) return;
 		delete this.state.storageLimitAlertDate;
+		this.save();
+	}
+
+	/** 最近一次已软提醒的新版本号；同一目标版本不再重复打扰 */
+	get versionNoticeVersion(): string | undefined {
+		return this.state.versionNoticeVersion;
+	}
+
+	markVersionNoticeShown(version: string): void {
+		this.state.versionNoticeVersion = version;
 		this.save();
 	}
 

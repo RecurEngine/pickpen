@@ -70,6 +70,12 @@ const context = await esbuild.context({
 		"process.env.PICKPEN_CHECKOUT_URL": JSON.stringify(checkoutUrl),
 		"process.env.PICKPEN_DESKTOP_POLL_INTERVAL_MS": JSON.stringify(envConfig.desktopPollIntervalMs),
 		"process.env.PICKPEN_BUILD_TAG": JSON.stringify(buildTag),
+		// 异常上报编译期开关：正式包默认开启；local/test 默认关闭，真机 E2E 用
+		// PICKPEN_ERROR_REPORT=1 pnpm build:test 显式打开。值为字面量 "1"/"0"，
+		// 代码内用内联比较，minify 时可把关闭分支整段剔除。
+		"process.env.PICKPEN_ERROR_REPORT": JSON.stringify(
+			process.env.PICKPEN_ERROR_REPORT ?? (env === "prod" ? "1" : "0"),
+		),
 	},
 	loader: {
 		".svg": "text",

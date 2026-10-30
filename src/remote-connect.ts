@@ -8,6 +8,8 @@ import { Platform } from "obsidian";
 
 import { debugLog } from "./debug-log";
 import { BenefitService } from "./gen/proto/benefit/benefit_pb";
+import { ClientConfigService } from "./gen/proto/clientconfig/client_config_pb";
+import { ErrorReportService } from "./gen/proto/errorreport/error_report_pb";
 import { InviteService } from "./gen/proto/invite/invite_pb";
 import { SyncService } from "./gen/proto/sync/sync.ext_pb";
 import { SubscriptionService } from "./gen/proto/subscription/subscription_pb";
@@ -52,6 +54,9 @@ export const ErrCode = {
 	FileIDMoved: 12023,       // put 的 file_id 已 active 于其他路径且未配对 delete（move 兜底）
 	VaultLimitExceeded: 12024,
 	StorageLimitExceeded: 12025,
+	EncryptedPathInvalid: 12026, // 路径加密仓库的路径/enc_path 格式非法
+	PathEncryptionState: 12027,  // 仓库路径加密状态不允许该操作
+	PathRekeyInvalid: 12028,     // 路径重加密映射不完整/root 不符
 	InvalidSubscription: 13001,
 	PaymentUnavailable: 13002,
 	OrderNotFound: 13003,
@@ -125,6 +130,14 @@ const PUBLIC_AUTH_METHODS = new Set([
 	`${UserService.typeName}.${UserService.method.sendCode.name}`,
 	`${UserService.typeName}.${UserService.method.login.name}`,
 	`${UserService.typeName}.${UserService.method.refreshToken.name}`,
+	// 版本策略必须在未登录时也能查（旧版本用户可能一直没登录）
+	`${ClientConfigService.typeName}.${ClientConfigService.method.getClientConfig.name}`,
+]);
+
+// 可选鉴权方法：有令牌就带，没令牌也放行，且绝不触发自动刷新/重试。
+// 异常上报发生在登录失败、启动失败等场景，刷新 token 会形成上报→刷新→再上报的风暴。
+const OPTIONAL_AUTH_METHODS = new Set([
+	`${ErrorReportService.typeName}.${ErrorReportService.method.reportErrors.name}`,
 ]);
 
 // 公开方法不依赖 access token：SendCode/Login/RefreshToken 都是登录前调用。
@@ -132,6 +145,10 @@ const PUBLIC_AUTH_METHODS = new Set([
 // 形成递归请求风暴。
 function isPublicAuthMethod(req: { method: { name: string; parent: { typeName: string } } }): boolean {
 	return PUBLIC_AUTH_METHODS.has(`${req.method.parent.typeName}.${req.method.name}`);
+}
+
+function isOptionalAuthMethod(req: { method: { name: string; parent: { typeName: string } } }): boolean {
+	return OPTIONAL_AUTH_METHODS.has(`${req.method.parent.typeName}.${req.method.name}`);
 }
 
 // getClientOS 将 Obsidian 运行平台转换为服务端约定的操作系统标识。
@@ -145,7 +162,7 @@ export function getClientOS(): "ios" | "android" | "macos" | "windows" | "linux"
 }
 
 /** 本插件支持的端到端加密能力版本（随请求头 Client-E2EE-Version 声明） */
-export const CLIENT_E2EE_VERSION = 1;
+export const CLIENT_E2EE_VERSION = 2;
 
 // createAuthInterceptor 单独导出便于验证刷新/重试状态机；不属于插件对外 API。
 export function createAuthInterceptor(getConfig: () => RemoteConfig): Interceptor {
@@ -161,6 +178,15 @@ export function createAuthInterceptor(getConfig: () => RemoteConfig): Intercepto
 
 		if (isPublicAuthMethod(req)) {
 			req.header.delete("Authorization");
+			return next(req);
+		}
+
+		if (isOptionalAuthMethod(req)) {
+			// 有令牌就带上（服务端据此关联账号），没有就匿名发送；不走下面的刷新/重试状态机。
+			req.header.delete("Authorization");
+			if (cfg.accessToken) {
+				req.header.set("Authorization", `Bearer ${cfg.accessToken}`);
+			}
 			return next(req);
 		}
 
@@ -209,6 +235,8 @@ export class RemoteClient {
 	subscriptionClient: ReturnType<typeof createClient<typeof SubscriptionService>>;
 	inviteClient: ReturnType<typeof createClient<typeof InviteService>>;
 	benefitClient: ReturnType<typeof createClient<typeof BenefitService>>;
+	errorReportClient: ReturnType<typeof createClient<typeof ErrorReportService>>;
+	clientConfigClient: ReturnType<typeof createClient<typeof ClientConfigService>>;
 	private getConfig: () => RemoteConfig;
 	private currentBaseUrl = "";
 
@@ -220,6 +248,8 @@ export class RemoteClient {
 		this.subscriptionClient = createClient(SubscriptionService, transport);
 		this.inviteClient = createClient(InviteService, transport);
 		this.benefitClient = createClient(BenefitService, transport);
+		this.errorReportClient = createClient(ErrorReportService, transport);
+		this.clientConfigClient = createClient(ClientConfigService, transport);
 	}
 
 	// rebuild baseUrl 变更时重建 transport 与客户端（插件初始化时调用）
@@ -233,6 +263,8 @@ export class RemoteClient {
 		this.subscriptionClient = createClient(SubscriptionService, transport);
 		this.inviteClient = createClient(InviteService, transport);
 		this.benefitClient = createClient(BenefitService, transport);
+		this.errorReportClient = createClient(ErrorReportService, transport);
+		this.clientConfigClient = createClient(ClientConfigService, transport);
 		this.currentBaseUrl = baseUrl;
 		debugLog.info("[pickpen] 远端地址已更新");
 	}

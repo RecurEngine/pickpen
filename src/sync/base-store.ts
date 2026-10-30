@@ -100,6 +100,24 @@ export class BaseStore {
 	 * base-only 字段（local_*、out_of_scope）一律由本方法按本轮实况重写，不让它们随条目回流：
 	 * 写盘前先剥掉，再按 unverified / outOfScope 两个判定重新落。
 	 */
+	/**
+	 * 仅更新 Head 口径（路径加密迁移专用）：保留 entries 与 local_* 快路径，绝不重写 stat。
+	 * 迁移只改变路径/root 口径，内容与上次扫描时一致；若期间本地被改动，旧 local_mtime/size
+	 * 仍然不等于磁盘值，下一轮完整审计会正常重算——不能用 saveBase 重新 stat，否则会把
+	 * 「未校验的新 stat」写进基线，让下一次快路径漏掉改动。
+	 */
+	async updateHead(revision: string, rootHash: string, pathMode: number): Promise<void> {
+		if (!this.base) return;
+		this.base = {
+			...this.base,
+			base_revision: revision,
+			base_root_hash: rootHash,
+			path_mode: pathMode,
+		};
+		await this.atomicWrite(JSON.stringify(this.base));
+		this.dirty = false;
+	}
+
 	async saveBase(snapshot: Snapshot, opts: BaseSaveOptions = {}): Promise<void> {
 		// 把「写这份基线时用的内容密钥代次」一并落盘：它是判断内容寻址口径是否变化的唯一可靠依据，
 		// 只放在内存里的话，转换中途失败/关闭 Obsidian 后重开就会误判成「没有工作可做」
@@ -111,8 +129,15 @@ export class BaseStore {
 				entries[path] = { ...rest, out_of_scope: true };
 				continue;
 			}
-			if (e.state !== "active" || opts.unverified?.(path)) {
+			if (e.state !== "active") {
 				entries[path] = rest;
+				continue;
+			}
+			if (opts.unverified?.(path)) {
+				// 未校验的 active 条目（本地阻塞/远端超限未下载等）不能落成“已达成的基线”：
+				// 否则下一轮会把「本地没有文件」误判成用户删除，降档后升级时删掉远端唯一副本。
+				// 用 out_of_scope 让 planner 按 Bootstrap 裁决（本地缺失 → 下载；远端超限 → 保持远端）。
+				entries[path] = { ...rest, out_of_scope: true };
 				continue;
 			}
 			let stat: { mtime: number; size: number } | null = null;

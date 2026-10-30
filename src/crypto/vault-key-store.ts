@@ -14,6 +14,7 @@ import { debugLog } from "../debug-log";
 import { sha256Hex } from "../sync/content-hash";
 import type { KeyValueStore } from "../session-store";
 import { isEncryptedBlob, keyEpoch, openBlob, sealBlob, unwrapDek, type VaultKeyParams } from "./vault-crypto";
+import { PathCrypto } from "./path-crypto";
 
 export const VAULT_KEY_PREFIX = "pickpen:vaultkey:v1:";
 
@@ -48,6 +49,8 @@ export interface RemoteVaultState {
 	vaultId: string;
 	encrypted: boolean;
 	keyVersion: string;
+	/** 路径加密版本：0 = 仅内容加密（或未加密），1 = 路径与文件名加密 */
+	pathEncryptionVersion?: number;
 }
 
 class MemoryKV implements KeyValueStore {
@@ -70,8 +73,11 @@ export class VaultKeyStore {
 	private vaultId = "";
 	private encrypted = false;
 	private remoteVersion = "0";
+	private pathEncryptionVersion = 0;
 	private params?: VaultKeyParams;
 	private dek?: Uint8Array;
+	/** 路径编解码器（惰性创建；锁/换仓库/换密钥时清空） */
+	private pathCryptoPromise?: Promise<PathCrypto>;
 	/** 当前内容密钥的寻址代次指纹（未加密/未解锁为 ""）；见下方 getEpoch 说明 */
 	private epoch = "";
 	private unlockedVersion = "";
@@ -111,6 +117,9 @@ export class VaultKeyStore {
 		const versionTransition = !first && !switched && state.keyVersion !== this.remoteVersion;
 		this.remoteVersion = state.keyVersion;
 		this.encrypted = state.encrypted;
+		// 路径加密版本只影响路径编解码口径，不影响内容密钥；0→1 不锁、不清记忆，
+		// 由 Base/pending 的 path_mode 检测并触发完整 Manifest。
+		this.pathEncryptionVersion = state.encrypted ? state.pathEncryptionVersion ?? 0 : 0;
 
 		if (!state.encrypted) {
 			// 未加密仓库没有可解锁的状态；顺带清掉可能残留的记忆
@@ -160,6 +169,36 @@ export class VaultKeyStore {
 		return this.encrypted;
 	}
 
+	/** 路径与文件名是否已加密（v2）；未加密仓库恒为 false */
+	isPathEncrypted(): boolean {
+		return this.encrypted && this.pathEncryptionVersion === 1;
+	}
+
+	/** 远端声明的路径加密版本（0/1），用于传给同步轮次做口径快照 */
+	getPathEncryptionVersion(): number {
+		return this.pathEncryptionVersion;
+	}
+
+	/**
+	 * 已内容加密且已解锁即可取路径编解码器。
+	 * 是否使用 v2 编码由调用方的 pathMode（来自 Head）决定，而不是本机缓存的
+	 * pathEncryptionVersion：迁移时仓库还是 v1，但目标 root 已需要 v2 编码；
+	 * 历史/删除记录里的 path_encrypted 也可能是逐行标志。
+	 */
+	async pathCryptoUnlocked(): Promise<PathCrypto> {
+		if (!this.encrypted) throw new Error("仓库未启用端到端加密");
+		if (!this.dek) throw new Error("仓库未解锁，请先输入仓库密码");
+		if (!this.pathCryptoPromise) {
+			// 失败不能永久缓存：否则一次瞬时的 WebCrypto 错误会让本解锁态下所有
+			// 路径编解码（同步、历史、删除列表）全部失败，直到手动上锁/重启。
+			this.pathCryptoPromise = PathCrypto.create(this.dek).catch((err: unknown) => {
+				this.pathCryptoPromise = undefined;
+				throw err;
+			});
+		}
+		return this.pathCryptoPromise;
+	}
+
 	/** 需要同步却尚未解锁（未解锁时同步内核必须整体暂停，不能读盘算哈希） */
 	isLocked(): boolean {
 		return this.encrypted && !this.dek;
@@ -182,6 +221,7 @@ export class VaultKeyStore {
 		if (!this.params) throw new Error("缺少仓库加密参数，请刷新仓库列表后重试");
 		const dek = await unwrapDek(password, this.params);
 		this.dek = dek;
+		this.pathCryptoPromise = undefined;
 		this.unlockedVersion = this.remoteVersion;
 		this.password = password; // 仅供「查看密码」；开启记住时随密钥一起落盘
 		this.epoch = await keyEpoch(dek);
@@ -190,6 +230,7 @@ export class VaultKeyStore {
 
 	lock(): void {
 		this.dek = undefined;
+		this.pathCryptoPromise = undefined;
 		this.unlockedVersion = "";
 		this.epoch = "";
 		this.password = ""; // 与内容密钥同进同出：上锁后不再展示密码
@@ -235,6 +276,7 @@ export class VaultKeyStore {
 		if (!saved) return false;
 		this.rememberEnabled = true;
 		this.dek = hexToBytes(saved.dek);
+		this.pathCryptoPromise = undefined;
 		// 升级前写下的记录里没有密码，此时「查看密码」不出现，直到用户重新输入一次
 		if (typeof saved.password === "string") this.password = saved.password;
 		this.unlockedVersion = saved.keyVersion;
@@ -251,6 +293,7 @@ export class VaultKeyStore {
 		this.params = undefined;
 		this.vaultId = "";
 		this.encrypted = false;
+		this.pathEncryptionVersion = 0;
 		this.remoteVersion = "0";
 	}
 

@@ -770,7 +770,7 @@ describe("out_of_scope 的 Base 条目（上轮不在同步范围内）", () => 
 
 describe("远端超限（降档后仓库里的存量文件）：本轮完全无操作", () => {
 	const oversized = (hash: string): Entry => ({ state: "active", content_hash: hash, size: "104857600" });
-	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[]) {
+	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[], confirmed?: string[]) {
 		return plan({
 			base,
 			local,
@@ -778,6 +778,7 @@ describe("远端超限（降档后仓库里的存量文件）：本轮完全无�
 			deviceId: "dev-001",
 			now: new Date("2026-08-28T12:00:00Z"),
 			remoteOversizedPaths: paths,
+			confirmedDeletePaths: confirmed ? new Set(confirmed) : undefined,
 		});
 	}
 
@@ -804,9 +805,9 @@ describe("远端超限（降档后仓库里的存量文件）：本轮完全无�
 		expect(p.target_entries["big.mp4"]).toEqual(oversized(A));
 	});
 
-	it("本地删了且远端自 Base 未变 → 照常传播删除（详见下一组用例）", () => {
+	it("本地删了且远端自 Base 未变 + 有删除事件 → 照常传播删除（详见下一组用例）", () => {
 		const b = snap({ "big.mp4": oversized(A) });
-		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"], ["big.mp4"]);
 		expect(p.deletes).toEqual(["big.mp4"]);
 		expect(p.target_entries["big.mp4"]).toEqual({ state: "deleted" });
 	});
@@ -826,7 +827,7 @@ describe("远端超限（降档后仓库里的存量文件）：本轮完全无�
 
 describe("远端超限：本地删除仍要传播（否则降档后大文件删不掉、配额放不出来）", () => {
 	const oversized = (hash: string): Entry => ({ state: "active", content_hash: hash, size: "104857600" });
-	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[]) {
+	function runOversized(base: Snapshot | null, local: Snapshot, remote: Snapshot, paths: string[], confirmed?: string[]) {
 		return plan({
 			base,
 			local,
@@ -834,14 +835,23 @@ describe("远端超限：本地删除仍要传播（否则降档后大文件删�
 			deviceId: "dev-001",
 			now: new Date("2026-08-28T12:00:00Z"),
 			remoteOversizedPaths: paths,
+			confirmedDeletePaths: confirmed ? new Set(confirmed) : undefined,
 		});
 	}
 
-	it("本地删除 + 远端自 Base 未变 → 提交删除", () => {
+	it("真实删除事件 + 远端自 Base 未变 → 提交删除", () => {
 		const b = snap({ "big.mp4": oversized(A) });
-		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"], ["big.mp4"]);
 		expect(p.deletes).toEqual(["big.mp4"]);
 		expect(p.target_entries["big.mp4"]).toEqual({ state: "deleted" });
+		expect(p.apply_actions).toEqual([]);
+	});
+
+	it("未确认的 tombstone（扫描/切 vault 合成）+ 超限远端 → 不删除远端", () => {
+		const b = snap({ "big.mp4": oversized(A) });
+		const p = runOversized(b, snap({ "big.mp4": deleted }), snap({ "big.mp4": oversized(A) }), ["big.mp4"]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["big.mp4"]).toEqual(oversized(A));
 		expect(p.apply_actions).toEqual([]);
 	});
 

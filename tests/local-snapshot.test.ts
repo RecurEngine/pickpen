@@ -78,6 +78,7 @@ function refreshCtx(over: {
 	maxFileSizeBytes?: number;
 	filter?: ReturnType<typeof testFilter>;
 	caseInsensitive?: boolean;
+	pathEncrypted?: boolean;
 }) {
 	return {
 		vault: over.vault,
@@ -89,6 +90,7 @@ function refreshCtx(over: {
 		caseInsensitive: over.caseInsensitive ?? false,
 		isMobile: false,
 		maxFileSizeBytes: over.maxFileSizeBytes ?? 30 * 1024 * 1024,
+		pathEncrypted: over.pathEncrypted ?? false,
 	};
 }
 
@@ -522,5 +524,50 @@ describe("内容哈希口径登记（提交前复验按明文口径比较，省�
 		});
 		await b.refresh(refreshCtx({ vault, base: prev, forceAudit: true }));
 		expect(b.getPlainHashes().size).toBe(0);
+	});
+});
+
+describe("v2 无法编码路径的 rename 安全", () => {
+	const deep = Array.from({ length: 30 }, (_, i) => "d" + i).join("/") + "/deep.md";
+	const fid = "550e8400-e29b-41d4-a716-446655440088";
+
+	it("增量重命名到不可编码路径：旧路径不被判为删除", async () => {
+		const b = new LocalSnapshotBuilder();
+		const previous = base({
+			"a.md": { state: "active", content_hash: "old", size: "3", file_id: fid },
+		});
+		const res = await b.refresh(
+			refreshCtx({
+				vault: fakeVault([tf(deep, "x")], [], new Map([[deep, enc("x")]])),
+				base: previous,
+				dirtyPaths: [deep, "a.md"],
+				renameHints: [[deep, "a.md"]],
+				pathEncrypted: true,
+			}),
+		);
+		expect(res.snapshot.entries["a.md"]?.state).toBe("active");
+		expect(res.blockedDetails).toEqual(
+			expect.arrayContaining([
+				{ path: deep, reason: "path_unencodable" },
+				{ path: "a.md", reason: "path_unencodable" },
+			]),
+		);
+	});
+
+	it("全量审计遇到不可编码路径：不推断缺失旧路径为删除", async () => {
+		const b = new LocalSnapshotBuilder();
+		const previous = base({
+			"a.md": { state: "active", content_hash: "old", size: "3", file_id: fid },
+		});
+		const res = await b.refresh(
+			refreshCtx({
+				vault: fakeVault([tf(deep, "x")], [], new Map([[deep, enc("x")]])),
+				base: previous,
+				forceAudit: true,
+				pathEncrypted: true,
+			}),
+		);
+		expect(res.snapshot.entries["a.md"]).toBeUndefined(); // 不合成 deleted
+		expect(res.blockedPaths).toContain(deep);
 	});
 });

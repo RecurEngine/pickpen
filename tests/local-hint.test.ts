@@ -19,6 +19,7 @@ function makeHint(debounceMs: () => number = () => 2000) {
 	} as unknown as Vault;
 	const session = {
 		addDirty: vi.fn(),
+		addConfirmedDelete: vi.fn(),
 		addDirtyRename: vi.fn(),
 		requestRun: vi.fn(),
 	} as unknown as ReconcileSession;
@@ -46,7 +47,7 @@ describe("目录级事件升级 forceAudit", () => {
 		const { handlers, session } = makeHint();
 		handlers.delete(Object.assign(new TFolder(), { path: "a" }));
 		vi.advanceTimersByTime(2500);
-		expect(session.addDirty).toHaveBeenCalledWith("a");
+		expect(session.addConfirmedDelete).toHaveBeenCalledWith("a");
 		expect(session.requestRun).toHaveBeenCalledWith({ forceAudit: true });
 	});
 

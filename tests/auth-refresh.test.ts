@@ -28,6 +28,7 @@ function settings(overrides: Partial<PluginSettings> = {}): PluginSettings {
 		deviceId: "dev-1",
 		selective: defaultSelectiveSettings(),
 		debugLog: false,
+		errorReport: true,
 		persist: vi.fn(async () => {}),
 		...overrides,
 	};

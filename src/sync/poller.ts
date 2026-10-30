@@ -9,6 +9,7 @@
 import { Platform } from "obsidian";
 
 import { debugLog } from "../debug-log";
+import { reportError } from "../error-report/reporter";
 import { isUnauthenticated } from "../remote-connect";
 import { ReconcileSession } from "./session";
 import type { SnapshotRemote } from "./remote";
@@ -34,6 +35,8 @@ export class Poller {
 	private pollTimer: number | null = null;
 	private auditTimer: number | null = null;
 	private failures = 0;
+	/** 本轮连续失败是否已上报：只在跨过 3 次阈值时报一次，恢复后重置 */
+	private failureReported = false;
 	private started = false;
 	private visible = true;
 	/** 服务端最近下发的同步轮询间隔（ms）；null = 尚未获取，用静态默认 */
@@ -108,6 +111,7 @@ export class Poller {
 		try {
 			const head = await this.deps.remote.pollHead(known?.revision ?? 0n, known?.rootHash ?? "");
 			this.failures = 0;
+			this.failureReported = false;
 			if (head) {
 				// 服务端下发间隔：以其为后续轮询基准（值域为秒级，bigint→number 无精度损失）
 				if (head.syncIntervalMs > 0n) this.serverIntervalMs = Number(head.syncIntervalMs);
@@ -122,6 +126,11 @@ export class Poller {
 			} else {
 				this.failures++;
 				debugLog.warn(`[pickpen] 轮询失败（第 ${this.failures} 次）`, err);
+				// 单次断网很常见，连续 3 次才上报一条，避免刷屏。
+				if (this.failures >= 3 && !this.failureReported) {
+					this.failureReported = true;
+					reportError("network", err);
+				}
 			}
 			// 失败退避：由 scheduleNext 的定时器继续；这里主动延迟下一 tick 起点
 			await new Promise((r) => window.setTimeout(r, backoffMs(this.failures)));

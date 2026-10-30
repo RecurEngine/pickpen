@@ -1,56 +1,10 @@
 # Pickpen Sync
 
-[中文](#中文说明)
-
-Pickpen Sync is a local-first cloud sync plugin for Obsidian. It keeps notes available in your local vault while synchronizing changes across desktop and mobile devices, preserving version history, and retaining conflict copies when concurrent edits cannot be merged safely. End-to-end encryption can be enabled per vault, so contents are encrypted on your device before upload and the service stores only ciphertext.
-
-> Pickpen Sync is an independent service and is not affiliated with or endorsed by Obsidian.
-
-## Features
-
-- Synchronizes vault files across desktop and mobile devices.
-- Detects local and remote changes automatically.
-- Preserves both versions as conflict copies instead of silently discarding concurrent edits.
-- Merges concurrent edits line by line; a conflict copy is created only when both sides changed the same region.
-- Provides per-file version history and restore controls.
-- Supports multiple remote vaults under one account.
-- Keeps your working copy in the local Obsidian vault.
-
-## Important service and data disclosure
-
-Pickpen Sync is a network-connected service. Before using it, please note:
-
-- An account is required. Email verification is used for sign-in and registration.
-- The plugin connects to Pickpen Sync servers to authenticate, manage subscriptions, and upload/download vault data for synchronization and version history.
-- Vault contents are stored in plaintext at rest by default. You can enable **end-to-end encryption** per vault, so contents are encrypted on your device before upload and the service stores only ciphertext. The vault password never leaves your device and is not linked to your account — a forgotten password means the contents cannot be recovered by anyone, including us.
-- A limited free tier is available. Paid plans provide additional storage and capabilities; current terms are shown on the [Pickpen Sync website](https://www.pickpen.net/pricing) and at checkout.
-- The support section loads a contact QR image from `rrecurengine.com` only when that section is displayed.
-- The plugin does not include client-side analytics, advertising, self-updating code, or background telemetry, and it does not report any events. Diagnostic details are added only to a local email draft after you click **Email feedback**; you can review or remove them before sending.
-
-For the complete data-handling description, see [Privacy Policy](PRIVACY.md).
-
-## Releases
-
-`manifest.json` is the source of truth for the plugin version. Create a Git tag with exactly the same version value (for example, `0.1.0`). The release workflow verifies the tag, runs tests and type checking, builds the production bundle, and uploads `main.js`, `manifest.json`, and `styles.css` to a GitHub release.
-
-## Support
-
-- Website: [www.pickpen.net](https://www.pickpen.net)
-- Email: [pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com)
-
-## License
-
-Pickpen Sync is released under the [MIT License](LICENSE). Third-party software remains subject to its respective licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
----
-
-## 中文说明
-
 Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作副本始终保留在本地 Vault 中，插件负责在桌面端与移动端之间同步改动、保留文件版本历史，并在无法安全合并并发修改时保留冲突副本。两端同时修改同一篇笔记时，会先尝试行级自动合并；只有真正改到同一处才保留冲突副本。可按仓库启用端到端加密：内容在本机加密后再上传，服务端只保存密文。
 
 > Pickpen Sync 是独立服务，与 Obsidian 官方无隶属或背书关系。
 
-### 主要功能
+## 主要功能
 
 - 在桌面端和移动端之间同步 Vault 文件。
 - 自动检测本地及远端改动。
@@ -61,22 +15,28 @@ Pickpen Sync 是一款本地优先的 Obsidian 云同步插件。笔记的工作
 - 可按仓库选择开启**端到端内容加密**：内容在本机加密后再上传，服务端只保存密文；仓库密码不上传、不与账号绑定。仓库密码默认在本设备记住（重启后自动解锁，可在解锁弹窗或设置里关闭），也可在仓库管理中查看已保存的密码；检测到仓库在别处启用了加密或修改了密码时，会主动弹出解锁窗。
 - 本地 Obsidian Vault 始终保留可直接使用的工作副本。
 
-### 重要服务与数据说明
+## 重要服务与数据说明
 
 - 使用 Pickpen Sync 必须登录账号，邮箱验证码用于登录和注册。
 - 插件会连接 Pickpen Sync 服务器，完成认证、订阅管理、Vault 数据上传下载和版本历史功能。
 - 未开启加密的仓库，内容在服务端以明文存储；开启端到端加密后，服务端只保存密文。仓库密码不会离开你的设备，也不与账号绑定——忘记密码后内容无法被任何人恢复，包括我们。
 - 服务提供有额度限制的免费方案；付费方案可获得更多存储空间与能力，具体条款以[官网价格页](https://www.pickpen.net/pricing)和结账页为准。
 - 打开“关于与反馈”区域时，插件会从 `rrecurengine.com` 加载客服二维码图片。
-- 插件不包含客户端统计分析、广告、自更新代码或后台遥测，也不会上报任何事件。只有在你点击“邮件反馈”后，插件才会在本地邮件草稿中加入诊断信息；发送前可自行检查或删除。
+- 为帮助定位故障，插件会在发生未捕获异常或同步/网络失败时自动发送最小化的错误诊断信息，包括错误类型、已脱敏的错误消息与调用栈、错误码、阶段、插件版本、平台/系统、设备标识、绑定仓库标识，以及上报时是否处于登录态。**不包含**文件内容、文件名、仓库名、邮箱或令牌。错误诊断默认开启，可在“设置 → 诊断”中关闭，关闭时会清空未发送的记录；诊断信息最长保留 90 天。
+- 插件不包含客户端统计分析、广告、行为追踪、使用统计或自更新代码。只有在你点击“邮件反馈”后，插件还会在本地邮件草稿中加入诊断信息；发送前可自行检查或删除。
 
 完整的数据处理说明见[隐私政策](PRIVACY.md)。
 
-### 支持与许可
+## 发布
+
+`manifest.json` 是插件版本号的唯一真源。打 Git 标签时须使用完全相同的版本号（例如 `0.1.0`）。发布流程会校验标签、运行测试与类型检查、构建生产包，并把 `main.js`、`manifest.json` 和 `styles.css` 上传到 GitHub Release。
+
+## 支持与许可
 
 - 官网：[www.pickpen.net](https://www.pickpen.net)
 - 邮箱：[pickpen@rrecurengine.com](mailto:pickpen@rrecurengine.com)
 - 许可证：[MIT](LICENSE)
+- 第三方软件仍遵循其各自许可证，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 如需人工支持，可扫描下方二维码添加客服微信：
 

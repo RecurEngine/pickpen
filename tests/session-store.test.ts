@@ -119,6 +119,21 @@ describe("SessionStore 基本存取", () => {
 		again.clearStorageLimitAlert();
 		expect(again.storageLimitAlertActive).toBe(false);
 	});
+
+	it("新版本软提醒按设备持久化（不进 data.json）", () => {
+		const kv = memoryKV();
+		const store = new SessionStore(kv, "scopeA");
+		store.load();
+		expect(store.versionNoticeVersion).toBeUndefined();
+
+		store.markVersionNoticeShown("1.9.0");
+		expect(store.versionNoticeVersion).toBe("1.9.0");
+
+		// 另一台设备有独立的 localStorage：不会因为这台看过就不再提醒
+		const otherDevice = new SessionStore(memoryKV(), "scopeA");
+		otherDevice.load();
+		expect(otherDevice.versionNoticeVersion).toBeUndefined();
+	});
 });
 
 describe("SessionStore 健壮性", () => {

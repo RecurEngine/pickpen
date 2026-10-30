@@ -10,6 +10,7 @@ import { copyText } from "./clipboard";
 import { vaultKeys } from "./crypto/vault-key-store";
 import { openDeletedFiles } from "./deleted-files-view";
 import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
+import { errorReporter } from "./error-report/reporter";
 import type PickpenPlugin from "./index";
 import { renderInviteSection } from "./invite-view";
 import { ErrCode, errorCode } from "./remote-connect";
@@ -18,6 +19,7 @@ import { AUDIO_EXTS, IMAGE_EXTS, PDF_EXTS, VIDEO_EXTS } from "./sync/selective";
 import { formatProgress, progressPercent } from "./sync/progress";
 import { formatTransferSize } from "./sync/transfer-journal";
 import { StatusRefresh } from "./status-refresh";
+import { openSettingsTab } from "./system-settings";
 import { syncState, type SyncState } from "./sync-state";
 import { renderSubscriptionSection } from "./subscription-view";
 import { renderMobileSubscriptionSection } from "./mobile-subscription-view";
@@ -98,11 +100,11 @@ export class PickpenSettingTab extends PluginSettingTab {
 			// 这里直接比较 process.env.PICKPEN_ENV（不提前赋给变量）：构建期 define 替换为字面量后，
 			// minify 才能常量折叠并剔除正式包里另一分支的关键词与 aliases
 			process.env.PICKPEN_ENV === "prod"
-				? this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID 与构建环境", [
-						"诊断", "远端地址", "设备 ID", "构建环境", "插件版本",
+				? this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与错误上报", [
+						"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "错误上报", "异常", "隐私",
 					])
-				: this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境与调试日志", [
-						"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "调试日志", "日志",
+				: this.sectionGroup("diagnostics", "诊断", "远端地址、设备 ID、构建环境、错误上报与调试日志", [
+						"诊断", "远端地址", "设备 ID", "构建环境", "插件版本", "错误上报", "异常", "隐私", "调试日志", "日志",
 					]),
 			this.sectionGroup("about", "关于与反馈", "产品简介、反馈入口与相关链接", [
 				"关于", "反馈", "版本", "隐私", "帮助",
@@ -217,13 +219,10 @@ interface ObsidianSettingsController {
 
 /** Obsidian 尚未公开声明设置控制器类型；集中封装并保留缺失接口时的安全降级。 */
 export function openPluginSettings(app: App, pluginId: string): boolean {
-	const setting = (app as App & { setting?: Partial<ObsidianSettingsController> }).setting;
-	if (typeof setting?.open !== "function" || typeof setting.openTabById !== "function") {
+	if (!openSettingsTab(app, pluginId)) {
 		new Notice("无法自动打开设置，请在 Obsidian 系统设置中选择 Pickpen Sync");
 		return false;
 	}
-	setting.open();
-	setting.openTabById(pluginId);
 	return true;
 }
 
@@ -743,6 +742,22 @@ class PickpenSettingsView {
 				: `插件版本：${this.plugin.manifest.version}`,
 		});
 
+		// 错误诊断上报开关：所有构建都展示，由用户开关接管；构建期 PICKPEN_ERROR_REPORT 只决定默认值
+		// （正式包默认开，local/test 默认关）。
+		new Setting(diagnosticsSectionEl)
+			.setName("错误诊断上报")
+			.setDesc(
+				"发生未捕获异常或同步/网络失败时，自动发送脱敏诊断信息，帮助我们定位问题。" +
+					"不会发送文件内容、文件名、仓库名、邮箱或令牌；可随时开关。",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(settings.errorReport).onChange(async (value) => {
+					settings.errorReport = value;
+					errorReporter.setEnabled(value);
+					await this.plugin.saveSettings();
+				}),
+			);
+
 		// 调试日志开关 + 开启后实时日志面板（仅插件主动写入的脱敏日志）。
 		// 正式渠道包不展示该入口（内部排查用）。内联比较而非提为变量：define 替换后
 		// 条件成为字面量，minify 时整段调用从正式包中剔除
@@ -894,7 +909,9 @@ class PickpenSettingsView {
 			.setDesc(
 				vaultKeys.isLocked()
 					? "未解锁：需要输入仓库密码后才能继续同步"
-					: "已解锁：内容在本机加解密，服务端只保存密文",
+					: vaultKeys.isPathEncrypted()
+						? "已解锁：内容、文件名与目录名都在本机加解密，服务端只保存密文与不透明路径"
+						: "已解锁：内容在本机加解密，服务端只保存密文（文件名与目录仍为明文，可在仓库管理中升级）",
 			);
 		new Setting(containerEl)
 			.setName("在本设备记住仓库密码")

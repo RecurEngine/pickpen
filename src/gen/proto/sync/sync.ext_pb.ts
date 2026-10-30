@@ -9,7 +9,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sync/sync.ext.proto.
  */
 export const file_sync_sync_ext: GenFile = /*@__PURE__*/
-  fileDesc("ChNzeW5jL3N5bmMuZXh0LnByb3RvEgRzeW5jIoEBCg5WYXVsdEtleVBhcmFtcxIPCgd2ZXJzaW9uGAEgASgFEgsKA2tkZhgCIAEoBRIQCghrZGZfc2FsdBgDIAEoCRIWCg5rZGZfaXRlcmF0aW9ucxgEIAEoBRISCgp3cmFwX25vbmNlGAUgASgJEhMKC3dyYXBwZWRfa2V5GAYgASgJIqIBCglWYXVsdEluZm8SEAoIdmF1bHRfaWQYASABKAMSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIRCglyb290X2hhc2gYBCABKAkSEQoJZW5jcnlwdGVkGAUgASgIEhMKC2tleV92ZXJzaW9uGAYgASgDEigKCmtleV9wYXJhbXMYByABKAsyFC5zeW5jLlZhdWx0S2V5UGFyYW1zIhMKEUxpc3RWYXVsdHNSZXF1ZXN0IjIKD0xpc3RWYXVsdHNSZXBseRIfCgZ2YXVsdHMYASADKAsyDy5zeW5jLlZhdWx0SW5mbyJMChJDcmVhdGVWYXVsdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIoCgprZXlfcGFyYW1zGAIgASgLMhQuc3luYy5WYXVsdEtleVBhcmFtcyIyChBDcmVhdGVWYXVsdFJlcGx5Eh4KBXZhdWx0GAEgASgLMg8uc3luYy5WYXVsdEluZm8iOAoSVXBkYXRlVmF1bHRSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhAKCG5ld19uYW1lGAIgASgJIjIKEFVwZGF0ZVZhdWx0UmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyImChJEZWxldGVWYXVsdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMiMgoQRGVsZXRlVmF1bHRSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIloKHEVuYWJsZVZhdWx0RW5jcnlwdGlvblJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSKAoKa2V5X3BhcmFtcxgCIAEoCzIULnN5bmMuVmF1bHRLZXlQYXJhbXMiPAoaRW5hYmxlVmF1bHRFbmNyeXB0aW9uUmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyJTChVVcGRhdGVWYXVsdEtleVJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSKAoKa2V5X3BhcmFtcxgCIAEoCzIULnN5bmMuVmF1bHRLZXlQYXJhbXMiNQoTVXBkYXRlVmF1bHRLZXlSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIlgKE0dldFZhdWx0SGVhZFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSFgoOa25vd25fcmV2aXNpb24YAiABKAMSFwoPa25vd25fcm9vdF9oYXNoGAMgASgJIuoBChFHZXRWYXVsdEhlYWRSZXBseRIQCgh2YXVsdF9pZBgBIAEoAxIQCghyZXZpc2lvbhgCIAEoAxIRCglyb290X2hhc2gYAyABKAkSEQoJdW5jaGFuZ2VkGAQgASgIEhgKEHN5bmNfaW50ZXJ2YWxfbXMYBSABKAMSGQoRbG9jYWxfZGVib3VuY2VfbXMYBiABKAMSGwoTbWF4X2ZpbGVfc2l6ZV9ieXRlcxgHIAEoAxIRCgllbmNyeXB0ZWQYCCABKAgSEwoLa2V5X3ZlcnNpb24YCSABKANKBAgKEAtSC2RpcmVjdF9ibG9iIl0KEkdldE1hbmlmZXN0UmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIZChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoAxIaChJleHBlY3RlZF9yb290X2hhc2gYAyABKAkiTgoQR2V0TWFuaWZlc3RSZXBseRIQCghyZXZpc2lvbhgBIAEoAxIRCglyb290X2hhc2gYAiABKAkSFQoNbWFuaWZlc3RfanNvbhgDIAEoDCIzCg9IYXNCbG9ic1JlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSDgoGaGFzaGVzGAIgAygJIiEKDUhhc0Jsb2JzUmVwbHkSEAoIZXhpc3RpbmcYASADKAkiTwoOUHV0QmxvYlJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSDAoEaGFzaBgCIAEoCRIMCgRzaXplGAMgASgDEg8KB2NvbnRlbnQYBCABKAwiIAoMUHV0QmxvYlJlcGx5EhAKCGV4aXN0aW5nGAEgASgIIoABCg5HZXRCbG9iUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIMCgRoYXNoGAIgASgJEhkKEWV4cGVjdGVkX3JldmlzaW9uGAMgASgDEhoKEmV4cGVjdGVkX3Jvb3RfaGFzaBgEIAEoCRIXCg9oaXN0b3J5X2ZpbGVfaWQYBSABKAkiLQoMR2V0QmxvYlJlcGx5EgwKBHNpemUYASABKAMSDwoHY29udGVudBgCIAEoDCKDAQoRR2V0QmxvYlVSTFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSDAoEaGFzaBgCIAEoCRIZChFleHBlY3RlZF9yZXZpc2lvbhgDIAEoAxIaChJleHBlY3RlZF9yb290X2hhc2gYBCABKAkSFwoPaGlzdG9yeV9maWxlX2lkGAUgASgJIkAKD0dldEJsb2JVUkxSZXBseRILCgN1cmwYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoAxIMCgRzaXplGAMgASgDIkgKGFByZXBhcmVCbG9iVXBsb2FkUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIMCgRoYXNoGAIgASgJEgwKBHNpemUYAyABKAMiSwoWUHJlcGFyZUJsb2JVcGxvYWRSZXBseRIQCghleGlzdGluZxgBIAEoCBILCgN1cmwYAiABKAkSEgoKZXhwaXJlc19hdBgDIAEoAyJaCghNdXRhdGlvbhIgCgNwdXQYASABKAsyES5zeW5jLlB1dE11dGF0aW9uSAASJgoGZGVsZXRlGAIgASgLMhQuc3luYy5EZWxldGVNdXRhdGlvbkgAQgQKAm9wIm8KC1B1dE11dGF0aW9uEgwKBHBhdGgYASABKAkSFAoMY29udGVudF9oYXNoGAIgASgJEgwKBHNpemUYAyABKAMSDwoHZmlsZV9pZBgEIAEoCRIdCgRraW5kGAUgASgOMg8uc3luYy5FbnRyeUtpbmQiHgoORGVsZXRlTXV0YXRpb24SDAoEcGF0aBgBIAEoCSKdAQoVQ29tbWl0U25hcHNob3RSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhkKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgDEhoKEmV4cGVjdGVkX3Jvb3RfaGFzaBgDIAEoCRIYChB0YXJnZXRfcm9vdF9oYXNoGAQgASgJEiEKCW11dGF0aW9ucxgFIAMoCzIOLnN5bmMuTXV0YXRpb24iSwoTQ29tbWl0U25hcHNob3RSZXBseRIQCghyZXZpc2lvbhgBIAEoAxIRCglyb290X2hhc2gYAiABKAkSDwoHY2hhbmdlZBgDIAEoCCJjChdMaXN0RmlsZVZlcnNpb25zUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIPCgdmaWxlX2lkGAIgASgJEhEKCXBhZ2Vfc2l6ZRgDIAEoAxISCgpwYWdlX3Rva2VuGAQgASgJIqEBCg9GaWxlVmVyc2lvbkluZm8SDwoHZmlsZV9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhAKCHJldmlzaW9uGAMgASgDEiUKBXN0YXRlGAQgASgOMhYuc3luYy5GaWxlVmVyc2lvblN0YXRlEhQKDGNvbnRlbnRfaGFzaBgFIAEoCRIMCgRzaXplGAYgASgDEhIKCmNyZWF0ZWRfYXQYByABKAMiawoVTGlzdEZpbGVWZXJzaW9uc1JlcGx5EicKCHZlcnNpb25zGAEgAygLMhUuc3luYy5GaWxlVmVyc2lvbkluZm8SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhAKCGhhc19tb3JlGAMgASgIImAKC0RlbGV0ZWRGaWxlEg8KB2ZpbGVfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIMCgRzaXplGAQgASgDEhIKCmRlbGV0ZWRfYXQYBSABKAMiUgoXTGlzdERlbGV0ZWRGaWxlc1JlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSEQoJcGFnZV9zaXplGAIgASgDEhIKCnBhZ2VfdG9rZW4YAyABKAkiZAoVTGlzdERlbGV0ZWRGaWxlc1JlcGx5EiAKBWZpbGVzGAEgAygLMhEuc3luYy5EZWxldGVkRmlsZRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEAoIaGFzX21vcmUYAyABKAgqUAoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARISCg5FTlRSWV9LSU5EX0RJUhACKmkKEEZpbGVWZXJzaW9uU3RhdGUSIgoeRklMRV9WRVJTSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASFwoTRklMRV9WRVJTSU9OX0FDVElWRRABEhgKFEZJTEVfVkVSU0lPTl9ERUxFVEVEEAIy2QgKC1N5bmNTZXJ2aWNlEjwKCkxpc3RWYXVsdHMSFy5zeW5jLkxpc3RWYXVsdHNSZXF1ZXN0GhUuc3luYy5MaXN0VmF1bHRzUmVwbHkSPwoLQ3JlYXRlVmF1bHQSGC5zeW5jLkNyZWF0ZVZhdWx0UmVxdWVzdBoWLnN5bmMuQ3JlYXRlVmF1bHRSZXBseRI/CgtVcGRhdGVWYXVsdBIYLnN5bmMuVXBkYXRlVmF1bHRSZXF1ZXN0GhYuc3luYy5VcGRhdGVWYXVsdFJlcGx5Ej8KC0RlbGV0ZVZhdWx0Ehguc3luYy5EZWxldGVWYXVsdFJlcXVlc3QaFi5zeW5jLkRlbGV0ZVZhdWx0UmVwbHkSXQoVRW5hYmxlVmF1bHRFbmNyeXB0aW9uEiIuc3luYy5FbmFibGVWYXVsdEVuY3J5cHRpb25SZXF1ZXN0GiAuc3luYy5FbmFibGVWYXVsdEVuY3J5cHRpb25SZXBseRJICg5VcGRhdGVWYXVsdEtleRIbLnN5bmMuVXBkYXRlVmF1bHRLZXlSZXF1ZXN0Ghkuc3luYy5VcGRhdGVWYXVsdEtleVJlcGx5EkIKDEdldFZhdWx0SGVhZBIZLnN5bmMuR2V0VmF1bHRIZWFkUmVxdWVzdBoXLnN5bmMuR2V0VmF1bHRIZWFkUmVwbHkSPwoLR2V0TWFuaWZlc3QSGC5zeW5jLkdldE1hbmlmZXN0UmVxdWVzdBoWLnN5bmMuR2V0TWFuaWZlc3RSZXBseRI2CghIYXNCbG9icxIVLnN5bmMuSGFzQmxvYnNSZXF1ZXN0GhMuc3luYy5IYXNCbG9ic1JlcGx5EjMKB1B1dEJsb2ISFC5zeW5jLlB1dEJsb2JSZXF1ZXN0GhIuc3luYy5QdXRCbG9iUmVwbHkSMwoHR2V0QmxvYhIULnN5bmMuR2V0QmxvYlJlcXVlc3QaEi5zeW5jLkdldEJsb2JSZXBseRI8CgpHZXRCbG9iVVJMEhcuc3luYy5HZXRCbG9iVVJMUmVxdWVzdBoVLnN5bmMuR2V0QmxvYlVSTFJlcGx5ElEKEVByZXBhcmVCbG9iVXBsb2FkEh4uc3luYy5QcmVwYXJlQmxvYlVwbG9hZFJlcXVlc3QaHC5zeW5jLlByZXBhcmVCbG9iVXBsb2FkUmVwbHkSSAoOQ29tbWl0U25hcHNob3QSGy5zeW5jLkNvbW1pdFNuYXBzaG90UmVxdWVzdBoZLnN5bmMuQ29tbWl0U25hcHNob3RSZXBseRJOChBMaXN0RmlsZVZlcnNpb25zEh0uc3luYy5MaXN0RmlsZVZlcnNpb25zUmVxdWVzdBobLnN5bmMuTGlzdEZpbGVWZXJzaW9uc1JlcGx5Ek4KEExpc3REZWxldGVkRmlsZXMSHS5zeW5jLkxpc3REZWxldGVkRmlsZXNSZXF1ZXN0Ghsuc3luYy5MaXN0RGVsZXRlZEZpbGVzUmVwbHlCHFoacGlja3Blbi9wa2cvZ2VuL3Byb3RvL3N5bmNiBnByb3RvMw");
+  fileDesc("ChNzeW5jL3N5bmMuZXh0LnByb3RvEgRzeW5jIoEBCg5WYXVsdEtleVBhcmFtcxIPCgd2ZXJzaW9uGAEgASgFEgsKA2tkZhgCIAEoBRIQCghrZGZfc2FsdBgDIAEoCRIWCg5rZGZfaXRlcmF0aW9ucxgEIAEoBRISCgp3cmFwX25vbmNlGAUgASgJEhMKC3dyYXBwZWRfa2V5GAYgASgJIuIBCglWYXVsdEluZm8SEAoIdmF1bHRfaWQYASABKAMSDAoEbmFtZRgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIRCglyb290X2hhc2gYBCABKAkSEQoJZW5jcnlwdGVkGAUgASgIEhMKC2tleV92ZXJzaW9uGAYgASgDEigKCmtleV9wYXJhbXMYByABKAsyFC5zeW5jLlZhdWx0S2V5UGFyYW1zEh8KF3BhdGhfZW5jcnlwdGlvbl92ZXJzaW9uGAggASgFEh0KFXJlcXVpcmVkX2UyZWVfdmVyc2lvbhgJIAEoBSITChFMaXN0VmF1bHRzUmVxdWVzdCJPCg9MaXN0VmF1bHRzUmVwbHkSHwoGdmF1bHRzGAEgAygLMg8uc3luYy5WYXVsdEluZm8SGwoTc2VydmVyX2UyZWVfdmVyc2lvbhgCIAEoBSJkChJDcmVhdGVWYXVsdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIoCgprZXlfcGFyYW1zGAIgASgLMhQuc3luYy5WYXVsdEtleVBhcmFtcxIWCg5wYXRoX2VuY3J5cHRlZBgDIAEoCCIyChBDcmVhdGVWYXVsdFJlcGx5Eh4KBXZhdWx0GAEgASgLMg8uc3luYy5WYXVsdEluZm8iOAoSVXBkYXRlVmF1bHRSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhAKCG5ld19uYW1lGAIgASgJIjIKEFVwZGF0ZVZhdWx0UmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyImChJEZWxldGVWYXVsdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMiMgoQRGVsZXRlVmF1bHRSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIloKHEVuYWJsZVZhdWx0RW5jcnlwdGlvblJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSKAoKa2V5X3BhcmFtcxgCIAEoCzIULnN5bmMuVmF1bHRLZXlQYXJhbXMiPAoaRW5hYmxlVmF1bHRFbmNyeXB0aW9uUmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyJTChVVcGRhdGVWYXVsdEtleVJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSKAoKa2V5X3BhcmFtcxgCIAEoCzIULnN5bmMuVmF1bHRLZXlQYXJhbXMiNQoTVXBkYXRlVmF1bHRLZXlSZXBseRIeCgV2YXVsdBgBIAEoCzIPLnN5bmMuVmF1bHRJbmZvIlIKCVBhdGhSZWtleRIPCgdmaWxlX2lkGAEgASgJEhAKCG9sZF9wYXRoGAIgASgJEhAKCG5ld19wYXRoGAMgASgJEhAKCGVuY19wYXRoGAQgASgJIqYBCiBFbmFibGVWYXVsdFBhdGhFbmNyeXB0aW9uUmVxdWVzdBIQCgh2YXVsdF9pZBgBIAEoAxIZChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoAxIaChJleHBlY3RlZF9yb290X2hhc2gYAyABKAkSGAoQdGFyZ2V0X3Jvb3RfaGFzaBgEIAEoCRIfCgZyZWtleXMYBSADKAsyDy5zeW5jLlBhdGhSZWtleSJACh5FbmFibGVWYXVsdFBhdGhFbmNyeXB0aW9uUmVwbHkSHgoFdmF1bHQYASABKAsyDy5zeW5jLlZhdWx0SW5mbyJYChNHZXRWYXVsdEhlYWRSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEhYKDmtub3duX3JldmlzaW9uGAIgASgDEhcKD2tub3duX3Jvb3RfaGFzaBgDIAEoCSKLAgoRR2V0VmF1bHRIZWFkUmVwbHkSEAoIdmF1bHRfaWQYASABKAMSEAoIcmV2aXNpb24YAiABKAMSEQoJcm9vdF9oYXNoGAMgASgJEhEKCXVuY2hhbmdlZBgEIAEoCBIYChBzeW5jX2ludGVydmFsX21zGAUgASgDEhkKEWxvY2FsX2RlYm91bmNlX21zGAYgASgDEhsKE21heF9maWxlX3NpemVfYnl0ZXMYByABKAMSEQoJZW5jcnlwdGVkGAggASgIEhMKC2tleV92ZXJzaW9uGAkgASgDEh8KF3BhdGhfZW5jcnlwdGlvbl92ZXJzaW9uGAsgASgFSgQIChALUgtkaXJlY3RfYmxvYiJdChJHZXRNYW5pZmVzdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAMgASgJIk4KEEdldE1hbmlmZXN0UmVwbHkSEAoIcmV2aXNpb24YASABKAMSEQoJcm9vdF9oYXNoGAIgASgJEhUKDW1hbmlmZXN0X2pzb24YAyABKAwiMwoPSGFzQmxvYnNSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEg4KBmhhc2hlcxgCIAMoCSIhCg1IYXNCbG9ic1JlcGx5EhAKCGV4aXN0aW5nGAEgAygJIk8KDlB1dEJsb2JSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEgwKBGhhc2gYAiABKAkSDAoEc2l6ZRgDIAEoAxIPCgdjb250ZW50GAQgASgMIiAKDFB1dEJsb2JSZXBseRIQCghleGlzdGluZxgBIAEoCCKAAQoOR2V0QmxvYlJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSDAoEaGFzaBgCIAEoCRIZChFleHBlY3RlZF9yZXZpc2lvbhgDIAEoAxIaChJleHBlY3RlZF9yb290X2hhc2gYBCABKAkSFwoPaGlzdG9yeV9maWxlX2lkGAUgASgJIi0KDEdldEJsb2JSZXBseRIMCgRzaXplGAEgASgDEg8KB2NvbnRlbnQYAiABKAwigwEKEUdldEJsb2JVUkxSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEgwKBGhhc2gYAiABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAyABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAQgASgJEhcKD2hpc3RvcnlfZmlsZV9pZBgFIAEoCSJACg9HZXRCbG9iVVJMUmVwbHkSCwoDdXJsGAEgASgJEhIKCmV4cGlyZXNfYXQYAiABKAMSDAoEc2l6ZRgDIAEoAyJIChhQcmVwYXJlQmxvYlVwbG9hZFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSDAoEaGFzaBgCIAEoCRIMCgRzaXplGAMgASgDIksKFlByZXBhcmVCbG9iVXBsb2FkUmVwbHkSEAoIZXhpc3RpbmcYASABKAgSCwoDdXJsGAIgASgJEhIKCmV4cGlyZXNfYXQYAyABKAMiWgoITXV0YXRpb24SIAoDcHV0GAEgASgLMhEuc3luYy5QdXRNdXRhdGlvbkgAEiYKBmRlbGV0ZRgCIAEoCzIULnN5bmMuRGVsZXRlTXV0YXRpb25IAEIECgJvcCKBAQoLUHV0TXV0YXRpb24SDAoEcGF0aBgBIAEoCRIUCgxjb250ZW50X2hhc2gYAiABKAkSDAoEc2l6ZRgDIAEoAxIPCgdmaWxlX2lkGAQgASgJEh0KBGtpbmQYBSABKA4yDy5zeW5jLkVudHJ5S2luZBIQCghlbmNfcGF0aBgGIAEoCSIwCg5EZWxldGVNdXRhdGlvbhIMCgRwYXRoGAEgASgJEhAKCGVuY19wYXRoGAIgASgJIp0BChVDb21taXRTbmFwc2hvdFJlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKAMSGgoSZXhwZWN0ZWRfcm9vdF9oYXNoGAMgASgJEhgKEHRhcmdldF9yb290X2hhc2gYBCABKAkSIQoJbXV0YXRpb25zGAUgAygLMg4uc3luYy5NdXRhdGlvbiJLChNDb21taXRTbmFwc2hvdFJlcGx5EhAKCHJldmlzaW9uGAEgASgDEhEKCXJvb3RfaGFzaBgCIAEoCRIPCgdjaGFuZ2VkGAMgASgIImMKF0xpc3RGaWxlVmVyc2lvbnNSZXF1ZXN0EhAKCHZhdWx0X2lkGAEgASgDEg8KB2ZpbGVfaWQYAiABKAkSEQoJcGFnZV9zaXplGAMgASgDEhIKCnBhZ2VfdG9rZW4YBCABKAkiywEKD0ZpbGVWZXJzaW9uSW5mbxIPCgdmaWxlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSEAoIcmV2aXNpb24YAyABKAMSJQoFc3RhdGUYBCABKA4yFi5zeW5jLkZpbGVWZXJzaW9uU3RhdGUSFAoMY29udGVudF9oYXNoGAUgASgJEgwKBHNpemUYBiABKAMSEgoKY3JlYXRlZF9hdBgHIAEoAxIQCghlbmNfcGF0aBgIIAEoCRIWCg5wYXRoX2VuY3J5cHRlZBgJIAEoCCJrChVMaXN0RmlsZVZlcnNpb25zUmVwbHkSJwoIdmVyc2lvbnMYASADKAsyFS5zeW5jLkZpbGVWZXJzaW9uSW5mbxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEAoIaGFzX21vcmUYAyABKAgiigEKC0RlbGV0ZWRGaWxlEg8KB2ZpbGVfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAxIMCgRzaXplGAQgASgDEhIKCmRlbGV0ZWRfYXQYBSABKAMSEAoIZW5jX3BhdGgYBiABKAkSFgoOcGF0aF9lbmNyeXB0ZWQYByABKAgiUgoXTGlzdERlbGV0ZWRGaWxlc1JlcXVlc3QSEAoIdmF1bHRfaWQYASABKAMSEQoJcGFnZV9zaXplGAIgASgDEhIKCnBhZ2VfdG9rZW4YAyABKAkiZAoVTGlzdERlbGV0ZWRGaWxlc1JlcGx5EiAKBWZpbGVzGAEgAygLMhEuc3luYy5EZWxldGVkRmlsZRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEAoIaGFzX21vcmUYAyABKAgqUAoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARISCg5FTlRSWV9LSU5EX0RJUhACKmkKEEZpbGVWZXJzaW9uU3RhdGUSIgoeRklMRV9WRVJTSU9OX1NUQVRFX1VOU1BFQ0lGSUVEEAASFwoTRklMRV9WRVJTSU9OX0FDVElWRRABEhgKFEZJTEVfVkVSU0lPTl9ERUxFVEVEEAIyxAkKC1N5bmNTZXJ2aWNlEjwKCkxpc3RWYXVsdHMSFy5zeW5jLkxpc3RWYXVsdHNSZXF1ZXN0GhUuc3luYy5MaXN0VmF1bHRzUmVwbHkSPwoLQ3JlYXRlVmF1bHQSGC5zeW5jLkNyZWF0ZVZhdWx0UmVxdWVzdBoWLnN5bmMuQ3JlYXRlVmF1bHRSZXBseRI/CgtVcGRhdGVWYXVsdBIYLnN5bmMuVXBkYXRlVmF1bHRSZXF1ZXN0GhYuc3luYy5VcGRhdGVWYXVsdFJlcGx5Ej8KC0RlbGV0ZVZhdWx0Ehguc3luYy5EZWxldGVWYXVsdFJlcXVlc3QaFi5zeW5jLkRlbGV0ZVZhdWx0UmVwbHkSXQoVRW5hYmxlVmF1bHRFbmNyeXB0aW9uEiIuc3luYy5FbmFibGVWYXVsdEVuY3J5cHRpb25SZXF1ZXN0GiAuc3luYy5FbmFibGVWYXVsdEVuY3J5cHRpb25SZXBseRJICg5VcGRhdGVWYXVsdEtleRIbLnN5bmMuVXBkYXRlVmF1bHRLZXlSZXF1ZXN0Ghkuc3luYy5VcGRhdGVWYXVsdEtleVJlcGx5EmkKGUVuYWJsZVZhdWx0UGF0aEVuY3J5cHRpb24SJi5zeW5jLkVuYWJsZVZhdWx0UGF0aEVuY3J5cHRpb25SZXF1ZXN0GiQuc3luYy5FbmFibGVWYXVsdFBhdGhFbmNyeXB0aW9uUmVwbHkSQgoMR2V0VmF1bHRIZWFkEhkuc3luYy5HZXRWYXVsdEhlYWRSZXF1ZXN0Ghcuc3luYy5HZXRWYXVsdEhlYWRSZXBseRI/CgtHZXRNYW5pZmVzdBIYLnN5bmMuR2V0TWFuaWZlc3RSZXF1ZXN0GhYuc3luYy5HZXRNYW5pZmVzdFJlcGx5EjYKCEhhc0Jsb2JzEhUuc3luYy5IYXNCbG9ic1JlcXVlc3QaEy5zeW5jLkhhc0Jsb2JzUmVwbHkSMwoHUHV0QmxvYhIULnN5bmMuUHV0QmxvYlJlcXVlc3QaEi5zeW5jLlB1dEJsb2JSZXBseRIzCgdHZXRCbG9iEhQuc3luYy5HZXRCbG9iUmVxdWVzdBoSLnN5bmMuR2V0QmxvYlJlcGx5EjwKCkdldEJsb2JVUkwSFy5zeW5jLkdldEJsb2JVUkxSZXF1ZXN0GhUuc3luYy5HZXRCbG9iVVJMUmVwbHkSUQoRUHJlcGFyZUJsb2JVcGxvYWQSHi5zeW5jLlByZXBhcmVCbG9iVXBsb2FkUmVxdWVzdBocLnN5bmMuUHJlcGFyZUJsb2JVcGxvYWRSZXBseRJICg5Db21taXRTbmFwc2hvdBIbLnN5bmMuQ29tbWl0U25hcHNob3RSZXF1ZXN0Ghkuc3luYy5Db21taXRTbmFwc2hvdFJlcGx5Ek4KEExpc3RGaWxlVmVyc2lvbnMSHS5zeW5jLkxpc3RGaWxlVmVyc2lvbnNSZXF1ZXN0Ghsuc3luYy5MaXN0RmlsZVZlcnNpb25zUmVwbHkSTgoQTGlzdERlbGV0ZWRGaWxlcxIdLnN5bmMuTGlzdERlbGV0ZWRGaWxlc1JlcXVlc3QaGy5zeW5jLkxpc3REZWxldGVkRmlsZXNSZXBseUIcWhpwaWNrcGVuL3BrZy9nZW4vcHJvdG8vc3luY2IGcHJvdG8z");
 
 /**
  * VaultKeyParams 仓库内容密钥的包装参数。内容密钥由客户端随机生成并加密后随仓库保存，
@@ -122,6 +122,20 @@ export type VaultInfo = Message<"sync.VaultInfo"> & {
    * @generated from field: sync.VaultKeyParams key_params = 7;
    */
   keyParams?: VaultKeyParams | undefined;
+
+  /**
+   * 路径加密版本：0 = 仅内容加密（或未加密），1 = 路径与文件名加密
+   *
+   * @generated from field: int32 path_encryption_version = 8;
+   */
+  pathEncryptionVersion: number;
+
+  /**
+   * 该仓库要求客户端声明的最低加密能力版本：0/1/2
+   *
+   * @generated from field: int32 required_e2ee_version = 9;
+   */
+  requiredE2eeVersion: number;
 };
 
 /**
@@ -156,6 +170,13 @@ export type ListVaultsReply = Message<"sync.ListVaultsReply"> & {
    * @generated from field: repeated sync.VaultInfo vaults = 1;
    */
   vaults: VaultInfo[];
+
+  /**
+   * 服务端支持的最高加密能力版本（当前 2）；旧服务端不回此字段（0）
+   *
+   * @generated from field: int32 server_e2ee_version = 2;
+   */
+  serverE2eeVersion: number;
 };
 
 /**
@@ -182,6 +203,13 @@ export type CreateVaultRequest = Message<"sync.CreateVaultRequest"> & {
    * @generated from field: sync.VaultKeyParams key_params = 2;
    */
   keyParams?: VaultKeyParams | undefined;
+
+  /**
+   * 需同时提供 key_params；true = 创建即启用路径加密（v2）
+   *
+   * @generated from field: bool path_encrypted = 3;
+   */
+  pathEncrypted: boolean;
 };
 
 /**
@@ -370,6 +398,110 @@ export const UpdateVaultKeyReplySchema: GenMessage<UpdateVaultKeyReply> = /*@__P
   messageDesc(file_sync_sync_ext, 13);
 
 /**
+ * PathRekey 单条路径迁移映射。
+ *
+ * @generated from message sync.PathRekey
+ */
+export type PathRekey = Message<"sync.PathRekey"> & {
+  /**
+   * active 条目的稳定身份（便于精确匹配）；tombstone 为空
+   *
+   * @generated from field: string file_id = 1;
+   */
+  fileId: string;
+
+  /**
+   * 服务端当前清单中的明文路径；tombstone 必填
+   *
+   * @generated from field: string old_path = 2;
+   */
+  oldPath: string;
+
+  /**
+   * 分层 token 路径
+   *
+   * @generated from field: string new_path = 3;
+   */
+  newPath: string;
+
+  /**
+   * 明文路径密文
+   *
+   * @generated from field: string enc_path = 4;
+   */
+  encPath: string;
+};
+
+/**
+ * Describes the message sync.PathRekey.
+ * Use `create(PathRekeySchema)` to create a new message.
+ */
+export const PathRekeySchema: GenMessage<PathRekey> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 14);
+
+/**
+ * @generated from message sync.EnableVaultPathEncryptionRequest
+ */
+export type EnableVaultPathEncryptionRequest = Message<"sync.EnableVaultPathEncryptionRequest"> & {
+  /**
+   * @generated from field: int64 vault_id = 1;
+   */
+  vaultId: bigint;
+
+  /**
+   * CAS 前置条件：客户端读取清单时的 Head
+   *
+   * @generated from field: int64 expected_revision = 2;
+   */
+  expectedRevision: bigint;
+
+  /**
+   * @generated from field: string expected_root_hash = 3;
+   */
+  expectedRootHash: string;
+
+  /**
+   * 迁移后的目标 root（路径加密模式）
+   *
+   * @generated from field: string target_root_hash = 4;
+   */
+  targetRootHash: string;
+
+  /**
+   * 必须恰好覆盖当前清单全部条目各一次（含 tombstone）
+   *
+   * @generated from field: repeated sync.PathRekey rekeys = 5;
+   */
+  rekeys: PathRekey[];
+};
+
+/**
+ * Describes the message sync.EnableVaultPathEncryptionRequest.
+ * Use `create(EnableVaultPathEncryptionRequestSchema)` to create a new message.
+ */
+export const EnableVaultPathEncryptionRequestSchema: GenMessage<EnableVaultPathEncryptionRequest> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 15);
+
+/**
+ * @generated from message sync.EnableVaultPathEncryptionReply
+ */
+export type EnableVaultPathEncryptionReply = Message<"sync.EnableVaultPathEncryptionReply"> & {
+  /**
+   * path_encryption_version 已变为 1
+   *
+   * @generated from field: sync.VaultInfo vault = 1;
+   */
+  vault?: VaultInfo | undefined;
+};
+
+/**
+ * Describes the message sync.EnableVaultPathEncryptionReply.
+ * Use `create(EnableVaultPathEncryptionReplySchema)` to create a new message.
+ */
+export const EnableVaultPathEncryptionReplySchema: GenMessage<EnableVaultPathEncryptionReply> = /*@__PURE__*/
+  messageDesc(file_sync_sync_ext, 16);
+
+/**
  * @generated from message sync.GetVaultHeadRequest
  */
 export type GetVaultHeadRequest = Message<"sync.GetVaultHeadRequest"> & {
@@ -398,7 +530,7 @@ export type GetVaultHeadRequest = Message<"sync.GetVaultHeadRequest"> & {
  * Use `create(GetVaultHeadRequestSchema)` to create a new message.
  */
 export const GetVaultHeadRequestSchema: GenMessage<GetVaultHeadRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 14);
+  messageDesc(file_sync_sync_ext, 17);
 
 /**
  * @generated from message sync.GetVaultHeadReply
@@ -460,6 +592,13 @@ export type GetVaultHeadReply = Message<"sync.GetVaultHeadReply"> & {
    * @generated from field: int64 key_version = 9;
    */
   keyVersion: bigint;
+
+  /**
+   * 0 = 仅内容加密，1 = 路径与文件名加密
+   *
+   * @generated from field: int32 path_encryption_version = 11;
+   */
+  pathEncryptionVersion: number;
 };
 
 /**
@@ -467,7 +606,7 @@ export type GetVaultHeadReply = Message<"sync.GetVaultHeadReply"> & {
  * Use `create(GetVaultHeadReplySchema)` to create a new message.
  */
 export const GetVaultHeadReplySchema: GenMessage<GetVaultHeadReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 15);
+  messageDesc(file_sync_sync_ext, 18);
 
 /**
  * @generated from message sync.GetManifestRequest
@@ -496,7 +635,7 @@ export type GetManifestRequest = Message<"sync.GetManifestRequest"> & {
  * Use `create(GetManifestRequestSchema)` to create a new message.
  */
 export const GetManifestRequestSchema: GenMessage<GetManifestRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 16);
+  messageDesc(file_sync_sync_ext, 19);
 
 /**
  * @generated from message sync.GetManifestReply
@@ -525,7 +664,7 @@ export type GetManifestReply = Message<"sync.GetManifestReply"> & {
  * Use `create(GetManifestReplySchema)` to create a new message.
  */
 export const GetManifestReplySchema: GenMessage<GetManifestReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 17);
+  messageDesc(file_sync_sync_ext, 20);
 
 /**
  * @generated from message sync.HasBlobsRequest
@@ -549,7 +688,7 @@ export type HasBlobsRequest = Message<"sync.HasBlobsRequest"> & {
  * Use `create(HasBlobsRequestSchema)` to create a new message.
  */
 export const HasBlobsRequestSchema: GenMessage<HasBlobsRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 18);
+  messageDesc(file_sync_sync_ext, 21);
 
 /**
  * @generated from message sync.HasBlobsReply
@@ -568,7 +707,7 @@ export type HasBlobsReply = Message<"sync.HasBlobsReply"> & {
  * Use `create(HasBlobsReplySchema)` to create a new message.
  */
 export const HasBlobsReplySchema: GenMessage<HasBlobsReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 19);
+  messageDesc(file_sync_sync_ext, 22);
 
 /**
  * @generated from message sync.PutBlobRequest
@@ -606,7 +745,7 @@ export type PutBlobRequest = Message<"sync.PutBlobRequest"> & {
  * Use `create(PutBlobRequestSchema)` to create a new message.
  */
 export const PutBlobRequestSchema: GenMessage<PutBlobRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 20);
+  messageDesc(file_sync_sync_ext, 23);
 
 /**
  * @generated from message sync.PutBlobReply
@@ -625,7 +764,7 @@ export type PutBlobReply = Message<"sync.PutBlobReply"> & {
  * Use `create(PutBlobReplySchema)` to create a new message.
  */
 export const PutBlobReplySchema: GenMessage<PutBlobReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 21);
+  messageDesc(file_sync_sync_ext, 24);
 
 /**
  * @generated from message sync.GetBlobRequest
@@ -666,7 +805,7 @@ export type GetBlobRequest = Message<"sync.GetBlobRequest"> & {
  * Use `create(GetBlobRequestSchema)` to create a new message.
  */
 export const GetBlobRequestSchema: GenMessage<GetBlobRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 22);
+  messageDesc(file_sync_sync_ext, 25);
 
 /**
  * @generated from message sync.GetBlobReply
@@ -688,7 +827,7 @@ export type GetBlobReply = Message<"sync.GetBlobReply"> & {
  * Use `create(GetBlobReplySchema)` to create a new message.
  */
 export const GetBlobReplySchema: GenMessage<GetBlobReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 23);
+  messageDesc(file_sync_sync_ext, 26);
 
 /**
  * GetBlobURLRequest 与 GetBlobRequest 同构（字段含义逐一对应）
@@ -731,7 +870,7 @@ export type GetBlobURLRequest = Message<"sync.GetBlobURLRequest"> & {
  * Use `create(GetBlobURLRequestSchema)` to create a new message.
  */
 export const GetBlobURLRequestSchema: GenMessage<GetBlobURLRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 24);
+  messageDesc(file_sync_sync_ext, 27);
 
 /**
  * @generated from message sync.GetBlobURLReply
@@ -764,7 +903,7 @@ export type GetBlobURLReply = Message<"sync.GetBlobURLReply"> & {
  * Use `create(GetBlobURLReplySchema)` to create a new message.
  */
 export const GetBlobURLReplySchema: GenMessage<GetBlobURLReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 25);
+  messageDesc(file_sync_sync_ext, 28);
 
 /**
  * @generated from message sync.PrepareBlobUploadRequest
@@ -795,7 +934,7 @@ export type PrepareBlobUploadRequest = Message<"sync.PrepareBlobUploadRequest"> 
  * Use `create(PrepareBlobUploadRequestSchema)` to create a new message.
  */
 export const PrepareBlobUploadRequestSchema: GenMessage<PrepareBlobUploadRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 26);
+  messageDesc(file_sync_sync_ext, 29);
 
 /**
  * @generated from message sync.PrepareBlobUploadReply
@@ -828,7 +967,7 @@ export type PrepareBlobUploadReply = Message<"sync.PrepareBlobUploadReply"> & {
  * Use `create(PrepareBlobUploadReplySchema)` to create a new message.
  */
 export const PrepareBlobUploadReplySchema: GenMessage<PrepareBlobUploadReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 27);
+  messageDesc(file_sync_sync_ext, 30);
 
 /**
  * Mutation 单条变更：put（新建/覆盖）或 delete（写 tombstone，不移除 key）
@@ -859,14 +998,14 @@ export type Mutation = Message<"sync.Mutation"> & {
  * Use `create(MutationSchema)` to create a new message.
  */
 export const MutationSchema: GenMessage<Mutation> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 28);
+  messageDesc(file_sync_sync_ext, 31);
 
 /**
  * @generated from message sync.PutMutation
  */
 export type PutMutation = Message<"sync.PutMutation"> & {
   /**
-   * NFC 规范化、/ 分隔、无前导 / 的相对路径
+   * NFC 规范化、/ 分隔、无前导 / 的相对路径；路径加密仓库为分层 token
    *
    * @generated from field: string path = 1;
    */
@@ -899,6 +1038,13 @@ export type PutMutation = Message<"sync.PutMutation"> & {
    * @generated from field: sync.EntryKind kind = 5;
    */
   kind: EntryKind;
+
+  /**
+   * 明文路径密文；路径加密仓库必填，仅内容加密仓库为空
+   *
+   * @generated from field: string enc_path = 6;
+   */
+  encPath: string;
 };
 
 /**
@@ -906,16 +1052,25 @@ export type PutMutation = Message<"sync.PutMutation"> & {
  * Use `create(PutMutationSchema)` to create a new message.
  */
 export const PutMutationSchema: GenMessage<PutMutation> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 29);
+  messageDesc(file_sync_sync_ext, 32);
 
 /**
  * @generated from message sync.DeleteMutation
  */
 export type DeleteMutation = Message<"sync.DeleteMutation"> & {
   /**
+   * 路径加密仓库为分层 token
+   *
    * @generated from field: string path = 1;
    */
   path: string;
+
+  /**
+   * 明文路径密文；路径加密仓库必填
+   *
+   * @generated from field: string enc_path = 2;
+   */
+  encPath: string;
 };
 
 /**
@@ -923,7 +1078,7 @@ export type DeleteMutation = Message<"sync.DeleteMutation"> & {
  * Use `create(DeleteMutationSchema)` to create a new message.
  */
 export const DeleteMutationSchema: GenMessage<DeleteMutation> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 30);
+  messageDesc(file_sync_sync_ext, 33);
 
 /**
  * @generated from message sync.CommitSnapshotRequest
@@ -966,7 +1121,7 @@ export type CommitSnapshotRequest = Message<"sync.CommitSnapshotRequest"> & {
  * Use `create(CommitSnapshotRequestSchema)` to create a new message.
  */
 export const CommitSnapshotRequestSchema: GenMessage<CommitSnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 31);
+  messageDesc(file_sync_sync_ext, 34);
 
 /**
  * @generated from message sync.CommitSnapshotReply
@@ -995,7 +1150,7 @@ export type CommitSnapshotReply = Message<"sync.CommitSnapshotReply"> & {
  * Use `create(CommitSnapshotReplySchema)` to create a new message.
  */
 export const CommitSnapshotReplySchema: GenMessage<CommitSnapshotReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 32);
+  messageDesc(file_sync_sync_ext, 35);
 
 /**
  * @generated from message sync.ListFileVersionsRequest
@@ -1033,7 +1188,7 @@ export type ListFileVersionsRequest = Message<"sync.ListFileVersionsRequest"> & 
  * Use `create(ListFileVersionsRequestSchema)` to create a new message.
  */
 export const ListFileVersionsRequestSchema: GenMessage<ListFileVersionsRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 33);
+  messageDesc(file_sync_sync_ext, 36);
 
 /**
  * @generated from message sync.FileVersionInfo
@@ -1045,7 +1200,7 @@ export type FileVersionInfo = Message<"sync.FileVersionInfo"> & {
   fileId: string;
 
   /**
-   * 该版本当时的路径（rename 链经相邻版本 path 变化可见）
+   * 该版本当时的路径（rename 链经相邻版本 path 变化可见）；路径加密仓库为 token
    *
    * @generated from field: string path = 2;
    */
@@ -1083,6 +1238,20 @@ export type FileVersionInfo = Message<"sync.FileVersionInfo"> & {
    * @generated from field: int64 created_at = 7;
    */
   createdAt: bigint;
+
+  /**
+   * 明文路径密文；path_encrypted=true 时有效
+   *
+   * @generated from field: string enc_path = 8;
+   */
+  encPath: string;
+
+  /**
+   * true = path 是 token，须用 enc_path 解密；false = 迁移前的明文路径
+   *
+   * @generated from field: bool path_encrypted = 9;
+   */
+  pathEncrypted: boolean;
 };
 
 /**
@@ -1090,7 +1259,7 @@ export type FileVersionInfo = Message<"sync.FileVersionInfo"> & {
  * Use `create(FileVersionInfoSchema)` to create a new message.
  */
 export const FileVersionInfoSchema: GenMessage<FileVersionInfo> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 34);
+  messageDesc(file_sync_sync_ext, 37);
 
 /**
  * @generated from message sync.ListFileVersionsReply
@@ -1119,7 +1288,7 @@ export type ListFileVersionsReply = Message<"sync.ListFileVersionsReply"> & {
  * Use `create(ListFileVersionsReplySchema)` to create a new message.
  */
 export const ListFileVersionsReplySchema: GenMessage<ListFileVersionsReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 35);
+  messageDesc(file_sync_sync_ext, 38);
 
 /**
  * DeletedFile 一条删除记录：同一路径多次「删除 → 重建 → 再删除」各自独立成条，重命名不计入。
@@ -1136,7 +1305,7 @@ export type DeletedFile = Message<"sync.DeletedFile"> & {
   fileId: string;
 
   /**
-   * 删除时的路径
+   * 删除时的路径；路径加密仓库为 token
    *
    * @generated from field: string path = 2;
    */
@@ -1162,6 +1331,20 @@ export type DeletedFile = Message<"sync.DeletedFile"> & {
    * @generated from field: int64 deleted_at = 5;
    */
   deletedAt: bigint;
+
+  /**
+   * 明文路径密文；path_encrypted=true 时有效
+   *
+   * @generated from field: string enc_path = 6;
+   */
+  encPath: string;
+
+  /**
+   * true = path 是 token，须用 enc_path 解密；false = 迁移前的明文路径
+   *
+   * @generated from field: bool path_encrypted = 7;
+   */
+  pathEncrypted: boolean;
 };
 
 /**
@@ -1169,7 +1352,7 @@ export type DeletedFile = Message<"sync.DeletedFile"> & {
  * Use `create(DeletedFileSchema)` to create a new message.
  */
 export const DeletedFileSchema: GenMessage<DeletedFile> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 36);
+  messageDesc(file_sync_sync_ext, 39);
 
 /**
  * @generated from message sync.ListDeletedFilesRequest
@@ -1200,7 +1383,7 @@ export type ListDeletedFilesRequest = Message<"sync.ListDeletedFilesRequest"> & 
  * Use `create(ListDeletedFilesRequestSchema)` to create a new message.
  */
 export const ListDeletedFilesRequestSchema: GenMessage<ListDeletedFilesRequest> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 37);
+  messageDesc(file_sync_sync_ext, 40);
 
 /**
  * @generated from message sync.ListDeletedFilesReply
@@ -1229,7 +1412,7 @@ export type ListDeletedFilesReply = Message<"sync.ListDeletedFilesReply"> & {
  * Use `create(ListDeletedFilesReplySchema)` to create a new message.
  */
 export const ListDeletedFilesReplySchema: GenMessage<ListDeletedFilesReply> = /*@__PURE__*/
-  messageDesc(file_sync_sync_ext, 38);
+  messageDesc(file_sync_sync_ext, 41);
 
 /**
  * EntryKind 条目类型（1=file 2=dir；0/缺省按 file，与 manifest JSON 的 kind 数字同值）
@@ -1297,10 +1480,12 @@ export const FileVersionStateSchema: GenEnum<FileVersionState> = /*@__PURE__*/
  * 不存在的 vault_id 一律返回业务错误 12004，不再惰性建仓。
  * 鉴权经 Authorization: Bearer 头（interceptor 注入 userID）。
  *
- * 端到端加密仓库：文件内容由客户端加密后上传，服务端只存密文与明文元数据
- * （仓库名、路径、类型、大小、时间、版本关系），无法解密。读写加密仓库的客户端必须在
- * 请求头携带 Client-E2EE-Version: 1；缺失或低于 1 时服务端对所有内容 RPC 返回 12008
- * （拒绝不支持的客户端，避免其把明文写入加密仓库或把密文写坏到本地）。
+ * 端到端加密仓库：文件内容由客户端加密后上传，服务端只存密文与元数据，无法解密。
+ * 加密分两级：v1 仅加密内容（路径、类型、大小、时间、版本关系仍为明文）；
+ * v2 在 v1 基础上把路径/文件名/目录名也替换为不透明 token，服务端只保存 token 与路径密文。
+ * 客户端必须在请求头携带 Client-E2EE-Version，且不低于仓库要求的版本（v1=1、v2=2）；
+ * 缺失或过低时服务端对内容 RPC 返回 12008（拒绝不支持的客户端，避免其把明文写入
+ * 加密仓库或把密文写坏到本地）。
  *
  * @generated from service sync.SyncService
  */
@@ -1365,6 +1550,18 @@ export const SyncService: GenService<{
     methodKind: "unary";
     input: typeof UpdateVaultKeyRequestSchema;
     output: typeof UpdateVaultKeyReplySchema;
+  },
+  /**
+   * EnableVaultPathEncryption 把已内容加密的仓库原地升级为路径加密（v2）：客户端提交
+   * 当前清单每条路径对应的 token 与路径密文，服务端原子替换清单并递增 revision。
+   * 内容 Blob 不重传；迁移前的历史版本与删除记录路径保持明文。仓库未加密或已启用路径加密时拒绝。
+   *
+   * @generated from rpc sync.SyncService.EnableVaultPathEncryption
+   */
+  enableVaultPathEncryption: {
+    methodKind: "unary";
+    input: typeof EnableVaultPathEncryptionRequestSchema;
+    output: typeof EnableVaultPathEncryptionReplySchema;
   },
   /**
    * GetVaultHead 空轮询：返回 Head 与当前套餐单文件上限，Head 未变时客户端不请求 Manifest。

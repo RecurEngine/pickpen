@@ -120,6 +120,8 @@ describe("BaseStore", () => {
 		const parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
 		// 被排除路径：下一轮必须重新读盘算哈希，否则期间的本地改动会被快路径永久漏掉
 		expect(parsed.entries["excluded.txt"].local_mtime).toBeUndefined();
+		// 且不能落成“已达成的基线”：本地缺失时 planner 必须按 Bootstrap 处理，不能推断删除
+		expect(parsed.entries["excluded.txt"].out_of_scope).toBe(true);
 		expect(parsed.entries["excluded.txt"].content_hash).toBe("a".repeat(64)); // 内容哈希保留（远端状态）
 		expect(parsed.entries["kept.md"].local_mtime).toBe("1700000000000");
 	});

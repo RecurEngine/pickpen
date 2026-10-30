@@ -15,6 +15,7 @@ import {
 import { isSnapshotChanged, type RemoteClient } from "../remote-connect";
 import { httpGetBytes, httpPutBytes } from "./direct-transfer";
 import { buildTree, type Entry } from "./merkle";
+import { decodeManifestEntries, PATH_MODE_ENCRYPTED } from "./path-codec";
 import { KIND_DIR } from "./types";
 import type { PutMutation } from "./types";
 
@@ -49,6 +50,8 @@ export interface RemoteHead {
 	encrypted: boolean;
 	/** 密钥版本：与解锁时记录的不一致 = 口令已在别处变更，须重新解锁并重建本地基线 */
 	keyVersion: bigint;
+	/** 路径加密版本：0 = 仅内容加密，1 = 路径与文件名加密 */
+	pathEncryptionVersion: number;
 }
 
 export interface RemoteManifest {
@@ -56,6 +59,8 @@ export interface RemoteManifest {
 	rootHash: string;
 	vaultId: string;
 	entries: Record<string, Entry>;
+	/** 远端 enc_path 与本地确定性值不一致的明文路径（可强制 put 修复） */
+	repairs: string[];
 }
 
 export class SnapshotRemote {
@@ -88,6 +93,7 @@ export class SnapshotRemote {
 			localDebounceMs: resp.localDebounceMs,
 			encrypted: resp.encrypted,
 			keyVersion: resp.keyVersion,
+			pathEncryptionVersion: resp.pathEncryptionVersion,
 		};
 		this.onHead?.(head);
 		return head;
@@ -112,6 +118,7 @@ export class SnapshotRemote {
 			localDebounceMs: resp.localDebounceMs,
 			encrypted: resp.encrypted,
 			keyVersion: resp.keyVersion,
+			pathEncryptionVersion: resp.pathEncryptionVersion,
 		};
 		this.onHead?.(head);
 		return head;
@@ -121,7 +128,7 @@ export class SnapshotRemote {
 	 * 下载完整 Manifest（gzip 解压 + 重建 Merkle 校验 root）。
 	 * 12015（SNAPSHOT_CHANGED）原样抛出，由 session 从新 Head 重试。
 	 */
-	async getManifest(expectedRevision: bigint, expectedRootHash: string): Promise<RemoteManifest> {
+	async getManifest(expectedRevision: bigint, expectedRootHash: string, pathMode: number): Promise<RemoteManifest> {
 		const resp = await this.client.syncClient.getManifest({
 			vaultId: this.vaultId,
 			expectedRevision,
@@ -139,17 +146,21 @@ export class SnapshotRemote {
 		if (parsed.schema_version !== 2 || !parsed.entries) {
 			throw new Error("manifest 结构非法");
 		}
-		const { rootHash: computed } = buildTree(parsed.entries);
+		const encryptedPaths = pathMode === PATH_MODE_ENCRYPTED;
+		// root 必须在 token 口径下校验（v2 叶子含 enc_path），再解码成明文 entries
+		const { rootHash: computed } = buildTree(parsed.entries, encryptedPaths);
 		const root = await computed;
 		if (root !== resp.rootHash) {
 			// 服务端返回的 Manifest 与声明的 root 不符：拒绝本轮同步（spec §7.6）
 			throw new Error(`manifest root 校验失败：计算 ${root} ≠ 声明 ${resp.rootHash}`);
 		}
+		const decoded = await decodeManifestEntries(parsed.entries, pathMode);
 		return {
 			revision: resp.revision,
 			rootHash: resp.rootHash,
 			vaultId: parsed.vault_id ?? "",
-			entries: parsed.entries,
+			entries: decoded.entries,
+			repairs: decoded.repairs,
 		};
 	}
 
@@ -230,7 +241,7 @@ export class SnapshotRemote {
 		expectedRootHash: string;
 		targetRootHash: string;
 		puts: PutMutation[];
-		deletes: string[];
+		deletes: { path: string; enc_path: string }[];
 	}): Promise<{ revision: bigint; rootHash: string; changed: boolean } | null> {
 		try {
 			const resp = await this.client.syncClient.commitSnapshot({
@@ -249,13 +260,17 @@ export class SnapshotRemote {
 									size: BigInt(p.size),
 									fileId: p.file_id,
 									kind: p.kind === KIND_DIR ? EntryKind.DIR : EntryKind.FILE,
+									encPath: p.enc_path ?? "",
 								}),
 							},
 						}),
 					),
 					...args.deletes.map((p) =>
 						create(MutationSchema, {
-							op: { case: "delete", value: create(DeleteMutationSchema, { path: p }) },
+							op: {
+								case: "delete",
+								value: create(DeleteMutationSchema, { path: p.path, encPath: p.enc_path }),
+							},
 						}),
 					),
 				],

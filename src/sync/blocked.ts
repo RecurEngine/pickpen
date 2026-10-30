@@ -5,6 +5,7 @@ export type BlockedReason =
 	| "oversized" // 本地文件超过当前套餐的单文件上限
 	| "read_failed" // 本地内容读取失败（下一轮会重试）
 	| "case_conflict" // 与另一路径仅大小写不同，大小写不敏感平台上无法共存
+	| "path_unencodable" // 路径加密仓库：NFC/长度/目录层数超出 token 编码能力
 	| "remote_oversized"; // 云端已有内容超过当前套餐的单文件上限（升级套餐后自动恢复）
 
 export interface BlockedPathInfo {

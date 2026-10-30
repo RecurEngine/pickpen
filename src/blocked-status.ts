@@ -8,13 +8,20 @@ import type { BlockedPathInfo, BlockedReason } from "./sync/blocked";
 const MAX_LISTED = 3;
 
 /** 原因归类计数的固定顺序（与 BlockedReason 的声明顺序一致） */
-const REASON_ORDER: readonly BlockedReason[] = ["oversized", "read_failed", "case_conflict", "remote_oversized"];
+const REASON_ORDER: readonly BlockedReason[] = [
+	"oversized",
+	"read_failed",
+	"case_conflict",
+	"path_unencodable",
+	"remote_oversized",
+];
 
 /** 折叠时的归类短语（比单文件短语短，便于一行放下） */
 const GROUP_LABELS: Record<BlockedReason, string> = {
 	oversized: "超过单文件上限",
 	read_failed: "无法读取本地内容",
 	case_conflict: "大小写冲突",
+	path_unencodable: "路径过深无法加密",
 	remote_oversized: "云端存量文件超限",
 };
 
@@ -52,6 +59,8 @@ export function blockedReasonLabel(reason: BlockedReason, maxFileSizeBytes: numb
 			return "无法读取本地内容，下次同步会重试";
 		case "case_conflict":
 			return "与另一项名称仅大小写不同";
+		case "path_unencodable":
+			return "路径过深或名称无法加密，暂不能同步";
 		case "remote_oversized":
 			return `云端已有内容超过单文件上限${limit}，升级套餐后自动恢复`;
 	}

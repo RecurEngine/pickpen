@@ -2,6 +2,7 @@
 
 import { LoginType, SendCodeType } from "./gen/proto/user/user.ext_pb";
 import { debugLog } from "./debug-log";
+import { reportError } from "./error-report/reporter";
 import type { PluginSettings } from "./types";
 import type { SessionFields } from "./session-store";
 import type { RemoteClient } from "./remote-connect";
@@ -131,6 +132,8 @@ export class AuthManager {
 		}
 		// 网络类错误不视为失效，保持登录态由调用方按现状处理
 		debugLog.warn(`[pickpen] token 刷新失败，错误码：${errorCode(failure) ?? "unknown"}`);
+		// 11002 属于预期失效（上面已处理），上报模块会按错误码过滤。
+		reportError("auth", failure, { code: errorCode(failure) });
 		return false;
 	}
 

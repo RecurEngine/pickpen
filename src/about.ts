@@ -6,8 +6,10 @@ import { ButtonComponent, Notice, Platform, Setting } from "obsidian";
 import { debugLog } from "./debug-log";
 import { openExternal } from "./external-link";
 import type PickpenPlugin from "./index";
+import { openCommunityPluginPage } from "./system-settings";
 import { syncState } from "./sync-state";
 import { BASE_URL, BUILD_TAG } from "./types";
+import { shouldNotifyVersion } from "./version-check";
 
 // —— 联系方式常量（按需修改）——
 const SUPPORT_EMAIL = "pickpen@rrecurengine.com";
@@ -47,9 +49,37 @@ function openMailto(to: string, subject: string, body?: string): void {
 	openExternal(url);
 }
 
+// renderVersionStatus 版本状态行：仅有新版本或需要升级时出现，按钮直接打开社区插件页。
+// 状态来自最近一次检查（index.ts 的 versionStatus），离线时保持上次结果，不显示未验证的信息。
+// 软提醒被用户「忽略此版本」后不再显示；强制档始终显示（没有忽略可言）。
+function renderVersionStatus(root: HTMLElement, plugin: PickpenPlugin): void {
+	const status = plugin.versionStatus;
+	if (status.level === "ok" || !status.targetVersion) return;
+	const forced = status.level === "force";
+	if (!forced && !shouldNotifyVersion(status.targetVersion, plugin.sessionStore.versionNoticeVersion)) return;
+	const setting = new Setting(root)
+		.setName(forced ? "需要升级" : "有新版本")
+		.setDesc(
+			forced
+				? `当前版本 ${plugin.manifest.version} 已不再受支持，请升级到 ${status.targetVersion}；升级前同步仍可正常使用，本地笔记不会丢失。`
+				: `当前版本 ${plugin.manifest.version}，最新版本 ${status.targetVersion}。`,
+		)
+		.addButton((btn) =>
+			btn.setButtonText("前往更新").setCta().onClick(() => {
+				if (!openCommunityPluginPage(plugin.app, plugin.manifest.id)) {
+					new Notice("无法自动打开插件详情页：请打开「设置 → 第三方插件」手动检查更新。");
+				}
+			}),
+		);
+	setting.settingEl.addClass("pickpen-version-status");
+}
+
 export function renderAboutAndFeedback(containerEl: HTMLElement, plugin: PickpenPlugin): void {
 	// 分区标题由声明式分组提供；子项统一放进容器，缩进与标题左边缘一致。
 	const root = containerEl.createDiv({ cls: "pickpen-about pickpen-settings-section" });
+
+	// 版本提示常驻行：软提醒时用户还有机会回头找到入口；强制状态的不可关闭弹窗由 index.ts 负责
+	renderVersionStatus(root, plugin);
 
 	// 产品简介
 	const introSetting = new Setting(root).setName("Pickpen Sync");

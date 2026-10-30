@@ -11,12 +11,23 @@ export const STATE_DELETED = "deleted";
 export const KIND_FILE = 1;
 export const KIND_DIR = 2;
 
+// 叶子 tag：v1（0x01/0x02/0x03）与 v2 路径加密（0x04/0x05/0x06）。
+// v2 在 v1 编码之后追加 varint(len(enc_path)) || enc_path（ASCII 字节）。
+export const LEAF_ACTIVE_TAG = 0x01;
+export const LEAF_DELETED_TAG = 0x02;
+export const LEAF_ACTIVE_DIR_TAG = 0x03;
+export const LEAF_ACTIVE_TAG_V2 = 0x04;
+export const LEAF_DELETED_TAG_V2 = 0x05;
+export const LEAF_ACTIVE_DIR_TAG_V2 = 0x06;
+
 export interface Entry {
 	state: "active" | "deleted";
 	content_hash?: string;
 	size?: string; // 十进制字符串（spec：int64 在 JSON 中一律十进制字符串）
 	kind?: number; // KIND_FILE | KIND_DIR，缺省按 file
 	file_id?: string; // 仅传输层稳定身份（rename 不变），不参与 hash
+	/** 明文路径密文；仅路径加密仓库（v2）存在，参与 v2 叶子 hash */
+	enc_path?: string;
 }
 
 /** 实际类型（未设置按 file） */
@@ -76,27 +87,36 @@ export function compareBytes(a: Uint8Array, b: Uint8Array): number {
  * 不含 mtime、updated_at、device_id、revision、file_id、kind 的其余语义。
  * file/dir tombstone 编码相同。返回 64 位 hex。
  */
-export async function leafHashHex(path: string, e: Entry): Promise<string> {
+export async function leafHashHex(path: string, e: Entry, pathEncrypted = false): Promise<string> {
 	const np = nfcPath(path);
 	if (np === null) throw new Error(`invalid protocol path: ${path}`);
+	if (pathEncrypted && !e.enc_path) throw new Error("v2 entry missing enc_path");
 	const pathBytes = textEncoder.encode(np);
 	const parts: Uint8Array[] = [new Uint8Array([0x00]), encodeVarint(pathBytes.length), pathBytes];
+	let tag: number;
 	if (e.state === STATE_ACTIVE) {
 		if (effectiveKind(e) === KIND_DIR) {
 			// 防御编码歧义：dir 不得携带内容引用
 			if (e.content_hash || e.size) throw new Error("dir entry cannot carry content");
-			parts.push(new Uint8Array([0x03]));
+			tag = pathEncrypted ? LEAF_ACTIVE_DIR_TAG_V2 : LEAF_ACTIVE_DIR_TAG;
+			parts.push(new Uint8Array([tag]));
 		} else {
 			if (!e.content_hash || e.content_hash.length !== 64) throw new Error("invalid content_hash");
 			const sz = new Uint8Array(8);
 			new DataView(sz.buffer).setBigUint64(0, BigInt(e.size ?? "0"), false);
-			parts.push(new Uint8Array([0x01]), hexToBytes(e.content_hash), sz);
+			tag = pathEncrypted ? LEAF_ACTIVE_TAG_V2 : LEAF_ACTIVE_TAG;
+			parts.push(new Uint8Array([tag]), hexToBytes(e.content_hash), sz);
 		}
 	} else if (e.state === STATE_DELETED) {
-		parts.push(new Uint8Array([0x02]));
+		tag = pathEncrypted ? LEAF_DELETED_TAG_V2 : LEAF_DELETED_TAG;
+		parts.push(new Uint8Array([tag]));
 	} else {
 		// 状态枚举已穷尽（类型上 e.state 为 never）：走到这里说明上游数据越界
 		throw new Error(`invalid state: ${String(e.state)}`);
+	}
+	if (pathEncrypted) {
+		const enc = textEncoder.encode(e.enc_path);
+		parts.push(encodeVarint(enc.length), enc);
 	}
 	return sha256Hex(concatBytes(...parts));
 }
@@ -117,10 +137,11 @@ export async function directoryHashHex(
 	self: Entry | undefined,
 	selfPath: string,
 	children: DirChild[],
+	pathEncrypted = false,
 ): Promise<string> {
 	const parts: Uint8Array[] = [new Uint8Array([0x01])];
 	if (self) {
-		parts.push(new Uint8Array([0x01]), hexToBytes(await leafHashHex(selfPath, self)));
+		parts.push(new Uint8Array([0x01]), hexToBytes(await leafHashHex(selfPath, self, pathEncrypted)));
 	} else {
 		parts.push(new Uint8Array([0x00]));
 	}
@@ -156,15 +177,19 @@ export interface TreeNode {
 
 export const SCHEMA_VERSION = 2;
 
-/** 构建 Trie 并自底向上计算全部节点 hash；entries 的 key 必须是协议路径（构建时仍校验一次） */
-export function buildTree(entries: Record<string, Entry>): { root: TreeNode; rootHash: Promise<string> } {
+/** 构建 Trie 并自底向上计算全部节点 hash；entries 的 key 必须是协议路径（构建时仍校验一次）。
+ * pathEncrypted=true 时为路径加密仓库（v2）：每个 entry 必须携带 enc_path，叶子 hash 使用 v2 编码。 */
+export function buildTree(
+	entries: Record<string, Entry>,
+	pathEncrypted = false,
+): { root: TreeNode; rootHash: Promise<string> } {
 	const root: TreeNode = { path: "", children: new Map() };
 	for (const [path, e] of Object.entries(entries)) {
 		const np = nfcPath(path);
 		if (np === null) throw new Error(`invalid protocol path: ${path}`);
 		insertNode(root, np, e);
 	}
-	const rootHash = hashNode(root, root, SCHEMA_VERSION).then((dirHash) =>
+	const rootHash = hashNode(root, root, SCHEMA_VERSION, pathEncrypted).then((dirHash) =>
 		rootHashHex(dirHash, SCHEMA_VERSION),
 	);
 	return { root, rootHash };
@@ -196,21 +221,26 @@ function insertNode(root: TreeNode, path: string, e: Entry): void {
  * 自底向上计算节点 hash。叶子（无 children 有 entry）= LeafHash；
  * 目录（有 children，或空树根）= DirectoryHash。返回 hash 并回填 node.hash。
  */
-async function hashNode(node: TreeNode, root: TreeNode, schemaVersion: number): Promise<Uint8Array> {
+async function hashNode(
+	node: TreeNode,
+	root: TreeNode,
+	schemaVersion: number,
+	pathEncrypted: boolean,
+): Promise<Uint8Array> {
 	if (node.entry && node.entry.state === STATE_ACTIVE && effectiveKind(node.entry) === KIND_FILE && node.children.size > 0) {
 		throw new Error("active entry cannot have children");
 	}
 	if (node.children.size === 0 && node.entry) {
-		const h = hexToBytes(await leafHashHex(node.path, node.entry));
+		const h = hexToBytes(await leafHashHex(node.path, node.entry, pathEncrypted));
 		node.hash = h;
 		return h;
 	}
 	const children: DirChild[] = [];
 	for (const name of sortNamesUtf8([...node.children.keys()])) {
 		const child = node.children.get(name)!;
-		children.push({ name, hash: await hashNode(child, root, schemaVersion) });
+		children.push({ name, hash: await hashNode(child, root, schemaVersion, pathEncrypted) });
 	}
-	const h = hexToBytes(await directoryHashHex(node.entry, node.path, children));
+	const h = hexToBytes(await directoryHashHex(node.entry, node.path, children, pathEncrypted));
 	node.hash = h;
 	return h;
 }
@@ -253,6 +283,6 @@ function collectPaths(node: TreeNode): string[] {
 /** 空 Manifest 对应的确定性 root hash（创建空 Vault 时显式写入该值） */
 export async function emptyRootHashHex(): Promise<string> {
 	const root: TreeNode = { path: "", children: new Map() };
-	const dirHash = await hashNode(root, root, SCHEMA_VERSION);
+	const dirHash = await hashNode(root, root, SCHEMA_VERSION, false);
 	return rootHashHex(dirHash, SCHEMA_VERSION);
 }
