@@ -132,7 +132,7 @@ describe("verifying 阶段逐文件进度", () => {
 	it("本地在会话期间变化而放弃校验时，不留活动路径也不虚增完成数", async () => {
 		const content = new TextEncoder().encode("abc");
 		const onProgress = vi.fn();
-		const verify = verifier({ readBinary: vi.fn(async () => content.buffer) });
+		const verify = verifier({ exists: vi.fn(async () => true), readBinary: vi.fn(async () => content.buffer) });
 
 		// delete 目标在会话期间重现 → expectedHashes 无该路径 → 抛给调用方（标脏重排）
 		await expect(
@@ -143,6 +143,49 @@ describe("verifying 阶段逐文件进度", () => {
 			),
 		).rejects.toMatchObject({ path: "gone.md" });
 		expect(onProgress.mock.lastCall![0]).toEqual({ completed: 0, total: 1, activePaths: [] });
+	});
+
+	it("移动端缺失文案（File does not exist）按本地已变处理，超时仍原样上抛", async () => {
+		const put = { path: "未命名.md", content_hash: "a".repeat(64), size: "3", file_id: "f", kind: KIND_FILE };
+		const p = plan({ puts: [put] });
+
+		await expect(
+			verifier({ readBinary: vi.fn(async () => { throw new Error("File does not exist"); }) })(p, new Map(), vi.fn()),
+		).rejects.toMatchObject({ name: "LocalChangedDuringUploadError", path: "未命名.md" });
+
+		// 3d6982f 的初衷：无法确认路径不存在的 I/O 错误不得被误判成「本地改动」
+		await expect(
+			verifier({ readBinary: vi.fn(async () => { throw new Error("File system operation timed out"); }) })(p, new Map(), vi.fn()),
+		).rejects.toThrow("读取 未命名.md 失败：File system operation timed out");
+	});
+
+	it("delete 目标不存在时直接放行，存在时才复验", async () => {
+		const entries = { "gone.md": { state: "deleted" as const, kind: KIND_FILE } };
+		const p = plan({ deletes: ["gone.md"], target_entries: entries });
+
+		const readBinary = vi.fn();
+		await expect(
+			verifier({ exists: vi.fn(async () => false), readBinary })(p, new Map(), vi.fn()),
+		).resolves.toBeUndefined();
+		expect(readBinary).not.toHaveBeenCalled();
+
+		await expect(
+			verifier({ exists: vi.fn(async () => true), readBinary: vi.fn(async () => new TextEncoder().encode("abc").buffer) })(
+				p,
+				new Map(),
+				vi.fn(),
+			),
+		).rejects.toMatchObject({ name: "LocalChangedDuringUploadError", path: "gone.md" });
+	});
+
+	it("delete 目标的存在性检查自身抛错时原样上抛", async () => {
+		const entries = { "gone.md": { state: "deleted" as const, kind: KIND_FILE } };
+		await expect(
+			verifier({
+				exists: vi.fn(async () => { throw new Error("EACCES: permission denied"); }),
+				readBinary: vi.fn(),
+			})(plan({ deletes: ["gone.md"], target_entries: entries }), new Map(), vi.fn()),
+		).rejects.toThrow("读取 gone.md 失败：EACCES: permission denied");
 	});
 
 	it("目录删除目标仍存在时放弃，读盘异常照旧向上抛", async () => {

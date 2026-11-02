@@ -44,9 +44,13 @@ const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
 /** 读盘失败是否只是「文件不存在」：只有这种情况才能按「本地已删/消失」处理；
  *  超时、权限等 I/O 错误必须原样上抛，不能误判成本地改动。 */
 function isMissingPathError(err: unknown): boolean {
-	if ((err as { name?: unknown })?.name === "NotFoundError") return true;
-	const message = typeof (err as { message?: unknown })?.message === "string" ? (err as { message: string }).message : "";
-	return /not found|enoent|no such file/i.test(message);
+	const e = err as { name?: unknown; message?: unknown; code?: unknown };
+	if (e?.name === "NotFoundError") return true;
+	// Capacitor（Obsidian 移动端）的文件系统错误用字符串码区分，宿主透传时应优先认码
+	if (typeof e?.code === "string" && /not[_ ]?found/i.test(e.code)) return true;
+	const message = typeof e?.message === "string" ? e.message : "";
+	// 桌面端是 ENOENT / No such file；移动端 Capacitor 的文案是 File does not exist
+	return /not found|enoent|no such file|does not exist/i.test(message);
 }
 
 /** 给读盘异常补上相对路径，便于上报归因（消息会经上报模块脱敏）。 */
@@ -1259,12 +1263,21 @@ export class ReconcileSession {
 				} else {
 					const expected = expectedHashes.get(d);
 					let content: ArrayBuffer | null = null;
+					// 删除目标本应不存在：先做存在性判断，不把正确性绑在各平台读盘错误的文案上
+					// （移动端缺失文件抛「File does not exist」，桌面端是 ENOENT）
+					let exists: boolean;
 					try {
-						content = await app.vault.adapter.readBinary(d);
+						exists = await app.vault.adapter.exists(d);
 					} catch (err) {
-						// 文件不存在是 delete 目标的正常状态；其他 I/O 失败不得当作「已不存在」放行
-						if (!isMissingPathError(err)) throw withPathContext(err, d);
-						content = null;
+						throw withPathContext(err, d);
+					}
+					if (exists) {
+						try {
+							content = await app.vault.adapter.readBinary(d);
+						} catch (err) {
+							// 存在性检查与读取之间被删：仍按「不存在」放行；其他 I/O 失败照旧上抛
+							if (!isMissingPathError(err)) throw withPathContext(err, d);
+						}
 					}
 					if (content !== null && (expected === undefined || !(await this.unchanged(content, expected)))) {
 						throw new LocalChangedDuringUploadError(d);
