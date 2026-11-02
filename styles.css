@@ -298,6 +298,7 @@
  */
 .pickpen-settings-section,
 .pickpen-invite,
+.pickpen-redeem,
 .pickpen-benefit {
 	margin: 0;
 	padding: 0 var(--size-4-5, 20px);
@@ -319,6 +320,7 @@
 .pickpen-settings-section > .setting-item,
 .pickpen-subscription > .setting-item,
 .pickpen-invite > .setting-item,
+.pickpen-redeem > .setting-item,
 .pickpen-benefit > .setting-item {
 	padding: var(--setting-items-padding-y, var(--size-4-5)) 0;
 	margin-bottom: 0;
@@ -392,6 +394,7 @@
  */
 .pickpen-subscription > :not(.setting-item):not(:first-child),
 .pickpen-invite > :not(.setting-item):not(:first-child),
+.pickpen-redeem > :not(.setting-item):not(:first-child),
 .pickpen-benefit > :not(.setting-item):not(:first-child) {
 	border-top: 1px solid var(--background-modifier-border);
 }

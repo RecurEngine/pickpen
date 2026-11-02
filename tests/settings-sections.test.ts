@@ -30,6 +30,7 @@ describe("设置页分区", () => {
 			"当前订阅",
 			"订阅方案",
 			"邀请",
+			"兑换码",
 			"福利码",
 			"诊断",
 			"关于与反馈",
@@ -49,7 +50,18 @@ describe("设置页分区", () => {
 	it("福利码分组可被设置搜索检索到", () => {
 		const benefit = sectionGroups().find((g) => g.heading === "福利码");
 		const aliases = (benefit?.items?.[0] as { aliases?: string[] } | undefined)?.aliases ?? [];
-		for (const keyword of ["福利码", "兑换", "领取", "兑换码", "会员"]) {
+		for (const keyword of ["福利码", "领取", "福利", "会员"]) {
+			expect(aliases).toContain(keyword);
+		}
+		// 「兑换码」归独立兑换码分组，福利码不能再占用，避免搜索歧义
+		expect(aliases).not.toContain("兑换码");
+		expect(aliases).not.toContain("兑换");
+	});
+
+	it("兑换码分组可被设置搜索检索到", () => {
+		const redeem = sectionGroups().find((g) => g.heading === "兑换码");
+		const aliases = (redeem?.items?.[0] as { aliases?: string[] } | undefined)?.aliases ?? [];
+		for (const keyword of ["兑换码", "兑换", "激活码", "会员"]) {
 			expect(aliases).toContain(keyword);
 		}
 	});

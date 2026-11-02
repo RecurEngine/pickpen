@@ -13,6 +13,7 @@ import { debugLog, type DebugLevel, type DebugLogEntry } from "./debug-log";
 import { errorReporter } from "./error-report/reporter";
 import type PickpenPlugin from "./index";
 import { renderInviteSection } from "./invite-view";
+import { renderRedeemSection } from "./redeem-view";
 import { ErrCode, errorCode } from "./remote-connect";
 import { openFolderExclusionManager } from "./selective-view";
 import { AUDIO_EXTS, IMAGE_EXTS, PDF_EXTS, VIDEO_EXTS } from "./sync/selective";
@@ -95,6 +96,7 @@ export class PickpenSettingTab extends PluginSettingTab {
 			this.sectionGroup("invite", "邀请", "邀请码、邀请人数与邀请奖励进度", [
 				"邀请码", "邀请人数", "邀请充值", "邀请用户",
 			]),
+			this.redeemGroup(),
 			this.benefitGroup(),
 			// 正式渠道包（prod）不展示调试日志入口，搜索索引同步摘掉相关关键词（避免搜到却无此项）。
 			// 这里直接比较 process.env.PICKPEN_ENV（不提前赋给变量）：构建期 define 替换为字面量后，
@@ -148,6 +150,29 @@ export class PickpenSettingTab extends PluginSettingTab {
 	}
 
 	/**
+	 * 兑换码分组：始终展示；未登录时由 view 显示登录引导。
+	 * 与福利码分开命名与索引，避免设置搜索同时命中两个分组。
+	 */
+	private redeemGroup(): SettingDefinitionGroup {
+		return {
+			type: "group",
+			heading: "兑换码",
+			items: [
+				{
+					name: "兑换码",
+					desc: "输入兑换码兑换会员时长",
+					aliases: ["兑换码", "兑换", "激活码", "会员"],
+					render: (setting) => {
+						setting.setClass("pickpen-declared-section");
+						this.view.render("redeem", setting.settingEl);
+						return () => this.view.disposeSection("redeem");
+					},
+				},
+			],
+		};
+	}
+
+	/**
 	 * 福利码分组：活动开启时才展示（开关来自服务端，见 benefit-state）。
 	 * 用 visible 谓词而非在 getSettingDefinitions 里条件性拼数组：
 	 * 谓词由宿主在每次渲染时求值，开关变化只需 refreshDomState() 就地切换，
@@ -162,7 +187,7 @@ export class PickpenSettingTab extends PluginSettingTab {
 				{
 					name: "福利码",
 					desc: "输入福利码兑换会员时长",
-					aliases: ["福利码", "兑换", "领取", "兑换码", "会员"],
+					aliases: ["福利码", "领取", "福利", "会员"],
 					render: (setting) => {
 						setting.setClass("pickpen-declared-section");
 						this.view.render("benefit", setting.settingEl);
@@ -242,6 +267,7 @@ export type SettingsSection =
 	| "subscription-status"
 	| "subscription-plans"
 	| "invite"
+	| "redeem"
 	| "benefit"
 	| "diagnostics"
 	| "about";
@@ -301,6 +327,7 @@ class PickpenSettingsView {
 	// 各分区订阅清理（分区重建/被拆除时解除）
 	private debugCleanup: (() => void) | null = null;
 	private inviteCleanup: (() => void) | null = null;
+	private redeemCleanup: (() => void) | null = null;
 	private benefitCleanup: (() => void) | null = null;
 	private readonly onFirstRender: () => void;
 	// 订阅两块共用一份数据与一个加载器：容器按分块记录，重建合并到同一微任务
@@ -330,6 +357,11 @@ class PickpenSettingsView {
 			case "invite":
 				// —— 邀请（与「账号和仓库」同级；未登录时只显示登录引导）——
 				this.inviteCleanup = renderInviteSection(containerEl, this.plugin);
+				break;
+			case "redeem":
+				// —— 兑换码（与「邀请」同级；未登录时显示登录引导）——
+				// 兑换会改变会员时长，只重建订阅两块，不整页重绘
+				this.redeemCleanup = renderRedeemSection(containerEl, this.plugin, () => this.refreshSubscription());
 				break;
 			case "benefit":
 				// —— 福利码（与「邀请」同级；由活动开关控制整个分组的可见性）——
@@ -383,6 +415,10 @@ class PickpenSettingsView {
 			case "invite":
 				this.inviteCleanup?.();
 				this.inviteCleanup = null;
+				break;
+			case "redeem":
+				this.redeemCleanup?.();
+				this.redeemCleanup = null;
 				break;
 			case "benefit":
 				this.benefitCleanup?.();
@@ -780,6 +816,8 @@ class PickpenSettingsView {
 		this.subscriptionCleanup = null;
 		this.inviteCleanup?.();
 		this.inviteCleanup = null;
+		this.redeemCleanup?.();
+		this.redeemCleanup = null;
 		this.benefitCleanup?.();
 		this.benefitCleanup = null;
 		this.clearStatusCardRefs();

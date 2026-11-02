@@ -11,6 +11,7 @@ import { BenefitService } from "./gen/proto/benefit/benefit_pb";
 import { ClientConfigService } from "./gen/proto/clientconfig/client_config_pb";
 import { ErrorReportService } from "./gen/proto/errorreport/error_report_pb";
 import { InviteService } from "./gen/proto/invite/invite_pb";
+import { RedeemService } from "./gen/proto/redeem/redeem_pb";
 import { SyncService } from "./gen/proto/sync/sync.ext_pb";
 import { SubscriptionService } from "./gen/proto/subscription/subscription_pb";
 import { UserService } from "./gen/proto/user/user.ext_pb";
@@ -70,6 +71,10 @@ export const ErrCode = {
 	BenefitAlreadyClaimed: 16003,  // 该福利码已领取过（同一福利码限领一次）
 	BenefitRequestInvalid: 16004,  // 福利码格式非法
 	BenefitTooFrequent: 16005,     // 领取失败过于频繁，暂时拒绝
+	RedeemCodeUnavailable: 17001, // 兑换码无效或已作废
+	RedeemCodeUsed: 17002,        // 该兑换码已被使用（全局一次性）
+	RedeemRequestInvalid: 17003,  // 兑换码格式不正确
+	RedeemTooFrequent: 17004,     // 兑换失败过于频繁，暂时拒绝
 } as const;
 
 // errorCode 业务错误码（err.code 即业务码）
@@ -241,6 +246,7 @@ export class RemoteClient {
 	subscriptionClient: ReturnType<typeof createClient<typeof SubscriptionService>>;
 	inviteClient: ReturnType<typeof createClient<typeof InviteService>>;
 	benefitClient: ReturnType<typeof createClient<typeof BenefitService>>;
+	redeemClient: ReturnType<typeof createClient<typeof RedeemService>>;
 	errorReportClient: ReturnType<typeof createClient<typeof ErrorReportService>>;
 	clientConfigClient: ReturnType<typeof createClient<typeof ClientConfigService>>;
 	private getConfig: () => RemoteConfig;
@@ -254,6 +260,7 @@ export class RemoteClient {
 		this.subscriptionClient = createClient(SubscriptionService, transport);
 		this.inviteClient = createClient(InviteService, transport);
 		this.benefitClient = createClient(BenefitService, transport);
+		this.redeemClient = createClient(RedeemService, transport);
 		this.errorReportClient = createClient(ErrorReportService, transport);
 		this.clientConfigClient = createClient(ClientConfigService, transport);
 	}
@@ -269,6 +276,7 @@ export class RemoteClient {
 		this.subscriptionClient = createClient(SubscriptionService, transport);
 		this.inviteClient = createClient(InviteService, transport);
 		this.benefitClient = createClient(BenefitService, transport);
+		this.redeemClient = createClient(RedeemService, transport);
 		this.errorReportClient = createClient(ErrorReportService, transport);
 		this.clientConfigClient = createClient(ClientConfigService, transport);
 		this.currentBaseUrl = baseUrl;
