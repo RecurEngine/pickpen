@@ -4,8 +4,8 @@
 
 import type { KeyValueStore } from "../session-store";
 import { debugLog } from "../debug-log";
-import { BUILD_TAG } from "../types";
-import { isExpectedError, isNetworkPhase, isUnimplemented, normalizeError } from "./classify";
+import { BUILD_ID, BUILD_TAG } from "../types";
+import { isExpectedError, isNetworkPhase, isUnimplemented, normalizeError, errorNameOf } from "./classify";
 import { ErrorQueue } from "./queue";
 import { sanitizeMessage, sanitizeText, truncateChars, truncateUtf8 } from "./sanitize";
 import type {
@@ -80,15 +80,22 @@ export class ErrorReporter {
 			const stack = truncateUtf8(sanitizeText(normalized.stack, secrets), STACK_MAX_BYTES);
 			if (!message && !stack) return;
 
-			const level: ErrorLevel = phase === "startup" || phase === "layout" ? "fatal" : "error";
-			const contextJson = truncateUtf8(JSON.stringify(this.buildContext(phase, meta, extra)), CONTEXT_MAX_BYTES);
+			// 业务码与 connect/RPC 标准码分家：只有五位数业务码进 code，connect 码（0–16）单独留档。
+			// 否则断网会被记成 code=2，与 12004 这类业务错误混在同一字段里。
+			const rawCode = extra.code ?? normalized.code;
+			const code = rawCode >= 10000 ? rawCode : 0;
+			const connectCode = rawCode > 0 && rawCode < 10000 ? rawCode : undefined;
+			const effectivePhase = this.classifyPhase(phase, err, code);
+
+			const level: ErrorLevel = effectivePhase === "startup" || effectivePhase === "layout" ? "fatal" : "error";
+			const contextJson = truncateUtf8(JSON.stringify(this.buildContext(effectivePhase, meta, extra, connectCode)), CONTEXT_MAX_BYTES);
 			const report = this.queue!.enqueue({
-				phase,
+				phase: effectivePhase,
 				level,
 				errorName: truncateChars(sanitizeText(normalized.name, secrets), 64),
 				message,
 				stack,
-				code: extra.code ?? normalized.code,
+				code,
 				httpStatus: extra.httpStatus ?? normalized.httpStatus,
 				contextJson,
 				deviceId: meta.deviceId,
@@ -97,7 +104,7 @@ export class ErrorReporter {
 				os: meta.os,
 				signedIn: meta.signedIn,
 				vaultId: extra.vaultIdOverride ?? meta.vaultId,
-				network: isNetworkPhase(phase, err),
+				network: isNetworkPhase(effectivePhase, err),
 			});
 			if (report) this.scheduleFlush();
 		} catch (error) {
@@ -160,11 +167,29 @@ export class ErrorReporter {
 		}, 3_000);
 	}
 
-	private buildContext(phase: ErrorPhase, meta: ReporterMeta, extra: ErrorExtra): Record<string, unknown> {
+	/** 故障域归一：传输/网络/仓库类错误不再沿用调用方的 sync/auth，
+	 *  使同一次故障从不同入口采集时落到同一 phase、同一服务端分组。 */
+	private classifyPhase(phase: ErrorPhase, err: unknown, code: number): ErrorPhase {
+		const name = errorNameOf(err);
+		if (name === "DirectTransferHttpError" || name === "DirectTransferUnavailableError") return "transfer";
+		if (code === 12004) return "vault";
+		if (phase === "transfer" || phase === "network") return phase;
+		if (isNetworkPhase(phase, err)) return "network";
+		return phase;
+	}
+
+	private buildContext(
+		phase: ErrorPhase,
+		meta: ReporterMeta,
+		extra: ErrorExtra,
+		connectCode?: number,
+	): Record<string, unknown> {
 		const pendingBucket = meta.pendingCount <= 0 ? "0" : meta.pendingCount < 10 ? "1-9" : "10+";
+		const online = typeof navigator !== "undefined" && typeof navigator.onLine === "boolean" ? navigator.onLine : undefined;
 		const context: Record<string, unknown> = {
 			environment: process.env.PICKPEN_ENV ?? "test",
 			build_tag: BUILD_TAG || undefined,
+			build_id: BUILD_ID || undefined,
 			obsidian_version: meta.appVersion || undefined,
 			locale: meta.locale || undefined,
 			phase,
@@ -173,6 +198,8 @@ export class ErrorReporter {
 			locked: meta.locked,
 			sync_running: meta.syncRunning,
 			pending_bucket: pendingBucket,
+			connect_code: connectCode,
+			online,
 			rpc_method: extra.rpcMethod,
 			duration_ms: extra.durationMs,
 			base_load_result: extra.baseLoadResult,

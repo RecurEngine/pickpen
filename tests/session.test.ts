@@ -9,6 +9,7 @@ import type { BaseStore } from "../src/sync/base-store";
 import type { PendingStore } from "../src/sync/pending-store";
 import type { SnapshotRemote } from "../src/sync/remote";
 import type { Snapshot } from "../src/sync/types";
+import { PAUSED_VAULT_NOT_FOUND } from "../src/sync-state";
 
 function fakeDeps(overrides: {
 	remote?: Partial<SnapshotRemote>;
@@ -164,6 +165,20 @@ describe("ReconcileSession 串行保证", () => {
 		const session = new ReconcileSession(deps as never);
 		session.requestRun();
 		await tick();
+		expect(session.isRunning()).toBe(false);
+	});
+
+	it("12004 仓库不存在 → 暂停同步并等待重新绑定", async () => {
+		const pauseSync = vi.fn();
+		const pollHead = vi.fn(async () => {
+			throw Object.assign(new Error("[12004] 仓库不存在"), { name: "ConnectError", code: 12004 });
+		});
+		const { deps } = fakeDeps({ remote: { pollHead }, settings: { pauseSync } });
+		const session = new ReconcileSession(deps as never);
+		session.requestRun();
+		await tick();
+		await tick();
+		expect(pauseSync).toHaveBeenCalledWith(PAUSED_VAULT_NOT_FOUND);
 		expect(session.isRunning()).toBe(false);
 	});
 

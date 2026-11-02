@@ -52,9 +52,11 @@ export class BaseStore {
 		this.dirty = true;
 	}
 
-	/** 启动时加载；损坏/device 不匹配返回 corrupt（触发安全 Bootstrap 与 force_audit） */
-	async load(): Promise<BaseLoadResult> {
+	/** 启动时加载；损坏/device/vault 不匹配返回 corrupt（触发安全 Bootstrap 与 force_audit） */
+	async load(expectedVaultId: string): Promise<BaseLoadResult> {
 		this.base = null;
+		// 未绑定仓库：不读取旧文件（否则重启后会把上一个仓库的 Base 当作当前仓库的）
+		if (!expectedVaultId) return "no-base";
 		let raw: string;
 		try {
 			raw = await this.app.vault.adapter.read(this.baseFilePath);
@@ -76,6 +78,17 @@ export class BaseStore {
 			!parsed.entries
 		) {
 			debugLog.warn("[pickpen] sync-base.json 结构异常或 device 不匹配，进入安全 Bootstrap");
+			return "corrupt";
+		}
+		// 换绑后旧 Base 对新仓库无效：不校验会让旧路径在新仓库 Manifest 里缺失，
+		// 触发「远端已删」误判。不匹配时按损坏处理，走安全 Bootstrap。
+		if (parsed.vault_id !== expectedVaultId) {
+			debugLog.warn(`[pickpen] sync-base.json 属于其他仓库（${parsed.vault_id}≠${expectedVaultId}），进入安全 Bootstrap`);
+			try {
+				await this.app.vault.adapter.remove(this.baseFilePath); // 自愈：下次启动不再命中
+			} catch {
+				// 文件不存在则无需移除
+			}
 			return "corrupt";
 		}
 		// 老基线（写它时还没有 out_of_scope 口径）一次性迁移：active 条目缺 local_* 说明
@@ -178,9 +191,18 @@ export class BaseStore {
 		}
 	}
 
-	/** 立即落盘（卸载时调用） */
+	/** 立即落盘（卸载/换绑时调用）。换绑后 base 为空：删除旧文件，避免下次启动被当成当前仓库的基线 */
 	async flush(): Promise<void> {
-		if (!this.dirty || !this.base) return;
+		if (!this.dirty) return;
+		if (!this.base) {
+			try {
+				await this.app.vault.adapter.remove(this.baseFilePath);
+			} catch {
+				// 文件不存在则无需移除
+			}
+			this.dirty = false;
+			return;
+		}
 		await this.saveBase(this.base);
 	}
 }

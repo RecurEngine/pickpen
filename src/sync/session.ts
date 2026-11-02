@@ -7,9 +7,11 @@ import { App, Platform, normalizePath } from "obsidian";
 
 import { openForLocal, remoteHash, sealForRemote, vaultKeys } from "../crypto/vault-key-store";
 import { debugLog } from "../debug-log";
+import { isNetworkPhase } from "../error-report/classify";
 import { reportError } from "../error-report/reporter";
 import { normalize } from "../excludes";
-import { errorCode, isFileIDMoved, isInvalidHash, isManifestMismatch, isStorageLimitExceeded, isUnauthenticated } from "../remote-connect";
+import { errorCode, isFileIDMoved, isInvalidHash, isManifestMismatch, isStorageLimitExceeded, isUnauthenticated, isVaultNotFound } from "../remote-connect";
+import { PAUSED_UNSUPPORTED_ENV, PAUSED_VAULT_NOT_FOUND } from "../sync-state";
 import type { PluginSettings } from "../types";
 import { captureAllOpenViews, saveDirtyOpenViews, refreshOpenViews } from "../view-sync";
 import { ProgressTracker, type ProgressCallback, type SyncPhase, type SyncProgress } from "./progress";
@@ -30,7 +32,7 @@ import { nfcPath } from "./path";
 import { encodeDeletes, encodePuts, indexPaths, PATH_MODE_ENCRYPTED, PATH_MODE_PLAIN, treeRoot } from "./path-codec";
 import { PendingStore } from "./pending-store";
 import { entriesEqual, isConflictCopyPath, isRemoteOversized, plan } from "./planner";
-import { SnapshotRemote } from "./remote";
+import { SnapshotRemote, UnsupportedEnvironmentError } from "./remote";
 import { createSyncFilter, type SyncFilter } from "./selective";
 import { KIND_DIR, KIND_FILE } from "./types";
 import type { Entry, Snapshot, SyncPlan } from "./types";
@@ -38,6 +40,22 @@ import { backoffMs, createYieldControl, newUUID } from "./utils";
 
 /** 12023 连续次数达此值 → 抑制 rename hint 继承（强制新身份，切断复发） */
 const FILE_ID_MOVED_SUPPRESS_AFTER = 2;
+
+/** 读盘失败是否只是「文件不存在」：只有这种情况才能按「本地已删/消失」处理；
+ *  超时、权限等 I/O 错误必须原样上抛，不能误判成本地改动。 */
+function isMissingPathError(err: unknown): boolean {
+	if ((err as { name?: unknown })?.name === "NotFoundError") return true;
+	const message = typeof (err as { message?: unknown })?.message === "string" ? (err as { message: string }).message : "";
+	return /not found|enoent|no such file/i.test(message);
+}
+
+/** 给读盘异常补上相对路径，便于上报归因（消息会经上报模块脱敏）。 */
+function withPathContext(err: unknown, path: string): Error {
+	const original = err instanceof Error ? err : new Error(String(err));
+	const wrapped = new Error(`读取 ${path} 失败：${original.message || original.name}`);
+	wrapped.name = original.name || "Error";
+	return wrapped;
+}
 
 /** 上传期间本地文件变动连续达此值 → 不再静默重排，改报错（避免被持续改写的文件一直空转） */
 const UPLOAD_RACE_SUPPRESS_AFTER = 3;
@@ -128,6 +146,8 @@ export interface SessionDeps {
 	initialStorageLimitExceeded?: boolean;
 	/** 配置目录内的文件被写盘后的提示回调（宿主负责弹 Notice；不自动重载） */
 	notifyConfigReload?: () => void;
+	/** 暂停同步（宿主写 syncState.pausedReason；暂停后 Poller 自动停止） */
+	pauseSync?: (reason: string) => void;
 	onStatus?: (status: SyncStatus) => void;
 }
 
@@ -491,8 +511,21 @@ export class ReconcileSession {
 						// 退避基数小：本地改动通常已落盘完成，短暂等待即可（若正写到一半，等它写完）
 						this.beginPhase("waiting");
 						await new Promise((r) => window.setTimeout(r, backoffMs(this.uploadRaceStreak, 1_000, 5_000)));
+					} else if (isVaultNotFound(err)) {
+						// 仓库已删除/属于其他账号：重试与重新登录都无法恢复，停止同步等用户重新绑定。
+						this.lastError = "仓库不存在，请重新选择要绑定的仓库";
+						this.deps.pauseSync?.(PAUSED_VAULT_NOT_FOUND);
+						this.rerunRequested = false;
+						this.nextDirtyPaths.clear();
 					} else if (isUnauthenticated(err)) {
 						this.lastError = "令牌失效，请重新登录";
+					} else if (err instanceof UnsupportedEnvironmentError) {
+						// 系统能力缺失（如老 iOS 没有 DecompressionStream）：同步不可能成功。
+						// 暂停而不是每轮失败上报；用户升级系统后重启插件恢复。
+						this.lastError = err.message;
+						this.deps.pauseSync?.(PAUSED_UNSUPPORTED_ENV);
+						this.rerunRequested = false;
+						this.nextDirtyPaths.clear();
 					} else if (isStorageLimitExceeded(err)) {
 						this.storageLimitExceeded = true;
 						this.storageLimitConfirmed = true;
@@ -502,7 +535,11 @@ export class ReconcileSession {
 						debugLog.error("[pickpen] Session 失败", err);
 						// 只报兜底分支：11002/12025 与可重试错误在上面的分支已消化，
 						// 预期错误由上报模块按错误码/错误名过滤。
-						reportError("sync", err, { code: errorCode(err) });
+						// 网络类错误不在这里报：由 Poller 的「连续 3 次失败」入口统一上报，
+						// 否则断网期间每轮同步都会产生一条记录（同一次故障还会与 auth 重复）。
+						if (!isNetworkPhase("sync", err)) {
+							reportError("sync", err, { code: errorCode(err) });
+						}
 					}
 					this.consecutiveFailures++;
 					// 不在此处 report：storageLimitConfirmed 是一次性标志，在 report 内被消费，
@@ -996,6 +1033,12 @@ export class ReconcileSession {
 		try {
 			head = await remote.getHead();
 		} catch (err) {
+			if (isVaultNotFound(err)) {
+				// pending 保留在磁盘上（不销毁用户数据）；等重新绑定到有效仓库后再处理
+				this.lastError = "仓库不存在，请重新选择要绑定的仓库";
+				this.deps.pauseSync?.(PAUSED_VAULT_NOT_FOUND);
+				return;
+			}
 			reportError("recover", err);
 			return; // 网络失败：保留 pending，下次 Session 再试
 		}
@@ -1186,8 +1229,11 @@ export class ReconcileSession {
 				let content: ArrayBuffer;
 				try {
 					content = await app.vault.adapter.readBinary(srcPath);
-				} catch {
-					throw new LocalChangedDuringUploadError(srcPath); // 源文件消失：标脏重排
+				} catch (err) {
+					// 只有「文件不存在」才是用户改动的证据；超时等 I/O 错误原样上抛，
+					// 否则会被当成上传期间本地变更而反复重排（File system operation timed out）。
+					if (isMissingPathError(err)) throw new LocalChangedDuringUploadError(srcPath);
+					throw withPathContext(err, srcPath);
 				}
 				// 内容级合并产出的 put：磁盘上仍是合并前的本地内容，put 的 hash 是合并结果，
 				// 二者本就不等——这里要校验的是「用户没在提交前改动」，基线取 Session 快照时的
@@ -1215,8 +1261,10 @@ export class ReconcileSession {
 					let content: ArrayBuffer | null = null;
 					try {
 						content = await app.vault.adapter.readBinary(d);
-					} catch {
-						content = null; // 文件不存在（正常：delete 目标本应不存在）
+					} catch (err) {
+						// 文件不存在是 delete 目标的正常状态；其他 I/O 失败不得当作「已不存在」放行
+						if (!isMissingPathError(err)) throw withPathContext(err, d);
+						content = null;
 					}
 					if (content !== null && (expected === undefined || !(await this.unchanged(content, expected)))) {
 						throw new LocalChangedDuringUploadError(d);

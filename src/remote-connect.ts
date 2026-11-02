@@ -90,6 +90,12 @@ export function isSnapshotChanged(err: unknown): boolean {
 	return errorCode(err) === ErrCode.SnapshotChanged;
 }
 
+// isVaultNotFound 判断绑定的仓库已不存在（12004：被删除或属于其他账号）。
+// 与令牌失效不同：重试/重新登录都不会恢复，必须停止同步并引导重新选择仓库。
+export function isVaultNotFound(err: unknown): boolean {
+	return errorCode(err) === ErrCode.VaultNotFound;
+}
+
 // isBlobNotFound 判断 Blob 缺失（12012，GC 竞态窗口）：重传该 Blob 即可恢复
 export function isBlobNotFound(err: unknown): boolean {
 	return errorCode(err) === ErrCode.FileNotFound;

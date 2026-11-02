@@ -3,7 +3,7 @@
 // → onLayoutReady：注册 vault 事件 → pending 检查 → 启动轮询 → requestRun({forceAudit:true})
 // 启动、切回前台、定时轮询、本地 dirty hint 都只请求运行同一个串行 Session。
 
-import { addIcon, FileSystemAdapter, getLanguage, Notice, Platform, Plugin, setIcon, setTooltip, TFile } from "obsidian";
+import { addIcon, apiVersion, FileSystemAdapter, getLanguage, Notice, Platform, Plugin, setIcon, setTooltip, TFile } from "obsidian";
 import { create } from "@bufbuild/protobuf";
 
 import pickpenIconSvg from "./assets/pickpen.svg";
@@ -42,6 +42,7 @@ import {
 	PAUSED_BY_LOCK,
 	PAUSED_NO_VAULT,
 	PAUSED_NOT_SIGNED_IN,
+	PAUSED_UNSUPPORTED_ENV,
 	shouldClearAccountPause,
 	syncState,
 } from "./sync-state";
@@ -286,6 +287,7 @@ export default class PickpenPlugin extends Plugin {
 			preflight: (interactive) => this.ensureVaultUnlocked(interactive),
 			initialStorageLimitExceeded: this.sessionStore.storageLimitAlertActive,
 			notifyConfigReload: () => new Notice("配置已同步，重载 Obsidian 后生效"),
+			pauseSync: (reason) => this.pauseSync(reason),
 			onStatus: (s) => {
 				syncState.update({
 					sessionRunning: s.running,
@@ -314,6 +316,7 @@ export default class PickpenPlugin extends Plugin {
 			remote: this.remote,
 			session: this.session,
 			canPoll: () => !!this.settings.accessToken && !!this.settings.vaultId && !syncState.pausedReason,
+			pauseSync: (reason) => this.pauseSync(reason),
 			getKnownHead: () => {
 				const base = this.baseStore.getBase();
 				if (!base) return null;
@@ -371,8 +374,15 @@ export default class PickpenPlugin extends Plugin {
 	}
 
 	private async onLayoutReady(): Promise<void> {
+		// 系统能力拦截：Manifest 走应用层 gzip，WebView 没有 DecompressionStream（iOS/iPadOS < 16.4
+		// 等老系统）时同步必然失败。直接暂停并给出明确提示，不再每轮失败上报。
+		if (typeof DecompressionStream !== "function") {
+			this.pauseSync(PAUSED_UNSUPPORTED_ENV);
+			debugLog.warn("[pickpen] 当前环境缺少 DecompressionStream，已暂停同步");
+			return;
+		}
 		// ① Base 与 pending 加载（pending 存在 → 第一个 Session 先走恢复，spec §9.4）
-		const loadResult = await this.baseStore.load();
+		const loadResult = await this.baseStore.load(this.settings.vaultId);
 		if (loadResult === "corrupt") {
 			reportMessage("startup", "sync_base_corrupt", { baseLoadResult: loadResult });
 		}
@@ -770,7 +780,8 @@ export default class PickpenPlugin extends Plugin {
 				locked: vaultKeys.isLocked(),
 				syncRunning: syncState.sessionRunning,
 				pendingCount: syncState.pendingCount,
-				appVersion: (this.app as unknown as { apiVersion?: string }).apiVersion ?? "",
+				// apiVersion 是 obsidian 模块导出（App 上没有该属性），此前一直取到空值
+				appVersion: apiVersion ?? "",
 				locale: this.readLocale(),
 			}),
 			send: (items) => this.sendErrorReports(items),

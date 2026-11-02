@@ -13,6 +13,8 @@ export const PAUSED_NO_VAULT = "请选择要绑定的仓库";
 export const PAUSED_BY_LOCK = "仓库已加密，请输入密码解锁";
 export const PAUSED_VAULT_MANAGER_BUSY = "仓库管理操作中";
 export const PAUSED_VAULT_CONVERTING = "仓库加密转换中";
+export const PAUSED_VAULT_NOT_FOUND = "仓库不存在，请重新选择要绑定的仓库";
+export const PAUSED_UNSUPPORTED_ENV = "当前系统版本过低，无法同步（需 iOS/iPadOS 16.4+）";
 
 /** 由账号/绑定配置状态派生的暂停原因：状态一旦满足，这条暂停就已经过时 */
 const ACCOUNT_PAUSED_REASONS: readonly string[] = [PAUSED_NOT_SIGNED_IN, PAUSED_NO_VAULT];

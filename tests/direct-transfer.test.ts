@@ -147,6 +147,41 @@ describe("直传（putBlob）", () => {
 		expect(syncClient.putBlob).not.toHaveBeenCalled();
 	});
 
+	it("直传 500 → 退避后重试并成功", async () => {
+		vi.useFakeTimers();
+		const { remote } = setup();
+		let calls = 0;
+		setRequestUrlHandler(async () => {
+			calls++;
+			return calls === 1 ? { status: 500 } : { status: 200 };
+		});
+
+		const promise = remote.putBlob("b".repeat(64), new Uint8Array([1]));
+		await vi.advanceTimersByTimeAsync(300);
+		await expect(promise).resolves.toBeUndefined();
+		expect(calls).toBe(2);
+		vi.useRealTimers();
+	});
+
+	it("直传 500 连续三次 → 抛错并带上 x-cos-request-id", async () => {
+		vi.useFakeTimers();
+		const { remote, syncClient } = setup();
+		let calls = 0;
+		setRequestUrlHandler(async () => {
+			calls++;
+			return { status: 500, headers: { "X-Cos-Request-Id": "cos-req-42" } };
+		});
+
+		const assertion = expect(remote.putBlob("b".repeat(64), new Uint8Array([1]))).rejects.toThrow(
+			/直传失败（HTTP 500，request-id cos-req-42）/,
+		);
+		await vi.advanceTimersByTimeAsync(1_400);
+		await assertion;
+		expect(calls).toBe(3); // 首次 + 2 次重试
+		expect(syncClient.putBlob).not.toHaveBeenCalled();
+		vi.useRealTimers();
+	});
+
 	it("地址签发返回业务错误（12019 超限）原样抛出", async () => {
 		const { remote, syncClient } = setup();
 		syncClient.prepareBlobUpload.mockRejectedValueOnce(

@@ -11,6 +11,7 @@ const EXPECTED_CODES = new Set([
 	11003, // 验证码错误/过期
 	11004, // 验证码发送过于频繁
 	12006, // 声明哈希被拒
+	12004, // 仓库不存在：已终止同步并引导重新绑定，属确定状态
 	12015, // Snapshot 变更，退避重试
 	12017, // 引用未上传内容
 	12018, // 清单校验失败，强拉 Manifest 自愈
@@ -25,6 +26,7 @@ const EXPECTED_NAMES = new Set([
 	"AbortError",
 	"WrongPasswordError",
 	"PathUnencodableError",
+	"UnsupportedEnvironmentError",
 ]);
 
 export interface NormalizedError {
@@ -92,7 +94,9 @@ export function isNetworkPhase(phase: ErrorPhase, err: unknown): boolean {
 	if (phase === "network" || phase === "transfer") return true;
 	const name = errorNameOf(err);
 	if (name === "DirectTransferUnavailableError") return true;
-	if (name === "TypeError") {
+	// connect 会把 fetch 失败包成 ConnectError（code=Unknown），原始 TypeError 在 cause 里，
+	// 只能看消息（WebKit: Load failed / Chromium: Failed to fetch）。
+	if (name === "TypeError" || name === "ConnectError") {
 		const message = (err as { message?: unknown }).message;
 		if (typeof message === "string" && /fetch|network|load failed|networkerror/i.test(message)) return true;
 	}

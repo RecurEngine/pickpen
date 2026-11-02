@@ -12,6 +12,14 @@ import { Platform, requestUrl } from "obsidian";
 /** 直连单请求超时（fetch 通道；requestUrl 不支持超时，桌面端保持既有行为） */
 const DIRECT_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** 可重试的 HTTP 状态：网关/存储瞬时错误。403（签名不符）、404 等重试无意义。 */
+function isRetryableStatus(status: number): boolean {
+	return status === 408 || status === 429 || status >= 500;
+}
+
+/** 重试退避（总尝试次数 = 1 + RETRY_DELAYS_MS.length）。 */
+const RETRY_DELAYS_MS = [300, 1_000];
+
 /** 移动端直连失败时允许回退 requestUrl 的最大请求体：回退意味着走 base64 桥，
  *  只对足够小的请求体（放大后仍安全）网开一面；更大的直接判失败，不把端上推回崩溃路径 */
 const MOBILE_FALLBACK_MAX_BYTES = 2 * 1024 * 1024;
@@ -32,11 +40,44 @@ export class DirectTransferUnavailableError extends Error {
 /** 直连 HTTP 非 2xx：保留状态码供异常上报提取，文案与原先一致（会展示给用户）。 */
 export class DirectTransferHttpError extends Error {
 	readonly status: number;
+	/** 对象存储返回的请求 ID（存在时），用于向存储侧追查 5xx */
+	readonly requestId?: string;
 
-	constructor(action: string, status: number) {
-		super(`${action}（HTTP ${status}）`);
+	constructor(action: string, status: number, requestId?: string) {
+		super(`${action}（HTTP ${status}${requestId ? `，request-id ${requestId}` : ""}）`);
 		this.name = "DirectTransferHttpError";
 		this.status = status;
+		this.requestId = requestId;
+	}
+}
+
+/** 对象存储请求 ID：不同通道的响应头大小写不一致，统一按小写匹配并截断 */
+function requestIdOf(headers: Headers | Record<string, string> | null | undefined): string | undefined {
+	if (!headers) return undefined;
+	if (typeof Headers !== "undefined" && headers instanceof Headers) {
+		return headers.get("x-cos-request-id")?.trim().slice(0, 64) || undefined;
+	}
+	for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+		if (key.toLowerCase() === "x-cos-request-id") return String(value).trim().slice(0, 64) || undefined;
+	}
+	return undefined;
+}
+
+/** 对可重试的直连 HTTP 错误做有界重试；网络层 TypeError 不在此处理（由各通道的回退语义负责）。 */
+async function withHttpRetry<T>(run: () => Promise<T>): Promise<T> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await run();
+		} catch (err) {
+			if (
+				!(err instanceof DirectTransferHttpError) ||
+				!isRetryableStatus(err.status) ||
+				attempt >= RETRY_DELAYS_MS.length
+			) {
+				throw err;
+			}
+			await new Promise((resolve) => window.setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+		}
 	}
 }
 
@@ -52,14 +93,12 @@ export function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 /** 直下：GET 直传地址，非 200 一律抛错（由调用方按既有失败语义恢复）。
  * sizeHint 为签发回包声明的内容字节数，仅用于判断移动端是否允许回退。 */
 export async function httpGetBytes(url: string, sizeHint?: number): Promise<Uint8Array> {
-	if (Platform.isMobile) return mobileGet(url, sizeHint);
-	return requestGet(url);
+	return withHttpRetry(() => (Platform.isMobile ? mobileGet(url, sizeHint) : requestGet(url)));
 }
 
 /** 直传：PUT 直传地址，非 2xx 一律抛错（地址已锁定字节数，不符时由存储侧拒绝） */
 export async function httpPutBytes(url: string, body: Uint8Array): Promise<void> {
-	if (Platform.isMobile) return mobilePut(url, body);
-	return requestPut(url, body);
+	return withHttpRetry(() => (Platform.isMobile ? mobilePut(url, body) : requestPut(url, body)));
 }
 
 /** 超时信号；环境不支持 AbortSignal.timeout 时退化为无超时（不阻断传输） */
@@ -85,7 +124,7 @@ async function mobileGet(url: string, sizeHint?: number): Promise<Uint8Array> {
 		throw new DirectTransferUnavailableError();
 	}
 	if (resp.status !== 200) {
-		throw new DirectTransferHttpError("直下失败", resp.status);
+		throw new DirectTransferHttpError("直下失败", resp.status, requestIdOf(resp.headers));
 	}
 	return new Uint8Array(await resp.arrayBuffer());
 }
@@ -110,7 +149,7 @@ async function mobilePut(url: string, body: Uint8Array): Promise<void> {
 		throw new DirectTransferUnavailableError();
 	}
 	if (resp.status < 200 || resp.status >= 300) {
-		throw new DirectTransferHttpError("直传失败", resp.status);
+		throw new DirectTransferHttpError("直传失败", resp.status, requestIdOf(resp.headers));
 	}
 }
 
@@ -118,7 +157,7 @@ async function mobilePut(url: string, body: Uint8Array): Promise<void> {
 async function requestGet(url: string): Promise<Uint8Array> {
 	const resp = await requestUrl({ url, throw: false });
 	if (resp.status !== 200) {
-		throw new DirectTransferHttpError("直下失败", resp.status);
+		throw new DirectTransferHttpError("直下失败", resp.status, requestIdOf(resp.headers));
 	}
 	return new Uint8Array(resp.arrayBuffer);
 }
@@ -131,6 +170,6 @@ async function requestPut(url: string, body: Uint8Array): Promise<void> {
 		throw: false,
 	});
 	if (resp.status < 200 || resp.status >= 300) {
-		throw new DirectTransferHttpError("直传失败", resp.status);
+		throw new DirectTransferHttpError("直传失败", resp.status, requestIdOf(resp.headers));
 	}
 }

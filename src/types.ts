@@ -50,6 +50,9 @@ export const CHECKOUT_URL = process.env.PICKPEN_CHECKOUT_URL ?? "https://www.pic
 // 本地 dev 构建标识：构建脚本注入 PICKPEN_BUILD_TAG；正式渠道构建为空 → 设置面板不显示标记
 export const BUILD_TAG = process.env.PICKPEN_BUILD_TAG ?? "";
 
+// 发布构建标识（提交号等）：只进异常上报上下文，不在设置面板展示
+export const BUILD_ID = process.env.PICKPEN_BUILD_ID ?? "";
+
 // local-hint 客户端默认防抖窗口：服务端未下发有效 local_debounce_ms 时使用；不落盘。
 export const DEBOUNCE_MS = 10_000;
 

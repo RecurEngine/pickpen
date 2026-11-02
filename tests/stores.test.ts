@@ -67,20 +67,27 @@ describe("BaseStore", () => {
 	it("损坏/device 不匹配 → corrupt（安全 Bootstrap，不把空 Base 当远端全删）", async () => {
 		const m = mockAdapter({ ".obsidian/plugins/pickpen/sync-base.json": `{"deviceId":"other"}` });
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
-		expect(await store.load()).toBe("corrupt");
+		expect(await store.load("42")).toBe("corrupt");
 		expect(store.getBase()).toBeNull();
 	});
 
 	it("schema v2 结构非法 → corrupt", async () => {
 		const m = mockAdapter({ ".obsidian/plugins/pickpen/sync-base.json": `{"schema_version":1}` });
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
-		expect(await store.load()).toBe("corrupt");
+		expect(await store.load("42")).toBe("corrupt");
+	});
+
+	it("vault 不匹配（换绑后旧 Base）→ corrupt，不复用旧仓库基线", async () => {
+		const m = mockAdapter({ ".obsidian/plugins/pickpen/sync-base.json": JSON.stringify(baseSnapshot()) });
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		expect(await store.load("99")).toBe("corrupt");
+		expect(store.getBase()).toBeNull();
 	});
 
 	it("只有旧 sync-index.json 时不兼容读取，按 no-base 处理", async () => {
 		const m = mockAdapter({ ".obsidian/plugins/pickpen/sync-index.json": JSON.stringify(baseSnapshot()) });
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
-		expect(await store.load()).toBe("no-base");
+		expect(await store.load("42")).toBe("no-base");
 		expect(store.getBase()).toBeNull();
 	});
 
@@ -88,8 +95,17 @@ describe("BaseStore", () => {
 		const snap = baseSnapshot();
 		const m = mockAdapter({ ".obsidian/plugins/pickpen/sync-base.json": JSON.stringify(snap) });
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
-		expect(await store.load()).toBe("ok");
+		expect(await store.load("42")).toBe("ok");
 		expect(store.getBase()?.base_root_hash).toBe("root-abc");
+	});
+
+	it("换绑 reset 后 flush 删除磁盘旧 Base，避免重启时复活", async () => {
+		const m = mockAdapter({ ".obsidian/plugins/pickpen/sync-base.json": JSON.stringify(baseSnapshot()) });
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		expect(await store.load("42")).toBe("ok");
+		store.reset();
+		await store.flush();
+		expect(m.files[".obsidian/plugins/pickpen/sync-base.json"]).toBeUndefined();
 	});
 
 	it("saveBase 写盘前重新 stat 记录实际 mtime/size，且走原子写（临时文件 + rename）", async () => {
@@ -188,7 +204,7 @@ describe("BaseStore", () => {
 			),
 		});
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
-		expect(await store.load()).toBe("ok");
+		expect(await store.load("42")).toBe("ok");
 		const entries = store.getBase()!.entries;
 		expect(entries["plugin.js"].out_of_scope).toBe(true);
 		expect(entries["note.md"].out_of_scope).toBeUndefined();

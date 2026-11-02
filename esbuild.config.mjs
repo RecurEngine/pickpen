@@ -4,6 +4,7 @@
 import esbuild from "esbuild";
 import process from "process";
 import { existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 // node 内置模块清单（external 用）：直接用 node:module，不引入第三方清单包
 import { builtinModules } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -30,6 +31,15 @@ const checkoutUrl = process.env.PICKPEN_CHECKOUT_URL ?? envConfig.checkoutUrl;
 // 本地 dev 构建标识：构建脚本注入 PICKPEN_BUILD_TAG，设置面板据此显示「本地构建」，
 // 与正式渠道包区分；未设置（正式发布）注入空串，产物不显示标记。
 const buildTag = process.env.PICKPEN_BUILD_TAG ?? "";
+// 发布构建标识：只进异常上报上下文（便于把线上错误定位到提交），不在设置面板展示。
+// 优先取构建脚本注入的值；否则回退当前 git 短提交号（不在仓库内时为空）。
+const buildId = process.env.PICKPEN_BUILD_ID ?? (() => {
+	try {
+		return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+	} catch {
+		return "";
+	}
+})();
 if (env === "prod" && envConfig.baseUrl.includes("example.com")) {
 	console.warn(`警告: prod 使用占位域名 ${envConfig.baseUrl}，上线前请修改 plugin/config/prod.ts`);
 }
@@ -70,6 +80,7 @@ const context = await esbuild.context({
 		"process.env.PICKPEN_CHECKOUT_URL": JSON.stringify(checkoutUrl),
 		"process.env.PICKPEN_DESKTOP_POLL_INTERVAL_MS": JSON.stringify(envConfig.desktopPollIntervalMs),
 		"process.env.PICKPEN_BUILD_TAG": JSON.stringify(buildTag),
+		"process.env.PICKPEN_BUILD_ID": JSON.stringify(buildId),
 		// 异常上报编译期开关：正式包默认开启；local/test 默认关闭，真机 E2E 用
 		// PICKPEN_ERROR_REPORT=1 pnpm build:test 显式打开。值为字面量 "1"/"0"，
 		// 代码内用内联比较，minify 时可把关闭分支整段剔除。

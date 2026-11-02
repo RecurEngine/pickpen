@@ -10,7 +10,8 @@ import { Platform } from "obsidian";
 
 import { debugLog } from "../debug-log";
 import { reportError } from "../error-report/reporter";
-import { isUnauthenticated } from "../remote-connect";
+import { isUnauthenticated, isVaultNotFound } from "../remote-connect";
+import { PAUSED_VAULT_NOT_FOUND } from "../sync-state";
 import { ReconcileSession } from "./session";
 import type { SnapshotRemote } from "./remote";
 import { backoffMs } from "./utils";
@@ -26,6 +27,8 @@ export interface PollerDeps {
 	session: ReconcileSession;
 	/** 可轮询条件（token/vault 绑定/未暂停） */
 	canPoll: () => boolean;
+	/** 暂停同步（仓库不存在等终止性状态） */
+	pauseSync?: (reason: string) => void;
 	/** 前台上次同步确认的 known Head（Base） */
 	getKnownHead: () => { revision: bigint; rootHash: string } | null;
 }
@@ -123,6 +126,10 @@ export class Poller {
 			if (isUnauthenticated(err)) {
 				// 令牌失效：由 Session/登录状态机处理，退避到最大间隔
 				this.failures = 3;
+			} else if (isVaultNotFound(err)) {
+				// 仓库不存在：重试不会恢复，直接暂停并等用户重新选择仓库
+				this.failures = 3;
+				this.deps.pauseSync?.(PAUSED_VAULT_NOT_FOUND);
 			} else {
 				this.failures++;
 				debugLog.warn(`[pickpen] 轮询失败（第 ${this.failures} 次）`, err);

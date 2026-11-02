@@ -871,3 +871,26 @@ describe("远端超限：本地删除仍要传播（否则降档后大文件删�
 		expect(p.target_entries["big.mp4"]).toEqual(oversized(A));
 	});
 });
+
+describe("远端缺行（Manifest 无 Base/本地路径）", () => {
+	it("Base 与本地都有、远端缺该路径 → 不崩溃，按 Bootstrap 上传本地内容", () => {
+		const b = snap({ "x.md": active(A) });
+		const p = runPlan(b, snap({ "x.md": active(A) }), snap({}));
+		expect(p.puts).toEqual([expect.objectContaining({ path: "x.md", content_hash: A, size: "10" })]);
+		expect(p.target_entries["x.md"]).toEqual(expect.objectContaining({ state: "active", content_hash: A }));
+	});
+
+	it("Base 有、本地 tombstone、远端缺该路径 → 无操作且不崩溃", () => {
+		const b = snap({ "x.md": active(A) });
+		const p = runPlan(b, snap({ "x.md": deleted }), snap({}));
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.target_entries["x.md"]).toBeUndefined();
+	});
+
+	it("Base 缺失、本地有、远端缺该路径 → Bootstrap 上传（既有行为不变）", () => {
+		const p = runPlan(null, snap({ "x.md": active(B) }), snap({}));
+		expect(p.puts).toEqual([expect.objectContaining({ path: "x.md", content_hash: B })]);
+	});
+});

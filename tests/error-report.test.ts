@@ -8,6 +8,7 @@ import { ErrorQueue, QUEUE_LIMIT, type EnqueueInput } from "../src/error-report/
 import { ErrorReporter } from "../src/error-report/reporter";
 import { sanitizeMessage, sanitizeText, truncateUtf8 } from "../src/error-report/sanitize";
 import type { QueuedReport, ReporterMeta } from "../src/error-report/types";
+import { UnsupportedEnvironmentError } from "../src/sync/remote";
 import { fnv1aHex, type KeyValueStore } from "../src/session-store";
 
 const SECRETS = { vaultName: "MySecretVault", vaultBasePath: "/Users/alice/MySecretVault" };
@@ -240,6 +241,75 @@ describe("ErrorReporter", () => {
 		reporter.capture("sync", Object.assign(new Error("snapshot changed"), { code: 12015 }));
 		await reporter.flush();
 		expect(send).not.toHaveBeenCalled();
+		reporter.dispose();
+	});
+
+	it("系统能力缺失（无 DecompressionStream）不入队", async () => {
+		const send = vi.fn(async () => ({ accepted: 1, retryAfterMs: 0 }));
+		const { reporter } = reporterWith(send);
+		reporter.capture("sync", new UnsupportedEnvironmentError("当前环境不支持 gzip 解压（DecompressionStream）"));
+		await reporter.flush();
+		expect(send).not.toHaveBeenCalled();
+		reporter.dispose();
+	});
+
+	it("connect 标准码不写入业务 code，phase 归一为 network", async () => {
+		const sent: QueuedReport[] = [];
+		const send = vi.fn(async (items: QueuedReport[]) => {
+			sent.push(...items);
+			return { accepted: items.length, retryAfterMs: 0 };
+		});
+		const { reporter } = reporterWith(send);
+		const err = Object.assign(new Error("[unknown] Load failed"), {
+			name: "ConnectError",
+			code: 2,
+			cause: new TypeError("Load failed"),
+		});
+		reporter.capture("auth", err, { code: 2 });
+		await reporter.flush();
+		expect(sent).toHaveLength(1);
+		expect(sent[0].phase).toBe("network");
+		expect(sent[0].code).toBe(0);
+		expect(sent[0].contextJson).toContain('"connect_code":2');
+		reporter.dispose();
+	});
+
+	it("同一网络错误从 auth/sync 采集只入队一条（phase 归一后指纹一致）", async () => {
+		const sent: QueuedReport[] = [];
+		const send = vi.fn(async (items: QueuedReport[]) => {
+			sent.push(...items);
+			return { accepted: items.length, retryAfterMs: 0 };
+		});
+		const { reporter } = reporterWith(send);
+		const make = () =>
+			Object.assign(new Error("[unknown] Failed to fetch"), {
+				name: "ConnectError",
+				code: 2,
+				cause: new TypeError("Failed to fetch"),
+			});
+		reporter.capture("auth", make(), { code: 2 });
+		reporter.capture("sync", make(), { code: 2 });
+		await reporter.flush();
+		expect(sent).toHaveLength(1);
+		reporter.dispose();
+	});
+
+	it("直传 HTTP 500 → phase=transfer、httpStatus=500、code=0", async () => {
+		const sent: QueuedReport[] = [];
+		const send = vi.fn(async (items: QueuedReport[]) => {
+			sent.push(...items);
+			return { accepted: items.length, retryAfterMs: 0 };
+		});
+		const { reporter } = reporterWith(send);
+		const err = Object.assign(new Error("直传失败（HTTP 500）"), {
+			name: "DirectTransferHttpError",
+			status: 500,
+		});
+		reporter.capture("sync", err);
+		await reporter.flush();
+		expect(sent[0].phase).toBe("transfer");
+		expect(sent[0].httpStatus).toBe(500);
+		expect(sent[0].code).toBe(0);
 		reporter.dispose();
 	});
 

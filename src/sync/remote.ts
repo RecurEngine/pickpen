@@ -283,10 +283,19 @@ export class SnapshotRemote {
 	}
 }
 
+/** 当前运行环境缺少同步所需的 Web API（如老系统 WebView 没有 DecompressionStream）。
+ * 属于确定性环境限制，不是异常：上报模块按错误名过滤，调用方直接暂停同步。 */
+export class UnsupportedEnvironmentError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "UnsupportedEnvironmentError";
+	}
+}
+
 /** gzip 解压（DecompressionStream，桌面 Chromium / 移动端 WKWebView ≥ Safari 16.4） */
 async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
 	if (typeof DecompressionStream !== "function") {
-		throw new Error("当前环境不支持 gzip 解压（DecompressionStream）");
+		throw new UnsupportedEnvironmentError("当前环境不支持 gzip 解压（DecompressionStream）");
 	}
 	// 注意：bytes 可能是 protobuf 解码的 subarray 视图，必须传视图本身（Blob 取视图内容），
 	// 传 bytes.buffer 会把帧头/trailer 等垃圾字节混入 gzip 流导致解压失败。

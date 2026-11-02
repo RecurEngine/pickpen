@@ -98,7 +98,8 @@ export function plan(input: PlanInput): SyncPlan {
 		};
 	};
 
-	const applyRemote = (path: string, r: Entry): void => {
+	const applyRemote = (path: string, r: Entry | undefined): void => {
+		if (!r) return; // 远端缺行：视为无该路径（防御，调用方已按 Bootstrap 裁决）
 		if (r.state === "active") {
 			if ((r.kind ?? KIND_FILE) === KIND_DIR) {
 				applyActions.push({ kind: "mkdir", path, content_hash: "", size: "0" });
@@ -197,6 +198,14 @@ export function plan(input: PlanInput): SyncPlan {
 		const b = base?.entries[p];
 		const l = local.entries[p];
 		const r = remote.entries[p];
+
+		// 远端 Manifest 缺该路径（服务端通常不会缺行；Base 复用/行数据异常时可能出现）。
+		// 按「远端无该路径」的 Bootstrap 裁决：本地 active 内容保全上传，tombstone 无操作。
+		// 不能继续往下读 r.state —— r 为 undefined 会抛 TypeError 拖垮整轮同步。
+		if (!r) {
+			if (l?.state === "active") putLocal(p, l);
+			continue;
+		}
 
 		// out_of_scope：写 Base 时该路径不在同步范围内（被选择性同步排除），条目只是远端回声，
 		// 本设备从未与远端就它达成过一致 —— 按「Base 无该路径」的 Bootstrap 裁决（§8.4）。
