@@ -593,10 +593,10 @@ class PickpenSettingsView {
 			);
 		}
 
-		// 仓库（vault_id 为绑定主键，名字仅展示；绑定后不可换绑其他仓库）
+		// 仓库（vault_id 为绑定主键，名字仅展示；换绑其他仓库需先在仓库管理里解绑）
 		new Setting(accountSectionEl)
 			.setName("仓库")
-			.setDesc(settings.vaultName ? `已绑定：${settings.vaultName}` : "未绑定（登录后选择）")
+			.setDesc(settings.vaultId ? `已绑定：${settings.vaultName || "未命名仓库"}` : "未绑定（登录后选择）")
 			.addButton((btn) => {
 				btn.setDisabled(!loggedIn);
 				if (loggedIn && !settings.vaultId) {

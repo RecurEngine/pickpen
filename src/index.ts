@@ -47,6 +47,7 @@ import {
 	syncState,
 } from "./sync-state";
 import { BASE_URL, DEBOUNCE_MS, DEFAULT_SETTINGS, resolveLocalDebounceMs, type PluginSettings, type VaultInfo } from "./types";
+import { bindingOwnerMatches, evaluateLoginBinding, needsOwnershipVerification, type LoginBindingDecision, type LoginBindingInput } from "./vault-binding";
 import { PATH_MODE_ENCRYPTED, PATH_MODE_PLAIN, treeRoot } from "./sync/path-codec";
 import {
 	createRemoteVault,
@@ -214,13 +215,13 @@ export default class PickpenPlugin extends Plugin {
 		}
 
 		// 跨账号守卫：data.json 的 vaultId 若来自别的账号（iCloud 推来旧绑定）且归属账号与当前会话不符 → 解绑待重选。
-		// owner 缺失（老版本未记录）时不拦截，交给登录后 afterLogin 的引导
-		const owner = this.settings.vaultOwner;
-		if (owner && this.settings.vaultId && (owner.vaultId !== this.settings.vaultId || owner.email !== this.settings.email)) {
-			this.settings.vaultId = "";
-			this.settings.vaultName = "";
-			delete this.settings.vaultOwner;
-			await this.persistSettings();
+		// owner 缺失（老版本未记录）时不拦截，交给登录后 resolveLoginBinding 用服务端列表核验
+		const staleOwner =
+			this.settings.vaultOwner !== undefined &&
+			this.settings.vaultId !== "" &&
+			!bindingOwnerMatches(this.settings.vaultOwner, this.settings.vaultId, this.settings.email);
+		if (staleOwner) {
+			await this.unbindVault();
 			debugLog.warn("[pickpen] data.json 绑定仓库归属其他账号，已解绑，请重新选择要绑定的仓库");
 		}
 
@@ -1260,27 +1261,65 @@ export default class PickpenPlugin extends Plugin {
 		}
 	}
 
+	// resolveLoginBinding 登录后核验本地绑定归属：owner 能证明时零请求，否则用 ListVaults 判定。
+	// 列表失败绝不让登录报错（内部 catch）：只在「owner 缺失 + 本会话记忆匹配」时沿用，
+	// 明确的「owner 属于其他账号」优先于会话记忆。
+	private async resolveLoginBinding(
+		listVaults: () => Promise<readonly VaultInfo[]> = () => fetchVaults(this.client),
+	): Promise<LoginBindingDecision> {
+		const input: LoginBindingInput = {
+			email: this.settings.email,
+			vaultId: this.settings.vaultId,
+			vaultName: this.settings.vaultName,
+			owner: this.settings.vaultOwner,
+			sessionBinding: this.accountBinding,
+		};
+		let listed: readonly VaultInfo[] | null = null;
+		if (needsOwnershipVerification(input)) {
+			try {
+				listed = await listVaults();
+			} catch (err) {
+				debugLog.warn(`[pickpen] 登录后核验仓库归属失败：${err instanceof Error ? err.message : String(err)}`);
+			}
+		}
+		const decision = evaluateLoginBinding(input, listed);
+		if (decision.kind === "adopt") {
+			this.accountBinding = { email: this.settings.email, vaultId: this.settings.vaultId };
+			if (decision.writeOwner) {
+				this.settings.vaultOwner = {
+					vaultId: this.settings.vaultId,
+					email: this.settings.email.trim().toLowerCase(),
+				};
+				if (decision.name) this.settings.vaultName = decision.name;
+				// 不阻塞登录流程：移动端 saveSettings 可能因原生桥回包丢失而挂起
+				void this.saveSettings().catch((err) => {
+					debugLog.warn(`[pickpen] 绑定归属落盘失败：${err instanceof Error ? err.message : String(err)}`);
+				});
+			}
+		}
+		return decision;
+	}
+
 	// afterLogin 登录成功后的绑定决策（状态机核心，settings.ts 登录按钮调用）：
-	// 同账号重登（token 过期续登）→ 沿用原绑定零打扰；否则暂停同步并打开仓库管理
-	async afterLogin(onBindingChange?: () => void): Promise<void> {
+	// 归属可证明/服务端确认 → 沿用原绑定零打扰；否则解除残留绑定并打开仓库管理重选。
+	// opener 仅供单测注入，生产调用走默认的 openVaultManager。
+	async afterLogin(onBindingChange?: () => void, opener: typeof openVaultManager = openVaultManager): Promise<void> {
 		// 登录后才有资格查询福利码活动状态；结果变化时设置页会自行重算入口可见性
 		this.settingTab.refreshBenefitAvailability();
-		const { email, vaultId } = this.settings;
-		const bound = this.accountBinding;
-		// 沿用条件：①本会话曾绑定同账号同仓库；或 ②data.json 共享的绑定归属属于当前账号（新设备免重选）
-		const owner = this.settings.vaultOwner;
-		const adopt = owner !== undefined && owner.vaultId === vaultId && owner.email === email;
-		const known = bound?.email === email && bound.vaultId === vaultId;
-		if (vaultId && (adopt || known)) {
-			if (adopt) this.accountBinding = { email, vaultId }; // 采纳归属，同步本次会话记忆
+		const decision = await this.resolveLoginBinding();
+		if (decision.kind === "adopt") {
 			this.resumeSync();
 			new Notice("登录成功");
 			void this.poller.pollNow();
 			return;
 		}
 		this.pauseSync(PAUSED_NO_VAULT);
+		if (decision.clear) {
+			// unbindVault 在首个 await 之前完成内存清理；落盘后台进行，避免移动端挂起挡住弹窗
+			void this.unbindVault();
+		}
 		new Notice("登录成功，请选择要绑定的仓库");
-		openVaultManager(this.app, this, onBindingChange); // 绑定完成后重绘发起登录的设置视图
+		opener(this.app, this, onBindingChange); // 绑定完成后重绘发起登录的设置视图
 	}
 
 	// bindVault 绑定仓库（仓库管理回调）：换绑判定按 vault_id（spec §6.4，名字仅展示）；
@@ -1330,31 +1369,37 @@ export default class PickpenPlugin extends Plugin {
 		new Notice(`仓库已重命名：${newName}`);
 	}
 
-	// deleteBoundVault 当前绑定仓库被删除（仓库管理回调）：解绑回未绑定状态
-	async deleteBoundVault(): Promise<void> {
+	// unbindVault 解除本地仓库绑定（不改登录态/暂停原因）：账号切换、绑定失效、删除仓库共用。
+	// 绑定指针同步清空；落盘失败只记日志（绑定以内存为准，下次核验会再次纠正）。
+	// base/pending/session 不在这里清：accountBinding 置空后，下一次 bindVault 按 changed 统一重置。
+	async unbindVault(): Promise<void> {
 		this.settings.vaultId = "";
 		this.settings.vaultName = "";
-		this.accountBinding = null;
-		vaultKeys.reset(); // 仓库已不存在，内容密钥与本地记忆一并清除
 		delete this.settings.vaultOwner;
-		await this.saveSettings();
+		this.accountBinding = null;
+		vaultKeys.reset(); // 解绑即上锁：内容密钥不跨账号/仓库留存
+		syncState.update({ storageLimitExceeded: false });
+		this.handleStorageLimitState(false, false);
+		try {
+			await this.saveSettings();
+		} catch (err) {
+			debugLog.warn(`[pickpen] 解绑后落盘失败：${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	// deleteBoundVault 当前绑定仓库被删除（仓库管理回调）：解绑回未绑定状态
+	async deleteBoundVault(): Promise<void> {
 		this.pauseSync(PAUSED_NO_VAULT);
+		await this.unbindVault();
 		new Notice("原仓库已删除，请重新选择要绑定的仓库");
 	}
 
 	// logout 退出登录 = 解绑：清 token 与绑定仓库（重新登录必须重新选择）
 	async logout(): Promise<void> {
-		this.accountBinding = null;
-		vaultKeys.reset(); // 解绑即上锁：内容密钥不跨账号留存
-		syncState.update({ storageLimitExceeded: false });
-		this.handleStorageLimitState(false, false);
 		this.pauseSync(PAUSED_NOT_SIGNED_IN);
 		await this.auth.logout(); // 清 token 会话（写设备本地 localStorage，保留 email/deviceId）
-		this.settings.vaultId = "";
-		this.settings.vaultName = "";
-		delete this.settings.vaultOwner;
+		await this.unbindVault();
 		this.settingTab.resetBenefitAvailability(); // 未登录不展示福利码入口
-		await this.saveSettings();
 	}
 
 	// 同 onload：onunload 也是同步接口，异步收尾收进 shutdown()，清理顺序与原先一致。

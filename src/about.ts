@@ -26,7 +26,7 @@ function buildContext(plugin: PickpenPlugin): string {
 	lines.push(`平台：${isDesktop ? "桌面端" : "移动端"}`);
 	lines.push(`设备 ID：${plugin.settings.deviceId}`);
 	if (plugin.settings.email) lines.push(`账号：${plugin.settings.email}`);
-	lines.push(`绑定仓库：${plugin.settings.vaultName ? `${plugin.settings.vaultName}（id=${plugin.settings.vaultId}）` : "未绑定"}`);
+	lines.push(`绑定仓库：${plugin.settings.vaultId ? `${plugin.settings.vaultName || "未命名"}（id=${plugin.settings.vaultId}）` : "未绑定"}`);
 	const st: string[] = [];
 	if (syncState.pausedReason) st.push(`暂停：${syncState.pausedReason}`);
 	if (syncState.lastError) st.push(`错误：${syncState.lastError}`);

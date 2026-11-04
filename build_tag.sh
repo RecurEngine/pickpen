@@ -257,3 +257,7 @@ if [ -n "$SLUG" ]; then
 	printf '  CI 进度   https://github.com/%s/actions\n' "$SLUG"
 fi
 printf '  CI 会校验 tag 与 manifest.json 一致，跑测试与类型检查，构建 main.js 并创建 Release。\n'
+
+# Obsidian 社区插件需手动触发新版本检查：确认通过后新版本才会分发
+printf '\n%s发布后手动操作%s：到 https://community.obsidian.md/account/plugins/pickpen\n' "$C_YEL" "$C_RST"
+printf '手动触发版本 %s 的检查并确认通过；失败则修正后递增版本号重新发布。\n' "$VERSION"

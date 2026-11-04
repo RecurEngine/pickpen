@@ -1,6 +1,6 @@
 // 仓库管理（Snapshot 同步 v2）：登录后从远端仓库列表选择绑定 + 增删改（List/Create/Update/DeleteVault）。
 // 仓库按 vault_id 定位（spec §11），绑定后持久化 vault_id、名字仅展示。
-// 重命名仅改远端元数据（Blob 按 hash 寻址，内容存储不动），管理操作期间暂停本机同步。
+// 换绑其他仓库需先解绑；重命名仅改远端元数据（Blob 按 hash 寻址，内容存储不动），管理操作期间暂停本机同步。
 
 import { App, ButtonComponent, Modal, Notice, Platform, TextComponent, ToggleComponent } from "obsidian";
 
@@ -11,10 +11,11 @@ import { vaultKeys } from "./crypto/vault-key-store";
 import { debugLog } from "./debug-log";
 import type { Plan } from "./gen/proto/subscription/subscription_pb";
 import type PickpenPlugin from "./index";
-import { PAUSED_VAULT_CONVERTING, PAUSED_VAULT_MANAGER_BUSY } from "./sync-state";
+import { PAUSED_NO_VAULT, PAUSED_VAULT_CONVERTING, PAUSED_VAULT_MANAGER_BUSY } from "./sync-state";
 import { ErrCode, errorCode, isUnauthenticated, type RemoteClient } from "./remote-connect";
 import { syncState } from "./sync-state";
 import type { VaultInfo, VaultKeyParams } from "./types";
+import { resolveVaultListBinding } from "./vault-binding";
 
 export interface VaultQuota {
 	count: bigint;
@@ -195,6 +196,8 @@ class VaultManagerModal extends Modal {
 	private quotaEl!: HTMLElement;
 	private actionsEl!: HTMLElement;
 	private listEl!: HTMLElement;
+	/** refresh 代次：旧请求晚到（或弹窗关闭）后不再渲染/解绑 */
+	private refreshSeq = 0;
 
 	constructor(app: App, plugin: PickpenPlugin, onChange?: () => void) {
 		super(app);
@@ -221,18 +224,18 @@ class VaultManagerModal extends Modal {
 	}
 
 	onClose(): void {
+		this.refreshSeq += 1; // 作废在途 refresh：关闭后不再渲染/解绑
 		const { contentEl } = this;
 		contentEl.empty();
 	}
 
 	// refresh 拉取列表并重绘；失败内联红字（不抛出，可重试）
 	private async refresh(): Promise<void> {
-		// 顶部操作区：未绑定时新建并绑定；已绑定时只新建其他仓库、不换绑。
+		const seq = ++this.refreshSeq; // 并发保护：旧请求晚到不再覆盖新结果
+		// 顶部操作区：未绑定时新建并绑定；已绑定时只新建其他仓库，换绑需先解绑。
 		this.actionsEl.empty();
-		const bound = !!this.plugin.settings.vaultId;
-		this.descEl.textContent = bound
-			? `已绑定：${this.plugin.settings.vaultName}，不可换绑其他仓库`
-			: "选择要绑定的仓库，或新建";
+		const localBound = !!this.plugin.settings.vaultId;
+		this.descEl.textContent = this.boundDescription(localBound);
 		this.quotaEl.textContent = "仓库数量：加载中…";
 		this.listEl.empty();
 		const loading = this.listEl.createDiv({ cls: "pickpen-vault-message", text: "加载中…" });
@@ -240,6 +243,7 @@ class VaultManagerModal extends Modal {
 			fetchVaultsAndCapability(this.plugin.client),
 			fetchVaultQuota(this.plugin.client),
 		]);
+		if (seq !== this.refreshSeq) return; // 已有更新的 refresh 接管（或弹窗已关闭）
 		if (quotaResult.status === "fulfilled") {
 			this.quota = quotaResult.value;
 		} else {
@@ -247,37 +251,53 @@ class VaultManagerModal extends Modal {
 			debugLog.error(`[pickpen] 仓库额度加载失败，错误码：${errorCode(quotaResult.reason) ?? "unknown"}`);
 		}
 		this.quotaEl.textContent = formatVaultQuota(this.quota);
-		// 能力位必须先于 renderCreateAction 落定：新建加密仓库（内容+路径）依赖它决定是否可用
-		if (vaultsResult.status === "fulfilled") {
-			this.vaults = vaultsResult.value.vaults;
-			this.serverE2eeVersion = vaultsResult.value.serverE2eeVersion;
-		}
-		this.renderCreateAction(bound);
-
 		if (vaultsResult.status === "rejected") {
+			// 列表加载失败不能判定绑定失效：按本地状态渲染操作区并保留重试入口
+			loading.remove();
+			this.renderCreateAction(localBound);
 			// PromiseSettledResult.reason 是 any：显式落 unknown，避免 any 扩散到后续成员访问
 			const err: unknown = vaultsResult.reason;
 			if (isUnauthenticated(err)) {
-				loading.remove();
 				this.listEl.createDiv({ cls: "pickpen-vault-message is-error", text: "登录已失效，请重新登录" });
 				return;
 			}
 			const e = err as { rawMessage?: string };
-			loading.remove();
 			this.listEl.createDiv({ cls: "pickpen-vault-message is-error", text: `列表加载失败：${e.rawMessage ?? String(err)}（可点击刷新重试）` });
 			return;
 		}
+		// 能力位必须先于 renderCreateAction 落定：新建加密仓库（内容+路径）依赖它决定是否可用
+		this.vaults = vaultsResult.value.vaults;
+		this.serverE2eeVersion = vaultsResult.value.serverE2eeVersion;
+
+		// 本地绑定必须出现在当前账号的仓库列表里：否则是跨账号残留或仓库已删除。
+		// 只在列表成功返回后判定；解绑后内存立即清空，下面的渲染自然回到未绑定态。
+		const binding = resolveVaultListBinding(this.plugin.settings.vaultId, this.vaults);
+		if (binding.stale) {
+			void this.plugin.unbindVault(); // 落盘后台进行，不阻塞弹窗
+			this.plugin.pauseSync(PAUSED_NO_VAULT);
+			this.onChange?.();
+			new Notice("原绑定仓库不存在，请重新选择要绑定的仓库");
+		}
 		loading.remove();
+		this.descEl.textContent = this.boundDescription(binding.bound);
+		this.renderCreateAction(binding.bound);
 		if (this.vaults.length === 0) {
 			this.listEl.createDiv({
 				cls: "pickpen-vault-message",
-				text: bound ? "仓库列表为空" : "该账号暂无仓库，请在上方新建",
+				text: binding.bound ? "仓库列表为空" : "该账号暂无仓库，请在上方新建",
 			});
 			return;
 		}
 		for (const v of this.vaults) {
 			this.renderItem(v);
 		}
+	}
+
+	// boundDescription 顶部绑定说明：已绑定时提示换绑需先解绑
+	private boundDescription(bound: boolean): string {
+		return bound
+			? `已绑定：${this.plugin.settings.vaultName}；如需换绑其他仓库，请先解绑`
+			: "选择要绑定的仓库，或新建";
 	}
 
 	private renderCreateAction(bound: boolean): void {
@@ -540,9 +560,34 @@ class VaultManagerModal extends Modal {
 			.setDestructive();
 		if (isBound) {
 			deleteButton.setDisabled(true).setTooltip("当前绑定仓库不可删除");
+			new ButtonComponent(actions).setButtonText("解绑").onClick(() => this.startUnbind(v));
 		} else {
 			deleteButton.onClick(() => this.startDelete(v, card));
 		}
+	}
+
+	// startUnbind 手动解绑当前仓库：只清本机绑定与密钥，远端数据不动
+	private startUnbind(v: VaultInfo): void {
+		new ConfirmActionModal(
+			this.plugin.app,
+			"解绑仓库",
+			`确认解除本机与「${v.name}」的绑定？\n\n` +
+				"· 仅停止本机同步并清除本地仓库密钥，远端仓库与数据不受影响；\n" +
+				"· 加密仓库重新绑定时需要再次输入仓库密码；\n" +
+				"· 解绑后可绑定当前账号的其他仓库。",
+			"确认解绑",
+			() => {
+				void this.doUnbind();
+			},
+		).open();
+	}
+
+	private async doUnbind(): Promise<void> {
+		void this.plugin.unbindVault(); // 内存先清；落盘后台进行，避免移动端挂起
+		this.plugin.pauseSync(PAUSED_NO_VAULT);
+		this.onChange?.();
+		new Notice("已解绑仓库，请选择要绑定的仓库");
+		await this.refresh();
 	}
 
 	// bind 绑定仓库（切换合并语义由 bindVault 内部处理）
