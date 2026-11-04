@@ -43,4 +43,14 @@ describe("阻塞明细合并", () => {
 	it("空输入返回空数组", () => {
 		expect(mergeBlockedDetails([], [])).toEqual([]);
 	});
+
+	it("竞态暂缓路径排在最后，且不与本地/云端原因重复", () => {
+		expect(
+			mergeBlockedDetails([{ path: "a.md", reason: "read_failed" }], ["b.md"], ["a.md", "c.md"]),
+		).toEqual([
+			{ path: "a.md", reason: "read_failed" },
+			{ path: "b.md", reason: "remote_oversized" },
+			{ path: "c.md", reason: "local_changing" },
+		]);
+	});
 });

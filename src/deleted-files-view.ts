@@ -13,6 +13,7 @@ import { formatHistorySize, formatHistoryTime, isBinaryContent } from "./history
 import type PickpenPlugin from "./index";
 import { isUnauthenticated } from "./remote-connect";
 import { decodeStoredPath } from "./sync/path-codec";
+import { isLocalPathLandable } from "./sync/path";
 import { createSyncFilter } from "./sync/selective";
 import { writeLocalFile } from "./sync/vault-io";
 import { captureOpenViews, refreshOpenViews } from "./view-sync";
@@ -413,6 +414,11 @@ class DeletedFilesModal extends Modal {
 		if (!file || !content || this.restoring) return;
 		if (this.undecodable.has(file)) {
 			new Notice("该记录的路径无法解密，不能恢复");
+			return;
+		}
+		if (!isLocalPathLandable(file.path, Platform.isWin)) {
+			// 远端原路径含当前系统（Windows）不允许的字符：写盘必然失败，提前给出可操作的提示
+			new Notice("该文件名含当前系统不支持的字符，请在其他设备重命名后再恢复");
 			return;
 		}
 		if (await this.pathExists(file.path)) {

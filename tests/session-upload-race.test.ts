@@ -29,6 +29,12 @@ function fakeDeps(
 		head?: { revision?: bigint; rootHash?: string; unchanged?: boolean };
 		/** hash → 明文内容：合并阶段读 Base 版本与 Remote 版本走这里 */
 		blobs?: Map<string, Uint8Array>;
+		/** 磁盘上的文件路径集合；默认只有 a.md */
+		files?: string[];
+		/** 按路径指定的初始内容；未列出的用默认 content */
+		contents?: Record<string, string>;
+		/** 暂缓后的自动重试延迟（毫秒）；默认 60s，测试调小 */
+		uploadRaceDeferMs?: number;
 	} = {},
 ) {
 	const base: Snapshot = {
@@ -42,13 +48,20 @@ function fakeDeps(
 	// 磁盘内容只由 onHasBlobs 改写：hasBlobs 是 step 9 复查之后、读取待上传字节之前的那一步，
 	// 正好落在「计划已算好、正文还没读」的窗口里
 	let content = enc.encode("v0");
+	// 按路径指定的内容（多文件用例）；未列出的路径回落到默认 content
+	const contents = new Map<string, Uint8Array>(
+		Object.entries(overrides.contents ?? {}).map(([path, text]) => [path, enc.encode(text)]),
+	);
 	// 写盘产物（临时区/落盘）按路径回读：合并产物走的就是这条路
 	const written = new Map<string, Uint8Array>();
 	let round = 0;
-	const file = { path: "a.md", stat: { mtime: 1, size: 2 } };
+	const files = (overrides.files ?? ["a.md"]).map((path) => ({ path, stat: { mtime: 1, size: 2 } }));
 	return {
 		setContent: (s: string) => {
 			content = enc.encode(s);
+		},
+		setContentFor: (path: string, s: string) => {
+			contents.set(path, enc.encode(s));
 		},
 		written,
 		deps: {
@@ -56,7 +69,12 @@ function fakeDeps(
 				vault: {
 					configDir: ".obsidian",
 					adapter: {
-						readBinary: vi.fn(async (path: string) => written.get(path) ?? new Uint8Array(content)),
+						readBinary: vi.fn(async (path: string) => {
+							const w = written.get(path);
+							if (w) return w;
+							const c = contents.get(path);
+							return c ? new Uint8Array(c) : new Uint8Array(content);
+						}),
 						writeBinary: vi.fn(async (path: string, data: ArrayBuffer) => {
 							written.set(path, new Uint8Array(data));
 						}),
@@ -66,10 +84,10 @@ function fakeDeps(
 						mkdir: vi.fn(async () => {}),
 						rmdir: vi.fn(async () => {}),
 					},
-					getFiles: () => [file],
+					getFiles: () => files,
 					getAllLoadedFiles: () => [],
 					// dirty 增量刷新靠它判定「不是删除」，必须返回非空
-					getFileByPath: () => file,
+					getFileByPath: (path: string) => files.find((f) => f.path === path) ?? null,
 					getAbstractFileByPath: () => null,
 					trash: vi.fn(async () => {}),
 				},
@@ -112,6 +130,7 @@ function fakeDeps(
 				commitSnapshot: vi.fn(async () => ({ revision: 2n, rootHash: "r2", changed: true })),
 			} as unknown as SnapshotRemote,
 			caseInsensitive: false,
+			uploadRaceDeferMs: overrides.uploadRaceDeferMs,
 			onStatus: vi.fn(),
 		},
 	};
@@ -123,11 +142,18 @@ async function waitForIdle(session: ReconcileSession): Promise<void> {
 	for (let i = 0; i < 100 && session.isRunning(); i++) await tick();
 }
 
+/** 等待条件成立（用于定时器解除暂缓后的异步收敛） */
+async function waitUntil(cond: () => boolean, maxTicks = 200): Promise<void> {
+	for (let i = 0; i < maxTicks && !cond(); i++) await tick();
+}
+
 function lastStatus(deps: { onStatus: unknown }) {
 	const onStatus = deps.onStatus as ReturnType<typeof vi.fn>;
 	return onStatus.mock.calls[onStatus.mock.calls.length - 1]?.[0] as {
 		lastError: string;
 		allSynced: boolean;
+		blockedPaths: string[];
+		blockedDetails: Array<{ path: string; reason: string }>;
 	};
 }
 
@@ -175,7 +201,7 @@ describe("ReconcileSession 上传期间本地变动", () => {
 		expect(lastStatus(deps).lastError).toBe("");
 	});
 
-	it("文件被持续改写 → 连续命中达阈值后报错，不空转", async () => {
+	it("文件被持续改写 → 暂缓该文件，不报错也不空转", async () => {
 		let n = 0;
 		const putBlob = vi.fn<SnapshotRemote["putBlob"]>(async () => {});
 		const { deps, setContent } = fakeDeps({
@@ -187,9 +213,114 @@ describe("ReconcileSession 上传期间本地变动", () => {
 		session.requestRun({ forceAudit: true });
 		await waitForIdle(session);
 
-		expect(deps.remote.hasBlobs).toHaveBeenCalledTimes(3); // 2 次静默重排 + 第 3 次转为报错
+		expect(deps.remote.hasBlobs).toHaveBeenCalledTimes(3); // 2 次静默重排 + 第 3 次转暂缓
 		expect(putBlob).not.toHaveBeenCalled();
-		expect(lastStatus(deps).lastError).toBe("同步失败：本地文件在同步期间发生变化，请稍后重试");
+		const status = lastStatus(deps);
+		expect(status.lastError).toBe(""); // 暂缓不是同步失败
+		expect(status.blockedDetails).toEqual([{ path: "a.md", reason: "local_changing" }]);
+		expect(status.allSynced).toBe(false);
+	});
+
+	it("持续竞态只暂缓该文件，其他文件照常提交", async () => {
+		let n = 0;
+		const putBlob = vi.fn<SnapshotRemote["putBlob"]>(async () => {});
+		const { deps, setContentFor } = fakeDeps({
+			files: ["a.md", "b.md"],
+			contents: { "b.md": "bee" },
+			onHasBlobs: (round) => {
+				// 前三轮 a.md 每轮都变；第四轮（a.md 已暂缓）保持稳定
+				if (round <= 3) setContentFor("a.md", `a${round}`);
+			},
+			putBlob,
+		});
+		const session = new ReconcileSession(deps as never);
+
+		session.requestRun({ forceAudit: true });
+		await waitForIdle(session);
+
+		expect(deps.remote.commitSnapshot).toHaveBeenCalledTimes(1);
+		const commitArg = (deps.remote.commitSnapshot as unknown as ReturnType<typeof vi.fn>).mock
+			.calls[0]![0] as { puts: Array<{ path: string }> };
+		expect(commitArg.puts.map((p) => p.path)).toEqual(["b.md"]);
+		expect(lastStatus(deps).blockedPaths).toEqual(["a.md"]);
+		expect(lastStatus(deps).lastError).toBe("");
+
+		// 暂缓路径不得污染 Base 快路径：不记 local_*，也不标 out_of_scope
+		const saveBase = deps.baseStore.saveBase as unknown as ReturnType<typeof vi.fn>;
+		const opts = saveBase.mock.calls[saveBase.mock.calls.length - 1]?.[1] as {
+			deferred?: (path: string) => boolean;
+			unverified?: (path: string) => boolean;
+		};
+		expect(opts.deferred?.("a.md")).toBe(true);
+		expect(opts.unverified?.("a.md")).toBe(true);
+	});
+
+	it("按路径计数：不同文件的瞬时竞态不互相累计", async () => {
+		const putBlob = vi.fn<SnapshotRemote["putBlob"]>(async () => {});
+		const { deps, setContentFor } = fakeDeps({
+			files: ["a.md", "b.md"],
+			contents: { "b.md": "bee" },
+			onHasBlobs: (round) => {
+				if (round === 1) setContentFor("a.md", "a1");
+				if (round === 2) setContentFor("a.md", "a2");
+				if (round === 3) setContentFor("b.md", "bee2");
+			},
+			putBlob,
+		});
+		const session = new ReconcileSession(deps as never);
+
+		session.requestRun({ forceAudit: true });
+		await waitForIdle(session);
+
+		// 旧实现按全局累计会在这里误判为「连续 3 次」并整轮失败
+		expect(lastStatus(deps).lastError).toBe("");
+		expect(lastStatus(deps).blockedDetails).toEqual([]);
+		expect(deps.remote.commitSnapshot).toHaveBeenCalledTimes(1);
+	});
+
+	it("暂缓到期后自动解除并完成同步", async () => {
+		let n = 0;
+		const putBlob = vi.fn<SnapshotRemote["putBlob"]>(async () => {});
+		const { deps, setContent } = fakeDeps({
+			uploadRaceDeferMs: 20,
+			onHasBlobs: (round) => {
+				if (round <= 3) setContent(`v${++n}`); // 暂缓前持续改写，之后稳定
+			},
+			putBlob,
+		});
+		const session = new ReconcileSession(deps as never);
+
+		session.requestRun({ forceAudit: true });
+		await waitForIdle(session);
+		expect(lastStatus(deps).blockedPaths).toEqual(["a.md"]);
+
+		await waitUntil(() => {
+			const commit = deps.remote.commitSnapshot as unknown as ReturnType<typeof vi.fn>;
+			return !session.isRunning() && commit.mock.calls.length === 1;
+		});
+
+		const status = lastStatus(deps);
+		expect(status.blockedPaths).toEqual([]);
+		expect(status.lastError).toBe("");
+		expect(putBlob).toHaveBeenCalledTimes(1);
+		expect(deps.remote.commitSnapshot).toHaveBeenCalledTimes(1);
+		session.dispose();
+	});
+
+	it("dispose 清理暂缓定时器：卸载后不再自行开轮次", async () => {
+		let n = 0;
+		const { deps, setContent } = fakeDeps({
+			uploadRaceDeferMs: 20,
+			onHasBlobs: () => setContent(`v${++n}`),
+		});
+		const session = new ReconcileSession(deps as never);
+
+		session.requestRun({ forceAudit: true });
+		await waitForIdle(session);
+		const calls = (deps.remote.hasBlobs as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+		session.dispose();
+		await new Promise((r) => setTimeout(r, 60));
+		expect((deps.remote.hasBlobs as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls);
 	});
 
 	it("正常路径不变量：声明 hash 恒等于上传字节的 SHA-256", async () => {

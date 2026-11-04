@@ -127,6 +127,9 @@ describe("classify", () => {
 		expect(isExpectedError({ code: 11002 })).toBe(true);
 		expect(isExpectedError({ code: 10001 })).toBe(false);
 		expect(isExpectedError(new Error("boom"))).toBe(false);
+		// 瞬时竞态仍是预期错误；转入暂缓后需要让后台看到发生面，故不再过滤
+		expect(isExpectedError(Object.assign(new Error("x"), { name: "LocalChangedDuringUploadError" }))).toBe(true);
+		expect(isExpectedError(Object.assign(new Error("x"), { name: "LocalChangedDuringUploadDeferredError" }))).toBe(false);
 	});
 
 	it("直传 HTTP 错误提取状态码", () => {

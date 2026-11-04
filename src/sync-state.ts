@@ -53,7 +53,7 @@ export class SyncState {
 	lastSyncAt = 0;
 	lastError = "";
 	pausedReason = ""; // 非空即同步暂停；原因取值见本文件顶部 PAUSED_* 词汇表
-	blockedPaths: string[] = []; // 本轮未同步的路径（超限/读失败/大小写冲突/云端存量超限）
+	blockedPaths: string[] = []; // 本轮未同步的路径（超限/读失败/大小写冲突/云端存量超限/同步期间持续修改）
 	/** 未同步路径的原因明细（与 blockedPaths 对应）：仅用于展示「哪个文件、为什么」 */
 	blockedDetails: BlockedPathInfo[] = [];
 	/** 当前套餐的单文件上限（字节）；0 表示未知，文案里省略具体数值 */

@@ -29,7 +29,10 @@ function blockedNote(input: SyncResultInput): string {
 		const label = reason ? blockedReasonLabel(reason, input.maxFileSizeBytes ?? 0) : "";
 		return label ? `1 个文件暂未同步（${path}：${label}）` : `1 个文件暂未同步（${path}）`;
 	}
-	return `${count} 个文件暂未同步`;
+	// 多个文件时逐个点名会过长：只补充「其中几个仍在修改」，让用户知道会自动重试
+	const changing = input.blockedDetails?.filter((detail) => detail.reason === "local_changing").length ?? 0;
+	const retryNote = changing > 0 ? `，其中 ${changing} 个本地文件仍在修改，稍后自动重试` : "";
+	return `${count} 个文件暂未同步${retryNote}`;
 }
 
 /** 会话里的失败原因有的自带「同步失败：」前缀（通用失败），有的不带（令牌失效、容量超限），统一只留一份前缀。 */

@@ -1,4 +1,4 @@
-// 未同步（被阻塞）路径的原因明细：扫描层产出，会话合并云端存量超限后供 UI 展示。
+// 未同步（被阻塞）路径的原因明细：扫描层产出，会话合并云端存量超限与上传竞态暂缓后供 UI 展示。
 // 这些路径本轮不参与上传/删除，但其他路径照常同步，不影响整体同步结果。
 
 export type BlockedReason =
@@ -6,7 +6,9 @@ export type BlockedReason =
 	| "read_failed" // 本地内容读取失败（下一轮会重试）
 	| "case_conflict" // 与另一路径仅大小写不同，大小写不敏感平台上无法共存
 	| "path_unencodable" // 路径加密仓库：NFC/长度/目录层数超出 token 编码能力
-	| "remote_oversized"; // 云端已有内容超过当前套餐的单文件上限（升级套餐后自动恢复）
+	| "path_invalid_on_platform" // 远端路径在当前系统不合法（Windows 非法字符/保留名等），本机永远无法落地
+	| "remote_oversized" // 云端已有内容超过当前套餐的单文件上限（升级套餐后自动恢复）
+	| "local_changing"; // 同步期间本地文件持续变化，暂缓该文件并稍后自动重试
 
 export interface BlockedPathInfo {
 	path: string;
@@ -14,14 +16,16 @@ export interface BlockedPathInfo {
 }
 
 /**
- * 合并本地阻塞明细与云端存量超限路径：同一路径只保留一条，本地原因优先。
+ * 合并本地阻塞明细、云端存量超限路径与上传竞态暂缓路径：同一路径只保留一条，
+ * 本地原因优先，其次云端超限，最后暂缓。
  *
- * 只用于展示。planner 仍按各自语义分别处理两类路径（本地阻塞钉住远端状态、
+ * 只用于展示。planner 仍按各自语义分别处理这些路径（本地阻塞与竞态暂缓都钉住远端状态、
  * 云端超限保持远端原值），不能互换，因此这里的结果不得回灌给对账逻辑。
  */
 export function mergeBlockedDetails(
 	localDetails: readonly BlockedPathInfo[],
 	remoteOversizedPaths: readonly string[],
+	deferredPaths: readonly string[] = [],
 ): BlockedPathInfo[] {
 	const merged: BlockedPathInfo[] = [];
 	const seen = new Set<string>();
@@ -34,6 +38,11 @@ export function mergeBlockedDetails(
 		if (seen.has(path)) continue;
 		seen.add(path);
 		merged.push({ path, reason: "remote_oversized" });
+	}
+	for (const path of deferredPaths) {
+		if (seen.has(path)) continue;
+		seen.add(path);
+		merged.push({ path, reason: "local_changing" });
 	}
 	return merged;
 }

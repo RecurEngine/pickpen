@@ -28,7 +28,7 @@ import { mergeBlockedDetails, type BlockedPathInfo } from "./blocked";
 import { sha256Hex } from "./content-hash";
 import { LocalSnapshotBuilder } from "./local-snapshot";
 import { resolveConflictsByMerge, type MergePassResult } from "./merge-pass";
-import { nfcPath } from "./path";
+import { isLocalPathLandable, nfcPath } from "./path";
 import { encodeDeletes, encodePuts, indexPaths, PATH_MODE_ENCRYPTED, PATH_MODE_PLAIN, treeRoot } from "./path-codec";
 import { PendingStore } from "./pending-store";
 import { entriesEqual, isConflictCopyPath, isRemoteOversized, plan } from "./planner";
@@ -61,8 +61,11 @@ function withPathContext(err: unknown, path: string): Error {
 	return wrapped;
 }
 
-/** 上传期间本地文件变动连续达此值 → 不再静默重排，改报错（避免被持续改写的文件一直空转） */
+/** 同一路径在同步期间被改动连续达此值 → 暂缓该文件（其他文件照常同步） */
 const UPLOAD_RACE_SUPPRESS_AFTER = 3;
+
+/** 暂缓路径的自动重试延迟：到期后标脏并触发一轮同步 */
+const UPLOAD_RACE_DEFER_MS = 60_000;
 
 /**
  * 本轮取计划到提交之间本地文件被改动：计划里的 hash 已不代表磁盘内容
@@ -77,6 +80,17 @@ class LocalChangedDuringUploadError extends Error {
 		super("本地文件在同步期间发生变化，请稍后重试");
 		this.name = "LocalChangedDuringUploadError";
 		this.path = path;
+	}
+}
+
+/**
+ * 同一路径持续被改写、已转入暂缓：只用于上报，不带任何路径信息
+ * （文件名属于用户内容，上报模块也会脱敏；这里从源头就不采集）。
+ */
+class LocalChangedDuringUploadDeferredError extends Error {
+	constructor(attempts: number) {
+		super(`本地文件在同步期间持续变化（连续 ${attempts} 次），已暂缓并稍后自动重试`);
+		this.name = "LocalChangedDuringUploadDeferredError";
 	}
 }
 
@@ -112,7 +126,7 @@ export interface SyncStatus {
 	progress: SyncProgress | null;
 	running: boolean;
 	lastError: string;
-	/** 本轮未同步的路径（本地阻塞 + 云端存量超限，已按路径去重） */
+	/** 本轮未同步的路径（本地阻塞 + 云端存量超限 + 竞态暂缓，已按路径去重） */
 	blockedPaths: string[];
 	/** 与 blockedPaths 对应的原因明细（本地原因优先），供 UI 说明「哪个文件、为什么」 */
 	blockedDetails: BlockedPathInfo[];
@@ -152,6 +166,8 @@ export interface SessionDeps {
 	notifyConfigReload?: () => void;
 	/** 暂停同步（宿主写 syncState.pausedReason；暂停后 Poller 自动停止） */
 	pauseSync?: (reason: string) => void;
+	/** 上传竞态暂缓后的自动重试延迟；仅测试注入，生产用默认值 */
+	uploadRaceDeferMs?: number;
 	onStatus?: (status: SyncStatus) => void;
 }
 
@@ -182,8 +198,12 @@ export class ReconcileSession {
 	private consecutiveFailures = 0;
 	/** 12023 连续触发次数：驱动 hint 抑制与退避 */
 	private fileIDMovedStreak = 0;
-	/** 上传期间本地文件变动连续轮数：驱动静默重排与退避 */
-	private uploadRaceStreak = 0;
+	/** 路径 → 同步期间本地改动连续命中次数：按文件累计，避免不同文件的瞬时竞态互相叠加 */
+	private readonly raceAttempts = new Map<string, number>();
+	/** 路径 → 暂缓解除时间戳（epoch ms）：暂缓期间该文件不参与对账，其他文件照常提交 */
+	private readonly deferredRacePaths = new Map<string, number>();
+	/** 暂缓自动解除定时器：只负责标脏并 requestRun，不直接开启新 Session */
+	private deferralTimer: number | null = null;
 	/** 12023 连续触发后的 rename hint 抑制：fileIDFor 退化为新 UUID，保证重试产生不同 plan */
 	private suppressRenameHints = false;
 	private blockedPaths: string[] = [];
@@ -191,6 +211,11 @@ export class ReconcileSession {
 	private localBlockedDetails: BlockedPathInfo[] = [];
 	/** 远端内容超过当前套餐单文件上限的路径（降档后的存量文件）：不下载、不覆盖、不删除 */
 	private oversizedRemotePaths: string[] = [];
+	/** 本轮远端存在、但当前平台无法原样落地的路径（如 Windows 文件名含 `"`）。
+	 *  含 tombstone：planner 会为远端 tombstone 生成 trash/rmdir，非法名同样会让 apply 抛错 */
+	private platformBlockedPaths: string[] = [];
+	/** 其中 active 且未被选择性同步排除的路径：仅用于状态展示（tombstone 不展示） */
+	private platformBlockedDetails: BlockedPathInfo[] = [];
 	/** 本轮由真实删除事件标记的路径（允许传播超限远端文件的删除） */
 	private confirmedDeletePaths = new Set<string>();
 	/** 本轮开始时快照的删除意图；成功收尾后只清掉这些，保留轮次期间新到的事件 */
@@ -232,6 +257,9 @@ export class ReconcileSession {
 	 */
 	dispose(): void {
 		this.disposed = true;
+		this.clearDeferralTimer();
+		this.deferredRacePaths.clear();
+		this.raceAttempts.clear();
 	}
 
 	/** 唯一入口：dirty 提示 / 轮询发现 / 切前台 / 手动同步共用。
@@ -249,6 +277,8 @@ export class ReconcileSession {
 		if (opts?.interactive) this.interactiveRequested = true;
 		if (opts?.dirtyPaths) {
 			for (const p of opts.dirtyPaths) {
+				// 显式点名（历史版本恢复、从删除列表还原）属于用户动作：立即解除暂缓
+				this.clearDeferral(p);
 				this.nextDirtyPaths.add(p);
 				this.markPendingLocal(p);
 			}
@@ -298,7 +328,14 @@ export class ReconcileSession {
 	}
 
 	getBlockedPaths(): string[] {
-		return this.blockedPaths;
+		// 暂缓路径、平台不可落地路径与本地阻塞合并展示：本轮都不参与对账，其他路径照常同步
+		return [
+			...new Set([
+				...this.blockedPaths,
+				...this.deferredRacePaths.keys(),
+				...this.platformBlockedPaths,
+			]),
+		];
 	}
 
 	/** 换绑仓库：清内存状态 */
@@ -311,6 +348,8 @@ export class ReconcileSession {
 		this.blockedPaths = [];
 		this.localBlockedDetails = [];
 		this.oversizedRemotePaths = [];
+		this.platformBlockedPaths = [];
+		this.platformBlockedDetails = [];
 		this.confirmedDeletePaths.clear();
 		this.roundConfirmedDeletes.clear();
 		this.maxFileSizeBytes = 0;
@@ -318,7 +357,9 @@ export class ReconcileSession {
 		this.interruptedChecked = false;
 		this.consecutiveFailures = 0;
 		this.fileIDMovedStreak = 0;
-		this.uploadRaceStreak = 0;
+		this.raceAttempts.clear();
+		this.deferredRacePaths.clear();
+		this.clearDeferralTimer();
 		this.suppressRenameHints = false;
 		this.lastError = "";
 		this.lastSyncAt = 0; // 换绑后旧仓库的「最后同步」不再适用
@@ -329,6 +370,8 @@ export class ReconcileSession {
 
 	/** 本地 dirty 事件入口（local-hint 调用；运行中 → 下一轮） */
 	addDirty(path: string): void {
+		// 暂缓期间的编辑事件不触发行；解除时统一标脏重扫，避免被持续改写的文件空转
+		if (this.isDeferred(path)) return;
 		this.nextDirtyPaths.add(path);
 		this.markPendingLocal(path);
 	}
@@ -336,18 +379,37 @@ export class ReconcileSession {
 	/** 真实删除事件：标脏并登记「用户删除意图」。只有这类路径允许在降档后
 	 *  传播超限远端文件的删除；扫描/切 vault 合成出的 tombstone 不登记。 */
 	addConfirmedDelete(path: string): void {
+		// 删除是终止性事件：竞态已无意义，立即解除暂缓让删除尽快传播
+		this.clearDeferral(path);
 		this.confirmedDeletePaths.add(path);
 		this.addDirty(path);
 	}
 
 	/** rename 事件入口（local-hint 调用）：记录 new→old 映射并标脏两路径（保 file_id 身份） */
 	addDirtyRename(oldPath: string, newPath: string): void {
+		this.clearDeferral(oldPath);
 		this.nextDirtyPaths.add(oldPath);
 		this.nextDirtyPaths.add(newPath);
 		this.renameHints.set(newPath, oldPath);
 		// 旧路径的删除同样属于未同步改动：两条都记（一次 rename 在提示里算 2 项）
 		this.markPendingLocal(oldPath);
 		this.markPendingLocal(newPath);
+	}
+
+	/** 路径统一成快照键口径（NFC）；非法路径原样返回（不会进入暂缓表） */
+	private raceKey(path: string): string {
+		return nfcPath(normalize(path)) ?? path;
+	}
+
+	private isDeferred(path: string): boolean {
+		return this.deferredRacePaths.has(this.raceKey(path));
+	}
+
+	private clearDeferral(path: string): void {
+		const key = this.raceKey(path);
+		if (!this.deferredRacePaths.delete(key)) return;
+		this.raceAttempts.delete(key);
+		this.scheduleDeferralWake();
 	}
 
 	/**
@@ -397,8 +459,13 @@ export class ReconcileSession {
 		const recoveryPending = this.deps.pendingStore.getPending() !== null;
 		const storageLimitConfirmed = this.storageLimitConfirmed;
 		this.storageLimitConfirmed = false;
-		// 展示用的合并（本地原因优先）：只影响状态文案，planner 仍分开消费两个原始数组
-		const blockedDetails = mergeBlockedDetails(this.localBlockedDetails, this.oversizedRemotePaths);
+		// 展示用的合并（本地原因优先）：只影响状态文案，planner 仍分开消费各自的原始集合。
+		// 平台不可落地路径没有「本地」来源，与本地阻塞一起作为最高优先级的已知原因参与合并
+		const blockedDetails = mergeBlockedDetails(
+			[...this.localBlockedDetails, ...this.platformBlockedDetails],
+			this.oversizedRemotePaths,
+			[...this.deferredRacePaths.keys()],
+		);
 		const blockedSet = new Set(blockedDetails.map((detail) => detail.path));
 		// blocked 路径已有「N 个文件未同步」文案，不再计入本地待同步数
 		const pendingCount =
@@ -422,8 +489,7 @@ export class ReconcileSession {
 				!this.running &&
 				!this.lastError &&
 				!this.storageLimitExceeded &&
-				this.blockedPaths.length === 0 &&
-				this.oversizedRemotePaths.length === 0 &&
+				blockedDetails.length === 0 &&
 				pendingCount === 0 &&
 				!recoveryPending,
 		});
@@ -436,6 +502,7 @@ export class ReconcileSession {
 	 */
 	private finishRound(): void {
 		this.settlePendingLocal();
+		this.raceAttempts.clear(); // 成功收尾证明不再是「持续改写」，计数从头开始
 		for (const path of this.roundConfirmedDeletes) this.confirmedDeletePaths.delete(path);
 		this.roundConfirmedDeletes.clear();
 		this.lastError = "";
@@ -480,6 +547,9 @@ export class ReconcileSession {
 		try {
 			do {
 				if (this.disposed) return; // 已卸载：不再开启新一轮（finally 仍会收尾上报）
+				// 移动端后台定时器可能被冻结：每轮开始也清理一次到期暂缓，避免永久停在暂缓状态
+				for (const path of this.pruneExpiredDeferrals()) this.addDirty(path);
+				this.scheduleDeferralWake();
 				this.beginPhase("preparing");
 				this.rerunRequested = false;
 				this.dirtyPaths = this.nextDirtyPaths;
@@ -505,16 +575,11 @@ export class ReconcileSession {
 					this.clearProgress();
 					// 本轮还没扫到本地就失败：dirty 放回下一轮，避免本地改动被静默漏掉（见 requeueDirty）
 					if (!this.dirtyScanned) this.requeueDirty();
-					// 取计划后本地文件被改动（上传/复验阶段发现）：不是同步失败，而是计划已过期——该路径标脏、下一轮重排即可收敛，
-					// 因此不设 lastError、不计失败次数。连续命中达阈值说明该文件在被持续改写（继续重排只会空转），
-					// 落到下面的普通失败分支报错。
-					if (err instanceof LocalChangedDuringUploadError && ++this.uploadRaceStreak < UPLOAD_RACE_SUPPRESS_AFTER) {
-						this.addDirty(err.path);
-						this.rerunRequested = true;
-						debugLog.warn(`[pickpen] 上传期间本地文件变动（第 ${this.uploadRaceStreak} 次），退避后重新对账：${err.path}`);
-						// 退避基数小：本地改动通常已落盘完成，短暂等待即可（若正写到一半，等它写完）
-						this.beginPhase("waiting");
-						await new Promise((r) => window.setTimeout(r, backoffMs(this.uploadRaceStreak, 1_000, 5_000)));
+					// 取计划后本地文件被改动（上传/复验阶段发现）：不是同步失败，而是计划已过期。
+					// 瞬时竞态标脏重排；同一路径连续命中达阈值说明它被持续改写，转为「暂缓该文件」，
+					// 其他文件照常提交并安排自动重试——绝不设置 lastError 或计入失败次数。
+					if (err instanceof LocalChangedDuringUploadError) {
+						await this.handleUploadRace(err.path);
 					} else if (isVaultNotFound(err)) {
 						// 仓库已删除/属于其他账号：重试与重新登录都无法恢复，停止同步等用户重新绑定。
 						this.lastError = "仓库不存在，请重新选择要绑定的仓库";
@@ -545,7 +610,8 @@ export class ReconcileSession {
 							reportError("sync", err, { code: errorCode(err) });
 						}
 					}
-					this.consecutiveFailures++;
+					// 竞态不是同步失败：不累计失败次数（否则会影响 12015 的退避基数）
+					if (!(err instanceof LocalChangedDuringUploadError)) this.consecutiveFailures++;
 					// 不在此处 report：storageLimitConfirmed 是一次性标志，在 report 内被消费，
 					// 多报一次会让随后的 finally 上报把它冲掉。循环继续时下一轮 beginPhase
 					// 立即带出错误，循环结束则 finally 上报，两种路径都不会漏。
@@ -561,6 +627,91 @@ export class ReconcileSession {
 			this.idleWaiters = [];
 			for (const resolve of waiters) resolve();
 		}
+	}
+
+	/**
+	 * 同步期间本地文件被改动：瞬时竞态静默重排（前两次），同一路径持续命中则暂缓该文件。
+	 * 暂缓不是同步失败：不设置 lastError，也不计入失败次数。
+	 */
+	private async handleUploadRace(rawPath: string): Promise<void> {
+		const path = this.raceKey(rawPath);
+		const attempts = (this.raceAttempts.get(path) ?? 0) + 1;
+		this.raceAttempts.set(path, attempts);
+		if (attempts < UPLOAD_RACE_SUPPRESS_AFTER) {
+			this.addDirty(path);
+			this.rerunRequested = true;
+			debugLog.warn(`[pickpen] 上传期间本地文件变动（第 ${attempts} 次），退避后重新对账：${path}`);
+			// 退避基数小：本地改动通常已落盘完成，短暂等待即可（若正写到一半，等它写完）
+			this.beginPhase("waiting");
+			await new Promise((r) => window.setTimeout(r, backoffMs(attempts, 1_000, 5_000)));
+			return;
+		}
+		this.deferUploadRace(path, attempts);
+	}
+
+	/** 把持续被改写的文件移出本轮对账：目标树钉远端，其他文件照常提交；到期自动重试。 */
+	private deferUploadRace(path: string, attempts: number): void {
+		if (this.deferredRacePaths.has(path)) {
+			this.rerunRequested = true;
+			return;
+		}
+		this.raceAttempts.delete(path); // 次数已消费，解除后重新计数
+		this.deferredRacePaths.set(path, Date.now() + this.deferMs());
+		// 已排队的编辑事件不再驱动空转轮次；到期时统一标脏重扫
+		this.nextDirtyPaths.delete(path);
+		this.dirtyPaths.delete(path);
+		this.carriedDirtyPaths.delete(path);
+		this.rerunRequested = true;
+		debugLog.warn(`[pickpen] 本地文件持续变动 ${attempts} 次，暂缓 ${this.deferMs()}ms 后自动重试：${path}`);
+		this.scheduleDeferralWake();
+		// 需要让后台看到发生面；错误名与消息都不含路径（文件名属于用户内容）
+		reportError("sync", new LocalChangedDuringUploadDeferredError(attempts));
+	}
+
+	private deferMs(): number {
+		return this.deps.uploadRaceDeferMs ?? UPLOAD_RACE_DEFER_MS;
+	}
+
+	private clearDeferralTimer(): void {
+		if (this.deferralTimer === null) return;
+		window.clearTimeout(this.deferralTimer);
+		this.deferralTimer = null;
+	}
+
+	/** 按最早的解除时间设置一个唤醒；单 Session 串行不变，定时器只负责标脏并请求下一轮 */
+	private scheduleDeferralWake(): void {
+		this.clearDeferralTimer();
+		if (this.disposed || this.deferredRacePaths.size === 0) return;
+		const nextAt = Math.min(...this.deferredRacePaths.values());
+		this.deferralTimer = window.setTimeout(() => {
+			this.deferralTimer = null;
+			this.releaseExpiredDeferrals();
+		}, Math.max(0, nextAt - Date.now()));
+	}
+
+	/** 清理到期暂缓并返回解除的路径；只改状态，不触发运行 */
+	private pruneExpiredDeferrals(now = Date.now()): string[] {
+		const released: string[] = [];
+		for (const [path, until] of [...this.deferredRacePaths]) {
+			if (until > now) continue;
+			this.deferredRacePaths.delete(path);
+			this.raceAttempts.delete(path);
+			released.push(path);
+		}
+		return released;
+	}
+
+	private releaseExpiredDeferrals(): void {
+		if (this.disposed) return;
+		const released = this.pruneExpiredDeferrals();
+		this.scheduleDeferralWake();
+		if (released.length === 0) return;
+		for (const path of released) {
+			this.addDirty(path); // 已不在暂缓集合，正常进入下一轮扫描
+			debugLog.info(`[pickpen] 暂缓到期，重新尝试同步：${path}`);
+		}
+		if (!this.running) this.report();
+		this.requestRun();
 	}
 
 	/** Base 记录的内容密钥代次与当前代次是否不一致（不一致 = 必须重算全部寻址哈希） */
@@ -729,15 +880,47 @@ export class ReconcileSession {
 			isRemoteOversized(remoteEntries[p], maxFileSizeBytes),
 		);
 
+		// 6c. 远端路径在当前平台不可原样落地（如 Windows 文件名含 `"`）：一律阻塞，不产生本地动作。
+		// 这类路径写盘必然失败（Win32 ERROR_INVALID_NAME → Node ENOENT），若放任 planner 生成动作，
+		// 整轮 apply 会中止、pending 无法应用，设备将永久卡死。必须含 tombstone：planner 会为远端
+		// tombstone 生成 trash/rmdir，而 rmdir 的存在性检查没有异常兜底，非法目录名同样会抛错。
+		// 只在远端 entries 里存在的 key 上判定（不回退 Base——钉住过期 Base 会让 target_root_hash
+		// 与服务端不符，触发 12018）。
+		const isWindows = Platform.isWin;
+		this.platformBlockedPaths = Object.keys(remoteEntries).filter(
+			(p) => !isLocalPathLandable(p, isWindows),
+		);
+		this.platformBlockedDetails = this.platformBlockedPaths
+			.filter((p) => {
+				const e = remoteEntries[p];
+				// 用户主动排除的路径不展示（与 planner 的 excluded 语义一致）
+				return e?.state === "active" && !filter.isExcluded(p, (e.kind ?? KIND_FILE) === KIND_DIR);
+			})
+			.map((path) => ({ path, reason: "path_invalid_on_platform" as const }));
+		if (this.platformBlockedDetails.length > 0) {
+			debugLog.warn(
+				`[pickpen] ${this.platformBlockedDetails.length} 个远端路径在当前平台不可落地，已阻塞（如：${this.platformBlockedDetails[0].path}）`,
+			);
+		}
+
 		// 7. 三方对账（§9.1 步骤 7）
 		this.beginPhase("planning");
 		this.roundConfirmedDeletes = new Set(this.confirmedDeletePaths);
+		// 上传竞态暂缓的路径与本地阻塞共用 blocked 语义：不 put 不 delete、目标树钉远端，
+		// 其他路径照常提交。planner 无需区分两者，展示层再给出各自原因。
+		const planBlockedPaths = [
+			...new Set([
+				...this.blockedPaths,
+				...this.deferredRacePaths.keys(),
+				...this.platformBlockedPaths,
+			]),
+		];
 		const planResult = plan({
 			base,
 			local,
 			remote: remoteSnap,
 			deviceId: settings.deviceId,
-			blockedPaths: this.blockedPaths,
+			blockedPaths: planBlockedPaths,
 			remoteOversizedPaths: this.oversizedRemotePaths,
 			confirmedDeletePaths: this.roundConfirmedDeletes,
 			filter,
@@ -793,10 +976,13 @@ export class ReconcileSession {
 			const e = planResult.target_entries[path];
 			return filter.isExcluded(path, (e?.kind ?? KIND_FILE) === KIND_DIR);
 		};
-		// 本轮未校验过磁盘内容的路径（被排除 / 被阻塞）：Base 不得为其记 local_* 快路径字段，
+		// 本轮未校验过磁盘内容的路径（被排除 / 被阻塞 / 被暂缓）：Base 不得为其记 local_* 快路径字段，
 		// 否则下一轮快路径会拿旧 hash 冒充实测值，把期间的本地改动永久漏掉
-		const blockedNow = new Set([...this.blockedPaths, ...this.oversizedRemotePaths]);
+		const blockedNow = new Set([...planBlockedPaths, ...this.oversizedRemotePaths]);
 		const unverified = (path: string): boolean => blockedNow.has(path) || outOfScope(path);
+		// 竞态暂缓路径单独处理：不写 local_*，也不写 out_of_scope——解除暂缓后应作为普通本地修改上传，
+		// 而不是被 Bootstrap 判成冲突副本（见 BaseSaveOptions.deferred）
+		const deferred = (path: string): boolean => this.deferredRacePaths.has(path);
 
 		if (!hasWork) {
 			// L 与 R 已一致（或仅 blocked 差异）：确认 Base 收敛。
@@ -815,7 +1001,7 @@ export class ReconcileSession {
 					base_root_hash: head.rootHash,
 					entries: planResult.target_entries,
 					path_mode: pathMode,
-				}, { unverified, outOfScope });
+				}, { unverified, outOfScope, deferred });
 			} else if (planResult.target_root_hash !== head.rootHash) {
 				debugLog.warn("[pickpen] 目标树与远端 Head 不符，本轮不写 Base（避免落盘不自洽的基线）");
 			}
@@ -972,7 +1158,7 @@ export class ReconcileSession {
 		}
 		this.consecutiveFailures = 0;
 		this.fileIDMovedStreak = 0;
-		this.uploadRaceStreak = 0;
+		this.raceAttempts.clear(); // 成功提交证明不再处于持续改写状态
 		this.suppressRenameHints = false;
 
 		// 13. 逐文件安全写入本地（§9.1 步骤 12）
@@ -1018,7 +1204,7 @@ export class ReconcileSession {
 			base_root_hash: commit.rootHash,
 			entries: planResult.target_entries,
 			path_mode: pathMode,
-		}, { unverified: (path) => skippedSet.has(path) || unverified(path), outOfScope });
+		}, { unverified: (path) => skippedSet.has(path) || unverified(path), outOfScope, deferred });
 		await pendingStore.clear();
 		await this.applier.cleanupTemp(this.tmpDir);
 		this.finishRound();
@@ -1067,9 +1253,32 @@ export class ReconcileSession {
 				const maxBytes = Number(head.maxFileSizeBytes);
 				const maxFileSizeBytes =
 					Number.isSafeInteger(maxBytes) && maxBytes > 0 ? maxBytes : undefined;
+				// 旧版本可能在 pending 里留下当前平台无法落地的动作（如 Windows 上的非法文件名）：
+				// 原样重放会让 apply 每一轮都失败、pending 永远清不掉。这里只跳过这些路径，
+				// 其余动作照常幂等重放；被跳过的路径计入 unverified，避免 Base 把它们当成本地已落地。
+				const unlandablePaths = new Set(
+					pending.apply_actions
+						.filter((a) => !isLocalPathLandable(a.path, Platform.isWin))
+						.map((a) => a.path),
+				);
+				if (unlandablePaths.size > 0) {
+					debugLog.warn(
+						`[pickpen] pending 中有 ${unlandablePaths.size} 个路径在当前平台不可落地，跳过本地落地`,
+					);
+					// 本轮若在后续步骤提前结束，状态卡也要能说明「哪个文件没同步」；
+					// 只展示 write/mkdir（trash/rmdir 是已删除路径，不应挂在「未同步」里）
+					this.platformBlockedPaths = [...unlandablePaths];
+					this.platformBlockedDetails = pending.apply_actions
+						.filter(
+							(a) =>
+								unlandablePaths.has(a.path) && (a.kind === "write" || a.kind === "mkdir"),
+						)
+						.map((a) => ({ path: a.path, reason: "path_invalid_on_platform" as const }));
+				}
+				const actions = pending.apply_actions.filter((a) => !unlandablePaths.has(a.path));
 				await this.applier.applyPlan({
 					onProgress: this.beginPhase("applying"),
-					actions: pending.apply_actions,
+					actions,
 					conflicts: [],
 					expectedHashes: new Map(),
 					expectedRevision: head.revision,
@@ -1096,7 +1305,11 @@ export class ReconcileSession {
 					base_root_hash: head.rootHash,
 					entries: manifest.entries,
 					path_mode: pathMode,
-				}, { unverified: (path) => skippedPaths.has(path) || isOutOfScope(path), outOfScope: isOutOfScope });
+				}, {
+					unverified: (path) =>
+						skippedPaths.has(path) || unlandablePaths.has(path) || isOutOfScope(path),
+					outOfScope: isOutOfScope,
+				});
 				await pendingStore.clear();
 				this.forceAudit = true; // 落地后完整审计校正本地状态
 				this.lastError = "";

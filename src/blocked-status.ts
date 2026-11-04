@@ -13,7 +13,9 @@ const REASON_ORDER: readonly BlockedReason[] = [
 	"read_failed",
 	"case_conflict",
 	"path_unencodable",
+	"path_invalid_on_platform",
 	"remote_oversized",
+	"local_changing",
 ];
 
 /** 折叠时的归类短语（比单文件短语短，便于一行放下） */
@@ -22,7 +24,9 @@ const GROUP_LABELS: Record<BlockedReason, string> = {
 	read_failed: "无法读取本地内容",
 	case_conflict: "大小写冲突",
 	path_unencodable: "路径过深无法加密",
+	path_invalid_on_platform: "名称在当前系统不可用",
 	remote_oversized: "云端存量文件超限",
+	local_changing: "本地文件仍在修改",
 };
 
 export interface BlockedFile {
@@ -61,8 +65,12 @@ export function blockedReasonLabel(reason: BlockedReason, maxFileSizeBytes: numb
 			return "与另一项名称仅大小写不同";
 		case "path_unencodable":
 			return "路径过深或名称无法加密，暂不能同步";
+		case "path_invalid_on_platform":
+			return "文件名含当前系统不支持的字符，请在其他设备重命名后再同步";
 		case "remote_oversized":
 			return `云端已有内容超过单文件上限${limit}，升级套餐后自动恢复`;
+		case "local_changing":
+			return "同步期间本地文件持续变化，稍后自动重试";
 	}
 }
 

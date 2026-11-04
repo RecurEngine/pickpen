@@ -18,6 +18,7 @@ import { debugLog } from "./debug-log";
 import type PickpenPlugin from "./index";
 import { FileVersionState, type FileVersionInfo } from "./gen/proto/sync/sync.ext_pb";
 import { decodeStoredPath } from "./sync/path-codec";
+import { isLocalPathLandable } from "./sync/path";
 import { isBlobNotReferenced, isUnauthenticated } from "./remote-connect";
 import { normalize } from "./excludes";
 import { diffTexts, type DiffLine } from "./history-diff";
@@ -585,6 +586,11 @@ class HistoryModal extends Modal {
 
 	// restore 恢复：下载全量 → 写盘（自动建父目录，覆盖「曾删除重建」）→ 刷新打开视图 → 触发同步
 	private async restore(v: FileVersionInfo, cachedContent?: Uint8Array): Promise<void> {
+		// 远端历史路径可能含当前系统（Windows）不允许的字符：写盘必然失败，提前给出可操作的提示
+		if (!isLocalPathLandable(this.currentPath, Platform.isWin)) {
+			new Notice("该文件名含当前系统不支持的字符，请在其他设备重命名后再恢复");
+			return;
+		}
 		this.restoring = true;
 		this.restoreRowEl.empty();
 		if (Platform.isMobile) {

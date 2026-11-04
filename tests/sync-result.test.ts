@@ -45,8 +45,31 @@ describe("手动同步回执文案", () => {
 		);
 	});
 
-	it("有冲突副本时单独报，且与未同步文件并存时两者都报", () => {
-		expect(syncResultMessage(input({ changed: true, conflictCount: 1 }))).toBe("同步完成，但有 1 个冲突副本待处理");
+	it("竞态暂缓：单文件点名原因，多文件补充「仍在修改」", () => {
+		expect(
+			syncResultMessage(
+				input({
+					blockedCount: 1,
+					blockedPaths: ["a.md"],
+					blockedDetails: [{ path: "a.md", reason: "local_changing" }],
+				}),
+			),
+		).toBe("同步完成，但有 1 个文件暂未同步（a.md：同步期间本地文件持续变化，稍后自动重试）");
+		expect(
+			syncResultMessage(
+				input({
+					blockedCount: 2,
+					blockedPaths: ["a.md", "b.md"],
+					blockedDetails: [
+						{ path: "a.md", reason: "local_changing" },
+						{ path: "b.md", reason: "oversized" },
+					],
+				}),
+			),
+		).toBe("同步完成，但有 2 个文件暂未同步，其中 1 个本地文件仍在修改，稍后自动重试");
+	});
+
+	it("有冲突副本时单独报，且与未同步文件并存时两者都报", () => {		expect(syncResultMessage(input({ changed: true, conflictCount: 1 }))).toBe("同步完成，但有 1 个冲突副本待处理");
 		// 无变化也要报：副本是存量，不该因为没有新变更就被吞掉
 		expect(syncResultMessage(input({ conflictCount: 3 }))).toBe("同步完成，但有 3 个冲突副本待处理");
 		expect(syncResultMessage(input({ changed: true, blockedCount: 2, conflictCount: 1 }))).toBe(

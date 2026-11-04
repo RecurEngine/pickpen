@@ -278,6 +278,15 @@ describe("阻塞路径（§9.2/§16.5）", () => {
 		expect(p.target_entries["big.zip"]).toEqual(active(A));
 	});
 
+	it("阻塞的新本地文件（远端/Base 均无）不 put 不 delete，目标树也不含该路径", () => {
+		// 上传竞态暂缓复用同一 blocked 语义：本轮只推迟该文件，其余路径照常
+		const p = runBlocked(null, snap({ "new.md": active(B) }), snap({}), ["new.md"]);
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries["new.md"]).toBeUndefined();
+		expect(p.blocked_paths).toEqual(["new.md"]);
+	});
+
 	it("阻塞期间远端已变 → 目标仍是远端而非过期 Base（钉 Base 会 12018 死循环）", () => {
 		const b = snap({ "big.zip": active(A) });
 		const p = runBlocked(b, snap({}), snap({ "big.zip": active(C) }), ["big.zip"]);
@@ -292,6 +301,39 @@ describe("阻塞路径（§9.2/§16.5）", () => {
 		expect(p.puts).toEqual([]);
 		expect(p.deletes).toEqual([]);
 		expect(p.target_entries["big.zip"]).toEqual({ state: "deleted" });
+	});
+
+	it("远端独有的非法名 active 路径被阻塞 → 不生成写盘动作，目标保留远端", () => {
+		// Windows 平台不可落地路径由 session 计算后并入 blockedPaths，planner 走同一分支
+		const path = 'ima/字课/字课05"腠理".md';
+		const p = runBlocked(null, snap({}), snap({ [path]: active(A) }), [path]);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.puts).toEqual([]);
+		expect(p.deletes).toEqual([]);
+		expect(p.target_entries[path]).toEqual(active(A));
+	});
+
+	it("远端非法名 tombstone（文件/目录）被阻塞 → 不生成 trash/rmdir", () => {
+		const file = 'a"b.md';
+		const dir = 'x"y';
+		const p = runBlocked(
+			null,
+			snap({}),
+			snap({ [file]: deleted, [dir]: { state: "deleted", kind: 2 } }),
+			[file, dir],
+		);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.target_entries[file]).toEqual({ state: "deleted" });
+		expect(p.target_entries[dir]).toEqual({ state: "deleted", kind: 2 });
+	});
+
+	it("blocked 优先于「仅 Local 变删除」：本地合成 tombstone 时也不删远端", () => {
+		const path = 'a"b.md';
+		const b = snap({ [path]: active(A) });
+		const p = runBlocked(b, snap({}), snap({ [path]: active(A) }), [path]);
+		expect(p.deletes).toEqual([]);
+		expect(p.apply_actions).toEqual([]);
+		expect(p.target_entries[path]).toEqual(active(A));
 	});
 });
 

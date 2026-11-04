@@ -121,6 +121,33 @@ describe("BaseStore", () => {
 		expect(m.writes.some((w) => w.startsWith("rename:"))).toBe(true);
 	});
 
+	it("deferred 的条目既不记 local_*，也不标 out_of_scope（解除暂缓后按普通本地修改上传）", async () => {
+		const m = mockAdapter({}, ["a.md"]);
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		await store.saveBase(baseSnapshot(), {
+			deferred: (path) => path === "a.md",
+			unverified: () => true, // 暂缓路径同时属于 unverified，deferred 必须优先
+		});
+		const parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
+		expect(parsed.entries["a.md"].local_mtime).toBeUndefined();
+		expect(parsed.entries["a.md"].local_size).toBeUndefined();
+		// 关键：不能沿用 unverified 的 out_of_scope，否则解除后会变成冲突副本而不是正常上传
+		expect(parsed.entries["a.md"].out_of_scope).toBeUndefined();
+		expect(parsed.entries["a.md"].content_hash).toBe("a".repeat(64));
+	});
+
+	it("outOfScope 优先于 deferred（被选择性同步排除的路径仍按 Bootstrap 裁决）", async () => {
+		const m = mockAdapter({}, ["a.md"]);
+		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");
+		await store.saveBase(baseSnapshot(), {
+			deferred: () => true,
+			outOfScope: () => true,
+		});
+		const parsed = JSON.parse(m.files[".obsidian/plugins/pickpen/sync-base.json"]) as Snapshot;
+		expect(parsed.entries["a.md"].out_of_scope).toBe(true);
+		expect(parsed.entries["a.md"].local_mtime).toBeUndefined();
+	});
+
 	it("unverified 的条目不带 local_* 快路径字段（被排除/被阻塞路径不得冒充已校验）", async () => {
 		const m = mockAdapter({}, ["excluded.txt", "kept.md"]); // 两个路径磁盘上都存在
 		const store = new BaseStore(mockPlugin(m.adapter), "dev-1");

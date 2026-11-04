@@ -22,6 +22,12 @@ export interface BaseSaveOptions {
 	 */
 	unverified?: (path: string) => boolean;
 	/**
+	 * 上传竞态暂缓的路径：本轮无法确认磁盘内容与远端一致。
+	 * 不记 local_*（否则下一轮快路径会漏掉用户改动），也不标 out_of_scope
+	 * （否则解除暂缓后本地修改会被 Bootstrap 判成冲突副本，而不是正常上传）。
+	 */
+	deferred?: (path: string) => boolean;
+	/**
 	 * 本轮**不在同步范围内**的路径（被选择性同步排除）：条目内容只是远端回声，
 	 * 标记 out_of_scope 交给 planner 按 Bootstrap 裁决。
 	 * 缺省（如卸载时的 flush）沿用条目上已有的标记，不把「不在范围内」这个事实丢掉。
@@ -143,6 +149,11 @@ export class BaseStore {
 				continue;
 			}
 			if (e.state !== "active") {
+				entries[path] = rest;
+				continue;
+			}
+			if (opts.deferred?.(path)) {
+				// 竞态暂缓：只保留远端内容与身份，不写 local_*，也不标 out_of_scope
 				entries[path] = rest;
 				continue;
 			}
