@@ -14,14 +14,18 @@ export function resolvePricingURL(value: string): string | undefined {
 	}
 }
 
-/** 在订阅方案区域渲染统一的官网价格说明入口。 */
-export function renderPricingLink(parent: HTMLElement, value: string): void {
+/** 在订阅方案区域渲染统一的官网价格说明入口；open 由调用方注入官网自动登录能力。 */
+export function renderPricingLink(
+	parent: HTMLElement,
+	value: string,
+	open: (url: string) => void = openExternal,
+): void {
 	const pricingURL = resolvePricingURL(value);
 	const row = new Setting(parent)
 		.setName("订阅价格说明")
 		.setDesc(pricingURL ? "查看各订阅档位的价格与权益" : "价格说明暂不可用");
 	row.addButton((button) => {
 		button.setButtonText(pricingURL ? "前往官网" : "暂不可用").setDisabled(!pricingURL);
-		if (pricingURL) button.onClick(() => openExternal(pricingURL));
+		if (pricingURL) button.onClick(() => open(pricingURL));
 	});
 }

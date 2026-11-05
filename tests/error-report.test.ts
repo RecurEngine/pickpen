@@ -99,6 +99,20 @@ describe("sanitize", () => {
 		expect(sanitizeText("at sync (main.js:1:2)", SECRETS)).toContain("main.js:1:2");
 	});
 
+	it("脱敏 fragment 与 query 中的官网登录票据", () => {
+		const text = sanitizeText(
+			"https://www.pickpen.net/checkout?entry=obsidian-mobile#pickpen_ticket=abc123 " +
+				"https://x/y?login_ticket=def456 https://x/y?campaign=1&ticket=ghi789",
+			SECRETS,
+		);
+		expect(text).toContain("#pickpen_ticket=<redacted>");
+		expect(text).toContain("login_ticket=<redacted>");
+		expect(text).toContain("ticket=<redacted>");
+		expect(text).not.toContain("abc123");
+		expect(text).not.toContain("def456");
+		expect(text).not.toContain("ghi789");
+	});
+
 	it("按 UTF-8 边界截断", () => {
 		const text = truncateUtf8("错".repeat(100), 10);
 		expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(10);

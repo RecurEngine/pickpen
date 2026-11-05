@@ -7,6 +7,7 @@ import type PickpenPlugin from "./index";
 import { ErrCode, errorCode } from "./remote-connect";
 import { renderPricingLink } from "./subscription-pricing-link";
 import { renderSubscriptionState } from "./subscription-state-view";
+import { openWebsite } from "./website-link";
 
 export function formatAmount(amount: bigint): string {
 	const sign = amount < 0n ? "-" : "";
@@ -91,7 +92,7 @@ export function renderSubscriptionSection(blocks: SubscriptionSlots, plugin: Pic
 				const reply = await plugin.client.subscriptionClient.listPlans({});
 				if (disposed) return;
 				plansRoot.empty();
-				renderPricingLink(plansRoot, reply.pricingUrl);
+				renderPricingLink(plansRoot, reply.pricingUrl, (url) => void openWebsite(url, plugin));
 				new Setting(plansRoot).setName("登录后购买订阅").setDesc("请先在上方完成账号登录");
 			} catch (error) {
 				if (disposed) return;
@@ -154,7 +155,7 @@ export function renderSubscriptionSection(blocks: SubscriptionSlots, plugin: Pic
 	};
 
 	const renderPurchase = (parent: HTMLElement, plans: readonly Plan[], pricingURL: string, configuredDiscountPercent: number) => {
-		renderPricingLink(parent, pricingURL);
+		renderPricingLink(parent, pricingURL, (url) => void openWebsite(url, plugin));
 		if (plans.length === 0) {
 			new Setting(parent).setName("暂无可购买档位");
 			return;

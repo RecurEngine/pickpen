@@ -31,8 +31,10 @@ export const ErrCode = {
 	Internal: 10001,
 	InvalidCredentials: 11001,          // 登录失败（参数/格式错误，或暂不支持的登录方式）
 	InvalidOrMissingCredentials: 11002, // token 缺失/无效
-	InvalidOrExpiredCode: 11003,        // 验证码错误或已过期
-	SendCodeTooFrequent: 11004,         // 验证码发送过于频繁
+	InvalidOrExpiredCode: 11003,              // 验证码错误或已过期
+	SendCodeTooFrequent: 11004,               // 验证码发送过于频繁
+	WebLoginTicketInvalidOrExpired: 11005,    // 官网登录票据无效/过期/已消费
+	WebLoginTicketTooFrequent: 11006,         // 登录票据创建或兑换过于频繁
 	InvalidOrMissingVault: 12001,       // vault_id 缺失/非法（历史约定按未授权处理）
 	InvalidPath: 12002,
 	InvalidVaultName: 12003,

@@ -1,19 +1,25 @@
 import { Notice, Setting } from "obsidian";
 
 import { debugLog } from "./debug-log";
-import { openExternal } from "./external-link";
 import type PickpenPlugin from "./index";
 import { renderPricingLink } from "./subscription-pricing-link";
 import { renderSubscriptionState } from "./subscription-state-view";
 import type { SubscriptionSlots } from "./subscription-view";
-import { CHECKOUT_URL } from "./types";
+import { isWebsiteURL, openWebsite } from "./website-link";
 
 const MOBILE_CHECKOUT_ENTRY = "obsidian-mobile";
 
-export function mobileCheckoutUrl(checkoutURL = CHECKOUT_URL): string {
+export function mobileCheckoutUrl(checkoutURL: string): string {
 	const url = new URL(checkoutURL);
 	url.searchParams.set("entry", MOBILE_CHECKOUT_ENTRY);
 	return url.toString();
+}
+
+/** 校验后端下发的收银台地址，拒绝空值和非官网地址。 */
+export function resolveCheckoutURL(value: string): string | undefined {
+	const trimmed = value.trim();
+	if (!trimmed || !isWebsiteURL(trimmed)) return undefined;
+	return trimmed;
 }
 
 /** 渲染移动端订阅入口：交给官网选择方案并走 WAP 支付（两个分组共用一次方案请求）。 */
@@ -22,6 +28,7 @@ export function renderMobileSubscriptionSection(blocks: SubscriptionSlots, plugi
 	const statusRoot = blocks.status;
 	const plansRoot = blocks.plans;
 	let plansRequest: ReturnType<typeof plugin.client.subscriptionClient.listPlans> | undefined;
+	let checkoutUrl = "";
 	const requestPlans = () => {
 		if (plansRequest) return plansRequest;
 		const request = plugin.client.subscriptionClient.listPlans({});
@@ -31,24 +38,37 @@ export function renderMobileSubscriptionSection(blocks: SubscriptionSlots, plugi
 		});
 		return request;
 	};
-	const accountHint = plugin.settings.email
-		? `当前插件账号：${plugin.settings.email}，请在官网使用同一账号。`
+	const accountHint = plugin.auth.isLoggedIn() && plugin.settings.email
+		? `当前插件账号：${plugin.settings.email}，官网将自动使用该账号登录。`
 		: "移动端订阅请在 Pickpen 官网完成，将使用手机网站支付。";
 
 	const renderPurchase = () => {
+		if (!checkoutUrl) {
+			const row = new Setting(plansRoot).setName("前往官网购买").setDesc("购买入口暂不可用");
+			row.addButton((button) => button.setButtonText("重试").onClick(() => void loadPricing()));
+			return;
+		}
 		const purchase = new Setting(plansRoot).setName("前往官网购买").setDesc(accountHint);
 		purchase.addButton((button) =>
 			button
 				.setButtonText("打开官网收银台")
 				.setCta()
 				.onClick(() => {
+					let url: string;
 					try {
-						openExternal(mobileCheckoutUrl());
-						new Notice("已打开 Pickpen 官网，请在官网登录后确认支付");
+						url = mobileCheckoutUrl(checkoutUrl);
 					} catch (error) {
-						debugLog.error("[pickpen] 打开移动端收银台失败", error);
+						debugLog.error("[pickpen] 生成移动端收银台地址失败", error);
 						new Notice("无法打开官网，请稍后重试");
+						return;
 					}
+					void openWebsite(url, plugin).then(
+						() => new Notice("已打开 Pickpen 官网；若未自动登录，请在官网使用当前账号登录"),
+						(error) => {
+							debugLog.error("[pickpen] 打开移动端收银台失败", error);
+							new Notice("无法打开官网，请稍后重试");
+						},
+					);
 				}),
 		);
 	};
@@ -60,16 +80,17 @@ export function renderMobileSubscriptionSection(blocks: SubscriptionSlots, plugi
 		try {
 			const reply = await requestPlans();
 			if (disposed) return;
+			checkoutUrl = resolveCheckoutURL(reply.checkoutUrl) ?? "";
 			plansRoot.empty();
-			renderPricingLink(plansRoot, reply.pricingUrl);
+			renderPricingLink(plansRoot, reply.pricingUrl, (url) => void openWebsite(url, plugin));
 			renderPurchase();
 		} catch (error) {
 			if (disposed) return;
+			checkoutUrl = "";
 			plansRoot.empty();
-			const row = new Setting(plansRoot).setName("订阅价格说明加载失败").setDesc("网络不可达或服务端暂不可用");
+			const row = new Setting(plansRoot).setName("订阅信息加载失败").setDesc("网络不可达或服务端暂不可用");
 			row.addButton((button) => button.setButtonText("重试").onClick(() => void loadPricing()));
-			renderPurchase();
-			debugLog.error("[pickpen] 订阅价格说明加载失败", error);
+			debugLog.error("[pickpen] 订阅信息加载失败", error);
 		}
 	};
 

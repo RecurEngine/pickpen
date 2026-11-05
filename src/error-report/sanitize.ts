@@ -6,7 +6,7 @@ import type { SanitizeSecrets } from "./types";
 
 const POSIX_PATH_RE = /(?:\/Users|\/home|\/private|\/var|\/tmp|\/root|\/sdcard|\/storage\/emulated\/0)(?:\/[^\s'"()[\]]+)+/g;
 const WINDOWS_PATH_RE = /\b[A-Z]:\\[^\s'"()[\]]*/gi;
-const URL_SIG_RE = /([?&](?:signature|sig|token|access_token|refresh_token|x-amz-signature|x-cos-security-token|x-amz-credential)=)[^&\s]+/gi;
+const URL_SIG_RE = /([?&#](?:signature|sig|token|access_token|refresh_token|ticket|login_ticket|pickpen_ticket|x-amz-signature|x-cos-security-token|x-amz-credential)=)[^&\s]+/gi;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const BEARER_RE = /bearer\s+[A-Za-z0-9._~+/=-]+/gi;
 const JWT_RE = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;

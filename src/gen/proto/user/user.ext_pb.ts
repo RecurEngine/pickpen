@@ -9,7 +9,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file user/user.ext.proto.
  */
 export const file_user_user_ext: GenFile = /*@__PURE__*/
-  fileDesc("ChN1c2VyL3VzZXIuZXh0LnByb3RvEgR1c2VyInYKD1NlbmRDb2RlUmVxdWVzdBIgCgR0eXBlGAEgASgOMhIudXNlci5TZW5kQ29kZVR5cGUSIwoKbG9naW5fdHlwZRgCIAEoDjIPLnVzZXIuTG9naW5UeXBlEg0KBWVtYWlsGAMgASgJEg0KBXBob25lGAQgASgJIg8KDVNlbmRDb2RlUmVwbHkimQEKDExvZ2luUmVxdWVzdBIjCgpsb2dpbl90eXBlGAEgASgOMg8udXNlci5Mb2dpblR5cGUSDQoFZW1haWwYAiABKAkSDQoFcGhvbmUYAyABKAkSDAoEY29kZRgEIAEoCRIRCglkZXZpY2VfaWQYBSABKAkSEAoIaWRfdG9rZW4YBiABKAkSEwoLaW52aXRlX2NvZGUYByABKAkilgEKCkxvZ2luUmVwbHkSDwoHdXNlcl9pZBgBIAEoAxINCgVlbWFpbBgCIAEoCRIUCgxhY2Nlc3NfdG9rZW4YAyABKAkSHAoUYWNjZXNzX2V4cGlyZXNfYXRfbXMYBCABKAMSFQoNcmVmcmVzaF90b2tlbhgFIAEoCRIdChVyZWZyZXNoX2V4cGlyZXNfYXRfbXMYBiABKAMiUAoTUmVmcmVzaFRva2VuUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDEhEKCWRldmljZV9pZBgCIAEoCRIVCg1yZWZyZXNoX3Rva2VuGAMgASgJIn0KEVJlZnJlc2hUb2tlblJlcGx5EhQKDGFjY2Vzc190b2tlbhgBIAEoCRIcChRhY2Nlc3NfZXhwaXJlc19hdF9tcxgCIAEoAxIVCg1yZWZyZXNoX3Rva2VuGAMgASgJEh0KFXJlZnJlc2hfZXhwaXJlc19hdF9tcxgEIAEoAypoCglMb2dpblR5cGUSGgoWTE9HSU5fVFlQRV9VTlNQRUNJRklFRBAAEhQKEExPR0lOX1RZUEVfRU1BSUwQARISCg5MT0dJTl9UWVBFX1NNUxACEhUKEUxPR0lOX1RZUEVfR09PR0xFEAMqSAoMU2VuZENvZGVUeXBlEh4KGlNFTkRfQ09ERV9UWVBFX1VOU1BFQ0lGSUVEEAASGAoUU0VORF9DT0RFX1RZUEVfTE9HSU4QATK4AQoLVXNlclNlcnZpY2USNgoIU2VuZENvZGUSFS51c2VyLlNlbmRDb2RlUmVxdWVzdBoTLnVzZXIuU2VuZENvZGVSZXBseRItCgVMb2dpbhISLnVzZXIuTG9naW5SZXF1ZXN0GhAudXNlci5Mb2dpblJlcGx5EkIKDFJlZnJlc2hUb2tlbhIZLnVzZXIuUmVmcmVzaFRva2VuUmVxdWVzdBoXLnVzZXIuUmVmcmVzaFRva2VuUmVwbHlCHFoacGlja3Blbi9wa2cvZ2VuL3Byb3RvL3VzZXJiBnByb3RvMw");
+  fileDesc("ChN1c2VyL3VzZXIuZXh0LnByb3RvEgR1c2VyInYKD1NlbmRDb2RlUmVxdWVzdBIgCgR0eXBlGAEgASgOMhIudXNlci5TZW5kQ29kZVR5cGUSIwoKbG9naW5fdHlwZRgCIAEoDjIPLnVzZXIuTG9naW5UeXBlEg0KBWVtYWlsGAMgASgJEg0KBXBob25lGAQgASgJIg8KDVNlbmRDb2RlUmVwbHkimQEKDExvZ2luUmVxdWVzdBIjCgpsb2dpbl90eXBlGAEgASgOMg8udXNlci5Mb2dpblR5cGUSDQoFZW1haWwYAiABKAkSDQoFcGhvbmUYAyABKAkSDAoEY29kZRgEIAEoCRIRCglkZXZpY2VfaWQYBSABKAkSEAoIaWRfdG9rZW4YBiABKAkSEwoLaW52aXRlX2NvZGUYByABKAkilgEKCkxvZ2luUmVwbHkSDwoHdXNlcl9pZBgBIAEoAxINCgVlbWFpbBgCIAEoCRIUCgxhY2Nlc3NfdG9rZW4YAyABKAkSHAoUYWNjZXNzX2V4cGlyZXNfYXRfbXMYBCABKAMSFQoNcmVmcmVzaF90b2tlbhgFIAEoCRIdChVyZWZyZXNoX2V4cGlyZXNfYXRfbXMYBiABKAMiUAoTUmVmcmVzaFRva2VuUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDEhEKCWRldmljZV9pZBgCIAEoCRIVCg1yZWZyZXNoX3Rva2VuGAMgASgJIn0KEVJlZnJlc2hUb2tlblJlcGx5EhQKDGFjY2Vzc190b2tlbhgBIAEoCRIcChRhY2Nlc3NfZXhwaXJlc19hdF9tcxgCIAEoAxIVCg1yZWZyZXNoX3Rva2VuGAMgASgJEh0KFXJlZnJlc2hfZXhwaXJlc19hdF9tcxgEIAEoAyIdChtDcmVhdGVXZWJMb2dpblRpY2tldFJlcXVlc3QiQgoZQ3JlYXRlV2ViTG9naW5UaWNrZXRSZXBseRIOCgZ0aWNrZXQYASABKAkSFQoNZXhwaXJlc19hdF9tcxgCIAEoAyJCCh1FeGNoYW5nZVdlYkxvZ2luVGlja2V0UmVxdWVzdBIOCgZ0aWNrZXQYASABKAkSEQoJZGV2aWNlX2lkGAIgASgJKmgKCUxvZ2luVHlwZRIaChZMT0dJTl9UWVBFX1VOU1BFQ0lGSUVEEAASFAoQTE9HSU5fVFlQRV9FTUFJTBABEhIKDkxPR0lOX1RZUEVfU01TEAISFQoRTE9HSU5fVFlQRV9HT09HTEUQAypICgxTZW5kQ29kZVR5cGUSHgoaU0VORF9DT0RFX1RZUEVfVU5TUEVDSUZJRUQQABIYChRTRU5EX0NPREVfVFlQRV9MT0dJThABMuUCCgtVc2VyU2VydmljZRI2CghTZW5kQ29kZRIVLnVzZXIuU2VuZENvZGVSZXF1ZXN0GhMudXNlci5TZW5kQ29kZVJlcGx5Ei0KBUxvZ2luEhIudXNlci5Mb2dpblJlcXVlc3QaEC51c2VyLkxvZ2luUmVwbHkSQgoMUmVmcmVzaFRva2VuEhkudXNlci5SZWZyZXNoVG9rZW5SZXF1ZXN0GhcudXNlci5SZWZyZXNoVG9rZW5SZXBseRJaChRDcmVhdGVXZWJMb2dpblRpY2tldBIhLnVzZXIuQ3JlYXRlV2ViTG9naW5UaWNrZXRSZXF1ZXN0Gh8udXNlci5DcmVhdGVXZWJMb2dpblRpY2tldFJlcGx5Ek8KFkV4Y2hhbmdlV2ViTG9naW5UaWNrZXQSIy51c2VyLkV4Y2hhbmdlV2ViTG9naW5UaWNrZXRSZXF1ZXN0GhAudXNlci5Mb2dpblJlcGx5QhxaGnBpY2twZW4vcGtnL2dlbi9wcm90by91c2VyYgZwcm90bzM");
 
 /**
  * @generated from message user.SendCodeRequest
@@ -137,14 +137,14 @@ export type LoginReply = Message<"user.LoginReply"> & {
   userId: bigint;
 
   /**
-   * 当前登录身份标识（插件端展示用）
+   * 当前登录身份标识（展示用）
    *
    * @generated from field: string email = 2;
    */
   email: string;
 
   /**
-   * JWT（HS256，2 小时）
+   * 访问 token（短期有效，过期后用 refresh token 换取新对）
    *
    * @generated from field: string access_token = 3;
    */
@@ -245,6 +245,73 @@ export const RefreshTokenReplySchema: GenMessage<RefreshTokenReply> = /*@__PURE_
   messageDesc(file_user_user_ext, 5);
 
 /**
+ * CreateWebLoginTicketRequest 创建票据无需额外参数（票据绑定当前登录用户）
+ *
+ * @generated from message user.CreateWebLoginTicketRequest
+ */
+export type CreateWebLoginTicketRequest = Message<"user.CreateWebLoginTicketRequest"> & {
+};
+
+/**
+ * Describes the message user.CreateWebLoginTicketRequest.
+ * Use `create(CreateWebLoginTicketRequestSchema)` to create a new message.
+ */
+export const CreateWebLoginTicketRequestSchema: GenMessage<CreateWebLoginTicketRequest> = /*@__PURE__*/
+  messageDesc(file_user_user_ext, 6);
+
+/**
+ * @generated from message user.CreateWebLoginTicketReply
+ */
+export type CreateWebLoginTicketReply = Message<"user.CreateWebLoginTicketReply"> & {
+  /**
+   * 一次性登录票据（明文仅本次响应返回）
+   *
+   * @generated from field: string ticket = 1;
+   */
+  ticket: string;
+
+  /**
+   * 票据过期时间，Unix 毫秒时间戳
+   *
+   * @generated from field: int64 expires_at_ms = 2;
+   */
+  expiresAtMs: bigint;
+};
+
+/**
+ * Describes the message user.CreateWebLoginTicketReply.
+ * Use `create(CreateWebLoginTicketReplySchema)` to create a new message.
+ */
+export const CreateWebLoginTicketReplySchema: GenMessage<CreateWebLoginTicketReply> = /*@__PURE__*/
+  messageDesc(file_user_user_ext, 7);
+
+/**
+ * @generated from message user.ExchangeWebLoginTicketRequest
+ */
+export type ExchangeWebLoginTicketRequest = Message<"user.ExchangeWebLoginTicketRequest"> & {
+  /**
+   * 一次性登录票据
+   *
+   * @generated from field: string ticket = 1;
+   */
+  ticket: string;
+
+  /**
+   * 官网设备 ID（refresh 会话按设备隔离，不能为空）
+   *
+   * @generated from field: string device_id = 2;
+   */
+  deviceId: string;
+};
+
+/**
+ * Describes the message user.ExchangeWebLoginTicketRequest.
+ * Use `create(ExchangeWebLoginTicketRequestSchema)` to create a new message.
+ */
+export const ExchangeWebLoginTicketRequestSchema: GenMessage<ExchangeWebLoginTicketRequest> = /*@__PURE__*/
+  messageDesc(file_user_user_ext, 8);
+
+/**
  * LoginType 登录方式（扩展新登录方式时加枚举值并注册服务端 handler，协议不变）
  *
  * @generated from enum user.LoginType
@@ -343,6 +410,26 @@ export const UserService: GenService<{
     methodKind: "unary";
     input: typeof RefreshTokenRequestSchema;
     output: typeof RefreshTokenReplySchema;
+  },
+  /**
+   * CreateWebLoginTicket 创建一次性官网登录票据（需登录；短时有效，仅可使用一次）
+   *
+   * @generated from rpc user.UserService.CreateWebLoginTicket
+   */
+  createWebLoginTicket: {
+    methodKind: "unary";
+    input: typeof CreateWebLoginTicketRequestSchema;
+    output: typeof CreateWebLoginTicketReplySchema;
+  },
+  /**
+   * ExchangeWebLoginTicket 兑换一次性官网登录票据，返回 Web 会话 token 对（公开；票据单次消费）
+   *
+   * @generated from rpc user.UserService.ExchangeWebLoginTicket
+   */
+  exchangeWebLoginTicket: {
+    methodKind: "unary";
+    input: typeof ExchangeWebLoginTicketRequestSchema;
+    output: typeof LoginReplySchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_user_user_ext, 0);

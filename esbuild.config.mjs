@@ -27,7 +27,6 @@ const envConfig = (await import(`./config/${env}.ts`)).default;
 // 支持 PICKPEN_BASE_URL 环境变量覆盖注入值（移动端联调可指向局域网内的自建后端；
 // 桌面版不设置该变量，行为不变）
 const baseUrl = process.env.PICKPEN_BASE_URL ?? envConfig.baseUrl;
-const checkoutUrl = process.env.PICKPEN_CHECKOUT_URL ?? envConfig.checkoutUrl;
 // 本地 dev 构建标识：构建脚本注入 PICKPEN_BUILD_TAG，设置面板据此显示「本地构建」，
 // 与正式渠道包区分；未设置（正式发布）注入空串，产物不显示标记。
 const buildTag = process.env.PICKPEN_BUILD_TAG ?? "";
@@ -77,7 +76,6 @@ const context = await esbuild.context({
 	define: {
 		"process.env.PICKPEN_ENV": JSON.stringify(env),
 		"process.env.PICKPEN_BASE_URL": JSON.stringify(baseUrl),
-		"process.env.PICKPEN_CHECKOUT_URL": JSON.stringify(checkoutUrl),
 		"process.env.PICKPEN_DESKTOP_POLL_INTERVAL_MS": JSON.stringify(envConfig.desktopPollIntervalMs),
 		"process.env.PICKPEN_BUILD_TAG": JSON.stringify(buildTag),
 		"process.env.PICKPEN_BUILD_ID": JSON.stringify(buildId),
